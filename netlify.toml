@@ -1,0 +1,13 @@
+[build]
+  # Thư mục gốc chứa mã nguồn frontend
+  base = "frontend"
+  
+  # Lệnh build
+  command = "npm run build"
+  
+  # Thư mục chứa kết quả sau khi build của Next.js
+  publish = ".next"
+
+# Cài đặt plugin Next.js của Netlify để hỗ trợ SSR/API routes
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

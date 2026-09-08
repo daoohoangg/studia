@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS public.document_chunks (
     document_id UUID NOT NULL REFERENCES public.documents(id) ON DELETE CASCADE,
     chunk_index INT NOT NULL,
     content TEXT NOT NULL,
-    embedding vector(1536),
+    embedding vector(768),  -- Gemini text-embedding-004 = 768 dims
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -154,8 +154,8 @@ CREATE TABLE IF NOT EXISTS public.review_schedules (
 
 -- Vector Search Function for RAG in Supabase
 CREATE OR REPLACE FUNCTION match_document_chunks(
-    query_embedding vector(1536),
-    match_threshold float DEFAULT 0.5,
+    query_embedding vector(768),
+    match_threshold float DEFAULT 0.4,
     match_count int DEFAULT 5
 )
 RETURNS TABLE (

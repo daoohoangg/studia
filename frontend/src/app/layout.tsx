@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Link from "next/link";
-import { Brain, LayoutDashboard, BookOpen, RefreshCw, MessageSquare, CreditCard, GitFork, Map } from "lucide-react";
+import { Brain, LayoutDashboard, BookOpen, RefreshCw, MessageSquare, CreditCard, GitFork, Map, Sparkles, FlaskConical, BookMarked, AlertTriangle } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
   title: "Studia | AI Learning Intelligence Platform",
@@ -23,25 +24,29 @@ const navSections = [
       { href: "/flashcards", icon: CreditCard, label: "Flashcards" },
       { href: "/review", icon: RefreshCw, label: "Ôn tập (FSRS)" },
       { href: "/knowledge-graph", icon: GitFork, label: "Knowledge Graph" },
+      { href: "/vocabulary", icon: BookMarked, label: "Từ vựng" },
     ]
   },
   {
-    label: "AI",
+    label: "AI & Testing",
     items: [
       { href: "/tutor", icon: MessageSquare, label: "AI Tutor" },
+      { href: "/scenarios", icon: Sparkles, label: "Roleplay TBLT" },
+      { href: "/feedback", icon: AlertTriangle, label: "Phân tích lỗi" },
+      { href: "/config-test", icon: FlaskConical, label: "Test Config Matrix" },
     ]
   }
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="vi">
+    <html lang="vi" data-theme="light">
       <body>
         <div style={{ display: "flex", minHeight: "100vh" }}>
           {/* Sidebar */}
           <aside style={{
             width: "240px",
-            background: "rgba(8, 12, 24, 0.98)",
+            background: "var(--bg-sidebar)",
             borderRight: "1px solid var(--border-subtle)",
             padding: "20px 12px",
             display: "flex",
@@ -51,9 +56,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             height: "100vh",
             zIndex: 50,
             overflowY: "auto",
+            transition: "background 0.3s ease, border-color 0.3s ease"
           }}>
             {/* Logo */}
-            <Link href="/" style={{ textDecoration: "none", marginBottom: "24px", display: "block" }}>
+            <Link href="/" style={{ textDecoration: "none", marginBottom: "20px", display: "block" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 14px" }}>
                 <div style={{
                   width: "38px", height: "38px", borderRadius: "12px",
@@ -65,7 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <Brain size={22} color="#fff" />
                 </div>
                 <div>
-                  <div style={{ fontSize: "1.15rem", fontWeight: "800", color: "#fff", fontFamily: "Outfit, sans-serif", lineHeight: 1 }}>
+                  <div style={{ fontSize: "1.15rem", fontWeight: "800", color: "var(--text-primary)", fontFamily: "Outfit, sans-serif", lineHeight: 1 }}>
                     Studia
                   </div>
                   <div style={{ fontSize: "0.62rem", color: "var(--accent-cyan)", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
@@ -88,8 +94,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
             ))}
 
-            {/* Supabase Status Footer */}
-            <div style={{ marginTop: "auto", paddingTop: "16px" }}>
+            {/* Theme Toggle & Supabase Status Footer */}
+            <div style={{ marginTop: "auto", paddingTop: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
+              <ThemeToggle />
+
               <div style={{
                 padding: "12px", borderRadius: "12px",
                 background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)"

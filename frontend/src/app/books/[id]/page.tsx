@@ -84,12 +84,17 @@ export default function BookDetailPage() {
             <h1 style={{ fontSize: "1.8rem", fontWeight: "800", fontFamily: "Outfit, sans-serif", marginBottom: "10px", lineHeight: 1.2 }}>
               {book.title}
             </h1>
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <span className="badge badge-emerald">
                 <CheckCircle2 size={12} /> {book.processing_status === "completed" ? "Đã xử lý" : "Đang xử lý"}
               </span>
-              <span className="badge badge-indigo">{book.chunk_count} text chunks</span>
+              <span className="badge badge-indigo">{book.chunk_count} vector chunks</span>
               <span className="badge badge-purple">{book.topic_count} topics</span>
+              {book.file_path && (
+                <a href={book.file_path} target="_blank" rel="noreferrer" className="badge badge-cyan" style={{ textDecoration: "none" }}>
+                  📄 PDF gốc (Supabase Storage) ↗
+                </a>
+              )}
             </div>
           </div>
           <div style={{ fontSize: "4rem", flexShrink: 0 }}>📘</div>

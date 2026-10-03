@@ -1,0 +1,90 @@
+{
+  "learning_profiles": [],
+  "documents": [
+    {
+      "id": "6eb61ae9-4f78-4b00-9429-d6104c3f4901",
+      "user_id": "11111111-1111-1111-1111-111111111111",
+      "title": "ee",
+      "source_type": "pdf",
+      "file_path": "https://suuvdvtojxtjkhweouey.supabase.co/storage/v1/object/public/documents/11111111-1111-1111-1111-111111111111/6eb61ae9-4f78-4b00-9429-d6104c3f4901/Doff%20A.,%20Smith%20H._English%20Unlimited%20B1_2010_Teacher's%20Book.pdf",
+      "raw_content": null,
+      "processing_status": "processing",
+      "created_at": "2026-10-03T04:33:05.570006+00:00"
+    }
+  ],
+  "document_chunks": [],
+  "topics": [
+    {
+      "id": "787b64c3-a931-4091-8925-e7ac325a23d8",
+      "name": "Từ vựng IELTS Band 8+",
+      "slug": "custom-787b64c3",
+      "description": "Bộ thẻ flashcard tự tạo bởi người dùng",
+      "difficulty_level": 1,
+      "created_at": "2026-10-03T06:24:10.183254+00:00"
+    },
+    {
+      "id": "00ec6fc7-6db6-439c-9ad0-73354bf618e8",
+      "name": "vovab",
+      "slug": "custom-00ec6fc7",
+      "description": "Bộ thẻ flashcard tự tạo bởi người dùng",
+      "difficulty_level": 1,
+      "created_at": "2026-10-03T06:30:38.602770+00:00"
+    }
+  ],
+  "topic_relationships": [],
+  "learning_paths": [],
+  "learning_path_steps": [],
+  "lessons": [],
+  "quizzes": [],
+  "questions": [],
+  "knowledge_states": [],
+  "question_attempts": [],
+  "review_schedules": [],
+  "study_goals": [],
+  "daily_learning_plans": [],
+  "flashcards": [
+    {
+      "id": "f9f964da-9064-46c3-8291-8c55182b095c",
+      "topic_id": "787b64c3-a931-4091-8925-e7ac325a23d8",
+      "document_id": null,
+      "front": "Resilient (adj)",
+      "back": "Kiên cường, có khả năng phục hồi nhanh sau khó khăn.\nVí dụ: She is a resilient person.",
+      "source_chunk": "Tự tạo bởi người dùng",
+      "card_type": "definition",
+      "created_at": "2026-10-03T06:24:10.244467+00:00"
+    },
+    {
+      "id": "72d04929-a502-45d9-b8aa-b2a8c137219b",
+      "topic_id": "00ec6fc7-6db6-439c-9ad0-73354bf618e8",
+      "document_id": null,
+      "front": "on",
+      "back": "trên",
+      "source_chunk": "Tự tạo bởi người dùng",
+      "card_type": "definition",
+      "created_at": "2026-10-03T06:30:38.650700+00:00"
+    }
+  ],
+  "flashcard_states": [
+    {
+      "user_id": "11111111-1111-1111-1111-111111111111",
+      "flashcard_id": "f9f964da-9064-46c3-8291-8c55182b095c",
+      "stability": 1.0,
+      "difficulty_rating": 5.0,
+      "mastery_score": 0.0,
+      "next_review_at": "now()",
+      "id": "9666ba65-de54-4d16-aa46-78bf8b316cd2",
+      "created_at": "2026-10-03T06:24:10.254598+00:00"
+    },
+    {
+      "user_id": "11111111-1111-1111-1111-111111111111",
+      "flashcard_id": "72d04929-a502-45d9-b8aa-b2a8c137219b",
+      "stability": 1.0,
+      "difficulty_rating": 5.0,
+      "mastery_score": 0.0,
+      "next_review_at": "now()",
+      "id": "375789e3-aa64-4ba0-8f14-3f83293d48a1",
+      "created_at": "2026-10-03T06:30:38.659336+00:00"
+    }
+  ],
+  "ai_chat_sessions": []
+}

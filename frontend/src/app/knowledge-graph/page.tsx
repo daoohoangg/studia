@@ -45,17 +45,17 @@ export default function KnowledgeGraphPage() {
             <span className="badge badge-rose"><Lock size={12} /> Khóa Tiền Đề</span>
           </div>
 
-          <svg width="100%" height="450px" style={{ border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "12px" }}>
+          <svg width="100%" height="450px" style={{ border: "1px dashed var(--border-subtle)", borderRadius: "12px" }}>
             {/* Edge Lines */}
             <line x1="180" y1="150" x2="330" y2="230" stroke="rgba(99,102,241,0.5)" strokeWidth="2" strokeDasharray="4" />
             <line x1="180" y1="350" x2="330" y2="270" stroke="rgba(99,102,241,0.5)" strokeWidth="2" strokeDasharray="4" />
-            <line x1="470" y1="230" x2="630" y2="160" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
+            <line x1="470" y1="230" x2="630" y2="160" stroke="var(--border-subtle)" strokeWidth="2" />
             <line x1="630" y1="160" x2="630" y2="330" stroke="rgba(244,63,94,0.4)" strokeWidth="2" strokeDasharray="2" />
 
             {/* Nodes Render */}
             {nodes.map((node) => {
               const isSelected = selectedNode?.id === node.id;
-              const nodeBg = node.status === "completed" ? "#10b981" : (node.status === "unlocked" ? "#6366f1" : "#334155");
+              const nodeBg = node.status === "completed" ? "#10b981" : (node.status === "unlocked" ? "#6366f1" : "#475569");
 
               return (
                 <g key={node.id} onClick={() => setSelectedNode(node)} style={{ cursor: "pointer" }}>
@@ -65,14 +65,14 @@ export default function KnowledgeGraphPage() {
                     r={isSelected ? 36 : 30}
                     fill={nodeBg}
                     opacity={isSelected ? 1 : 0.85}
-                    stroke={isSelected ? "#fff" : "rgba(255,255,255,0.3)"}
+                    stroke={isSelected ? "var(--accent-indigo)" : "var(--border-subtle)"}
                     strokeWidth={isSelected ? 3 : 1}
                   />
                   <text
                     x={node.x}
                     y={node.y + 48}
                     textAnchor="middle"
-                    fill="#f8fafc"
+                    fill="var(--text-primary)"
                     fontSize="12"
                     fontWeight="600"
                   >
@@ -82,7 +82,7 @@ export default function KnowledgeGraphPage() {
                     x={node.x}
                     y={node.y + 4}
                     textAnchor="middle"
-                    fill="#fff"
+                    fill="#ffffff"
                     fontSize="11"
                     fontWeight="800"
                   >
@@ -102,21 +102,21 @@ export default function KnowledgeGraphPage() {
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "6px" }}>
               <span>Mức độ Mastery hiện tại:</span>
-              <strong style={{ color: "#fff" }}>{selectedNode?.mastery}%</strong>
+              <strong style={{ color: "var(--text-primary)" }}>{selectedNode?.mastery}%</strong>
             </div>
             <div className="progress-bar-bg">
               <div className="progress-bar-fill" style={{ width: `${selectedNode?.mastery}%` }}></div>
             </div>
           </div>
 
-          <div style={{ padding: "16px", borderRadius: "12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-subtle)" }}>
+          <div style={{ padding: "16px", borderRadius: "12px", background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
             <h4 style={{ fontSize: "0.9rem", color: "var(--accent-cyan)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
               <Layers size={16} /> Kiểm Tra Tiền Đề (Prerequisites Check)
             </h4>
             {selectedNode?.prereqs ? (
               <ul style={{ paddingLeft: "20px", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: "1.6" }}>
                 {selectedNode.prereqs.map((p: string, i: number) => (
-                  <li key={i} style={{ color: "#34d399" }}>Đã Đạt: {p} (Mastery &gt; 60%)</li>
+                  <li key={i} style={{ color: "var(--accent-emerald)" }}>Đã Đạt: {p} (Mastery &gt; 60%)</li>
                 ))}
               </ul>
             ) : (

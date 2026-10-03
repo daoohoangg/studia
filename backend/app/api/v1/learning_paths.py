@@ -12,6 +12,9 @@ from app.services.rag_engine import RAGEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/learning-paths", tags=["Learning Paths & Adaptive Plans"])
 
@@ -152,31 +155,50 @@ async def get_today_plan(user_id: Optional[str] = None):
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    # Lấy knowledge states kèm topic name
-    ks_resp = supabase.table("knowledge_states") \
-        .select("topic_id, mastery_score, retention_score, next_review_at, topics(name)") \
-        .eq("user_id", uid) \
-        .order("mastery_score", desc=True) \
-        .execute()
+    try:
+        # Lấy knowledge states kèm topic name
+        ks_resp = supabase.table("knowledge_states") \
+            .select("topic_id, mastery_score, retention_score, next_review_at, topics(name)") \
+            .eq("user_id", uid) \
+            .order("mastery_score", desc=True) \
+            .execute()
 
-    knowledge_states = []
-    for ks in (ks_resp.data or []):
-        topic_data = ks.get("topics") or {}
-        knowledge_states.append({
-            "topic_id": ks.get("topic_id"),
-            "topic_name": topic_data.get("name", "Unknown") if isinstance(topic_data, dict) else "Unknown",
-            "mastery_score": ks.get("mastery_score", 0),
-            "retention_score": ks.get("retention_score", 1.0),
-            "next_review_at": ks.get("next_review_at", "")
-        })
+        raw_data = getattr(ks_resp, "data", []) or []
+        knowledge_states = []
+        for ks in raw_data:
+            topic_data = ks.get("topics") or {}
+            topic_name = "Unknown"
+            if isinstance(topic_data, dict):
+                topic_name = topic_data.get("name", "Unknown")
+            elif isinstance(topic_data, list) and len(topic_data) > 0 and isinstance(topic_data[0], dict):
+                topic_name = topic_data[0].get("name", "Unknown")
 
-    today_data = LearningEngine.get_today_tasks(uid, supabase, knowledge_states)
-    profile = LearningEngine.calculate_knowledge_profile(knowledge_states)
+            knowledge_states.append({
+                "topic_id": ks.get("topic_id"),
+                "topic_name": topic_name,
+                "mastery_score": ks.get("mastery_score", 0),
+                "retention_score": ks.get("retention_score", 1.0),
+                "next_review_at": ks.get("next_review_at", "")
+            })
 
-    return {
-        **today_data,
-        "knowledge_profile": profile
-    }
+        today_data = LearningEngine.get_today_tasks(uid, supabase, knowledge_states)
+        profile = LearningEngine.calculate_knowledge_profile(knowledge_states)
+
+        return {
+            **today_data,
+            "knowledge_profile": profile
+        }
+    except Exception as e:
+        logger.error(f"Error in get_today_plan: {e}")
+        return {
+            "plan_date": date.today().isoformat(),
+            "tasks": [],
+            "total_minutes": 0,
+            "streak_days": 0,
+            "has_plan": False,
+            "knowledge_summary": [],
+            "knowledge_profile": {"overall_mastery": 0, "topics": [], "weak_areas": [], "strong_areas": []}
+        }
 
 
 @router.get("/graph")
@@ -311,3 +333,274 @@ async def get_study_plans(user_id: Optional[str] = None, days: int = 14):
         .execute()
 
     return {"plans": resp.data or [], "date_range": {"from": start_date, "to": end_date}}
+
+
+class GenerateLessonV2Request(BaseModel):
+    topic_id: str
+    topic_name: str
+    user_mastery: float = 0.0
+    document_id: Optional[str] = None
+    proficiency_level: Optional[str] = "intermediate"  # beginner, elementary, intermediate, advanced
+    auto_save_vocabulary: bool = True
+    user_id: Optional[str] = None
+
+
+@router.post("/generate-lesson-v2")
+async def generate_lesson_v2(req: GenerateLessonV2Request):
+    """
+    Feature A: Sinh bài học i+1 với Vocabulary Highlights.
+    Tự động phân tích từ vựng khó và giải thích bằng tiếng Việt inline.
+    Tùy chọn auto-save vocabulary vào vocabulary_items table.
+    """
+    user_id = req.user_id or DEFAULT_USER_ID
+    supabase = get_supabase_client()
+
+    # RAG context
+    rag_chunks = []
+    if supabase and req.document_id:
+        rag_chunks = RAGEngine.search_relevant_chunks(
+            query=req.topic_name,
+            supabase_client=supabase,
+            document_id=req.document_id,
+            top_k=5
+        )
+    rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
+
+    # Sinh lesson với vocabulary highlights
+    lesson = AIEngine.generate_lesson_with_vocabulary(
+        topic_name=req.topic_name,
+        user_mastery=req.user_mastery,
+        rag_context=rag_texts,
+        proficiency_level=req.proficiency_level or "intermediate"
+    )
+
+    # Lưu lesson vào Supabase
+    if supabase and lesson:
+        try:
+            supabase.table("lessons").insert({
+                "topic_id": req.topic_id,
+                "title": lesson.get("title", f"Bài học: {req.topic_name}"),
+                "content_markdown": lesson.get("content_markdown", ""),
+                "key_takeaways": lesson.get("key_takeaways", [])
+            }).execute()
+        except Exception as e:
+            logger.warning(f"Lesson save warning: {e}")
+
+    # Auto-save vocabulary highlights
+    vocab_saved = []
+    if req.auto_save_vocabulary and supabase:
+        vocab_highlights = lesson.get("vocabulary_highlights", [])
+        for item in vocab_highlights:
+            word = item.get("word", "").strip()
+            meaning_vi = item.get("meaning_vi", "").strip()
+            if not word or not meaning_vi:
+                continue
+            try:
+                supabase.table("vocabulary_items").insert({
+                    "user_id": user_id,
+                    "document_id": req.document_id,
+                    "topic_id": req.topic_id,
+                    "word": word,
+                    "meaning_vi": meaning_vi,
+                    "source_sentence": item.get("source_sentence", ""),
+                    "word_type": item.get("word_type", "noun"),
+                    "source": "lesson"
+                }).execute()
+                vocab_saved.append({"word": word, "meaning_vi": meaning_vi})
+            except Exception:
+                pass
+
+    return {
+        **lesson,
+        "topic_id": req.topic_id,
+        "user_mastery": req.user_mastery,
+        "proficiency_level": req.proficiency_level,
+        "rag_chunks_used": len(rag_chunks),
+        "vocabulary_auto_saved": len(vocab_saved)
+    }
+
+
+@router.get("/today-interleaved")
+async def get_today_interleaved(user_id: Optional[str] = None):
+    """
+    Feature D: Lấy tasks hôm nay với Interleaved Adaptive Scheduling.
+    Gộp due flashcards + lesson + quiz + scenario vào một session thống nhất.
+    Ưu tiên: due flashcards → weak topic lesson → quiz → scenario.
+    """
+    uid = user_id or DEFAULT_USER_ID
+    supabase = get_supabase_client()
+
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+
+    try:
+        today = date.today().isoformat()
+        interleaved_tasks = []
+
+        # 1. Lấy daily plan tasks (lesson, quiz, spaced_repetition)
+        plan_resp = supabase.table("daily_learning_plans") \
+            .select("*") \
+            .eq("user_id", uid) \
+            .eq("plan_date", today) \
+            .execute()
+
+        plan_tasks = []
+        plan_id = None
+        plan_status = "pending"
+        if plan_resp.data:
+            plan = plan_resp.data[0]
+            plan_tasks = plan.get("tasks", [])
+            plan_id = plan.get("id")
+            plan_status = plan.get("status", "pending")
+
+        # 2. Lấy due flashcards count
+        due_flashcard_count = 0
+        try:
+            fc_resp = supabase.rpc("get_due_flashcards", {
+                "p_user_id": uid,
+                "p_limit": 30
+            }).execute()
+            due_flashcard_count = len(fc_resp.data or [])
+        except Exception:
+            # Fallback
+            fs_resp = supabase.table("flashcard_states") \
+                .select("flashcard_id") \
+                .eq("user_id", uid) \
+                .lte("next_review_at", "now()") \
+                .execute()
+            due_flashcard_count = len(fs_resp.data or [])
+
+        # 3. Lấy weak topics (mastery < 50)
+        ks_resp = supabase.table("knowledge_states") \
+            .select("topic_id, mastery_score, topics(name)") \
+            .eq("user_id", uid) \
+            .lt("mastery_score", 50) \
+            .order("mastery_score") \
+            .limit(3) \
+            .execute()
+        weak_topics = []
+        for ks in (ks_resp.data or []):
+            td = ks.get("topics") or {}
+            tname = td.get("name", "Topic") if isinstance(td, dict) else "Topic"
+            weak_topics.append({"topic_id": ks["topic_id"], "topic_name": tname, "mastery": ks["mastery_score"]})
+
+        # 4. Build interleaved task list
+        # Step 1: Due flashcards nếu có
+        if due_flashcard_count > 0:
+            interleaved_tasks.append({
+                "type": "flashcard_review",
+                "icon": "🃏",
+                "label": "Ôn Flashcard đến hạn",
+                "duration_min": min(15, due_flashcard_count),
+                "status": "pending",
+                "card_count": due_flashcard_count,
+                "priority": "high",
+                "href": "/flashcards"
+            })
+
+        # Step 2: Plan tasks (lesson, quiz)
+        lesson_tasks = [t for t in plan_tasks if t.get("type") == "lesson"]
+        quiz_tasks = [t for t in plan_tasks if t.get("type") == "quiz"]
+
+        # Step 3: Weak topic review
+        for wt in weak_topics[:1]:
+            interleaved_tasks.append({
+                "type": "lesson",
+                "icon": "🔴",
+                "label": f"Ôn tập yếu: {wt['topic_name']}",
+                "topic_id": wt["topic_id"],
+                "topic_name": wt["topic_name"],
+                "duration_min": 20,
+                "status": "pending",
+                "priority": "high",
+                "current_mastery": wt["mastery"],
+                "is_remedial": True
+            })
+
+        # Step 4: Regular lesson tasks
+        interleaved_tasks.extend(lesson_tasks)
+
+        # Step 5: Quiz tasks
+        interleaved_tasks.extend(quiz_tasks)
+
+        # Step 6: Scenario (nếu đã có plan tasks đủ để scenario)
+        spaced_tasks = [t for t in plan_tasks if t.get("type") == "spaced_repetition"]
+        if spaced_tasks:
+            # Replace one spaced_repetition với scenario task
+            first_spaced = spaced_tasks[0]
+            interleaved_tasks.append({
+                "type": "scenario",
+                "icon": "🎭",
+                "label": f"Tình huống thực tế: {first_spaced.get('topic_name', 'Roleplay')}",
+                "topic_id": first_spaced.get("topic_id"),
+                "topic_name": first_spaced.get("topic_name"),
+                "duration_min": 20,
+                "status": "pending",
+                "priority": "medium",
+                "href": "/scenarios"
+            })
+        else:
+            interleaved_tasks.extend(spaced_tasks)
+
+        # Tính tổng thời gian
+        total_minutes = sum(t.get("duration_min", 15) for t in interleaved_tasks)
+
+        # Streak calculation
+        streak_resp = supabase.table("daily_learning_plans") \
+            .select("plan_date, status") \
+            .eq("user_id", uid) \
+            .eq("status", "completed") \
+            .order("plan_date", desc=True) \
+            .limit(30) \
+            .execute()
+
+        from app.services.learning_engine import LearningEngine
+        streak = LearningEngine._calculate_streak(streak_resp.data or [])
+
+        # Knowledge profile
+        ks_all_resp = supabase.table("knowledge_states") \
+            .select("topic_id, mastery_score, retention_score, next_review_at, topics(name)") \
+            .eq("user_id", uid) \
+            .order("mastery_score", desc=True) \
+            .execute()
+
+        knowledge_states = []
+        for ks in (ks_all_resp.data or []):
+            td = ks.get("topics") or {}
+            tname = td.get("name", "Unknown") if isinstance(td, dict) else "Unknown"
+            knowledge_states.append({
+                "topic_id": ks.get("topic_id"),
+                "topic_name": tname,
+                "mastery_score": ks.get("mastery_score", 0),
+                "retention_score": ks.get("retention_score", 1.0),
+                "next_review_at": ks.get("next_review_at", "")
+            })
+
+        profile = LearningEngine.calculate_knowledge_profile(knowledge_states)
+
+        return {
+            "plan_date": today,
+            "plan_id": plan_id,
+            "plan_status": plan_status,
+            "interleaved_tasks": interleaved_tasks,
+            "total_minutes": total_minutes,
+            "task_count": len(interleaved_tasks),
+            "due_flashcard_count": due_flashcard_count,
+            "weak_topic_count": len(weak_topics),
+            "streak_days": streak,
+            "has_plan": bool(plan_id),
+            "knowledge_profile": profile
+        }
+
+    except Exception as e:
+        logger.error(f"Error in get_today_interleaved: {e}")
+        return {
+            "plan_date": date.today().isoformat(),
+            "interleaved_tasks": [],
+            "total_minutes": 0,
+            "task_count": 0,
+            "due_flashcard_count": 0,
+            "streak_days": 0,
+            "has_plan": False,
+            "knowledge_profile": {"overall_mastery": 0, "topics": [], "weak_areas": [], "strong_areas": []}
+        }

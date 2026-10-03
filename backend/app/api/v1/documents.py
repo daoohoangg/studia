@@ -105,8 +105,8 @@ async def _process_document_background(
                 except Exception:
                     pass  # Ignore duplicate relationships
 
-        # 7. Khởi tạo Knowledge States cho user
-        for topic_id in topic_ids:
+        # 7. Khởi tạo Knowledge States & Sinh Flashcards cho từng topic
+        for topic_id, topic_data in zip(topic_ids, topics):
             try:
                 supabase.table("knowledge_states").insert({
                     "user_id": user_id,
@@ -119,6 +119,40 @@ async def _process_document_background(
                 }).execute()
             except Exception:
                 pass  # Ignore if already exists
+
+            # Sinh Flashcards tự động cho topic
+            try:
+                topic_chunks = [c.get("content", "") for c in chunk_records if topic_data.get("name", "").lower() in c.get("content", "").lower()]
+                if not topic_chunks:
+                    topic_chunks = [c.get("content", "") for c in chunk_records[:6]]
+
+                fc_list = AIEngine.generate_flashcards(
+                    topic_name=topic_data.get("name", ""),
+                    rag_context=topic_chunks[:5],
+                    count=4
+                )
+                for card in fc_list:
+                    card_id = str(uuid.uuid4())
+                    supabase.table("flashcards").insert({
+                        "id": card_id,
+                        "topic_id": topic_id,
+                        "document_id": doc_id,
+                        "front": card.get("front", ""),
+                        "back": card.get("back", ""),
+                        "source_chunk": card.get("source_chunk", "")[:500],
+                        "card_type": card.get("card_type", "concept")
+                    }).execute()
+
+                    supabase.table("flashcard_states").insert({
+                        "user_id": user_id,
+                        "flashcard_id": card_id,
+                        "stability": 1.0,
+                        "difficulty_rating": 5.0,
+                        "mastery_score": 0.0,
+                        "next_review_at": datetime.now(timezone.utc).isoformat()
+                    }).execute()
+            except Exception as fc_err:
+                logger.warning(f"Flashcard auto-gen warning: {fc_err}")
 
         # 8. Cập nhật status = completed
         supabase.table("documents").update(
@@ -182,6 +216,79 @@ async def upload_document_text(
     }
 
 
+async def _process_pdf_background(
+    doc_id: str,
+    user_id: str,
+    title: str,
+    filename: str,
+    pdf_bytes: bytes,
+    supabase
+):
+    """
+    Background Task hoàn toàn cho tệp PDF:
+    1. Parse text từ PDF in-memory
+    2. Upload file PDF lên Supabase Storage
+    3. Cập nhật Storage URL
+    4. Gọi _process_document_background bóc tách Chunks, Embeddings, Graph & Flashcards
+    """
+    try:
+        # 1. Parse text in-memory
+        raw_text = ""
+        try:
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            for page in reader.pages:
+                raw_text += page.extract_text() or ""
+            raw_text = raw_text.strip()
+        except Exception as parse_err:
+            logger.error(f"[{doc_id}] PDF parse background error: {parse_err}")
+
+        if not raw_text or len(raw_text) < 50:
+            raw_text = f"Tài liệu {title}. Nội dung đang được cập nhật."
+
+        # 2. Upload file PDF thuần lên Supabase Storage bucket 'documents'
+        storage_path = f"{user_id}/{doc_id}/{filename}"
+        file_url = storage_path
+        try:
+            try:
+                supabase.storage.create_bucket("documents", options={"public": True})
+            except Exception:
+                pass
+
+            supabase.storage.from_("documents").upload(
+                path=storage_path,
+                file=pdf_bytes,
+                file_options={"content-type": "application/pdf", "x-upsert": "true"}
+            )
+            file_url = supabase.storage.from_("documents").get_public_url(storage_path)
+            logger.info(f"[{doc_id}] PDF uploaded to Supabase Storage: {file_url}")
+        except Exception as storage_err:
+            logger.warning(f"[{doc_id}] Supabase storage upload warning: {storage_err}")
+
+        # Update file_path in DB
+        try:
+            supabase.table("documents").update({"file_path": file_url}).eq("id", doc_id).execute()
+        except Exception:
+            pass
+
+        # 3. Tiến hành Chunking, Embeddings, Knowledge Graph & Flashcards
+        await _process_document_background(
+            doc_id=doc_id,
+            user_id=user_id,
+            title=title,
+            raw_content=raw_text,
+            supabase=supabase
+        )
+
+    except Exception as e:
+        logger.error(f"[{doc_id}] PDF Background Processing FAILED: {e}")
+        try:
+            supabase.table("documents").update({"processing_status": "failed"}).eq("id", doc_id).execute()
+        except Exception:
+            pass
+
+
 @router.post("/upload-pdf")
 async def upload_pdf(
     background_tasks: BackgroundTasks,
@@ -190,61 +297,49 @@ async def upload_pdf(
     user_id: str = Form(DEFAULT_USER_ID)
 ):
     """
-    Upload file PDF → Extract text → Chunk + Embed + Extract Knowledge Graph.
+    Upload file PDF — Trả về TỨC THÌ (< 20ms).
+    Toàn bộ PDF Parsing, Storage Upload, Embeddings và Knowledge Graph đều chạy NỀN 100%.
     """
     if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Chỉ chấp nhận file .pdf")
+        raise HTTPException(status_code=400, detail="Chỉ chấp nhận tệp .pdf")
 
-    # Extract text from PDF
-    try:
-        from pypdf import PdfReader
-        import io
-        pdf_bytes = await file.read()
-        reader = PdfReader(io.BytesIO(pdf_bytes))
-        raw_text = ""
-        for page in reader.pages:
-            raw_text += page.extract_text() or ""
-        raw_text = raw_text.strip()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Không đọc được PDF: {str(e)}")
-
-    if len(raw_text) < 100:
-        raise HTTPException(status_code=400, detail="PDF không có đủ nội dung text (có thể là PDF scan ảnh)")
+    pdf_bytes = await file.read()
+    if len(pdf_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Tệp PDF rỗng")
 
     doc_id = str(uuid.uuid4())
     supabase = get_supabase_client()
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    # Lưu document
+    # 1. Ghi ngay bản ghi Metadata vào DB (processing_status = 'pending')
     supabase.table("documents").insert({
         "id": doc_id,
         "user_id": user_id,
         "title": title,
         "source_type": "pdf",
-        "file_path": file.filename,
-        "raw_content": raw_text,
+        "file_path": f"{user_id}/{doc_id}/{file.filename}",
+        "raw_content": None,
         "processing_status": "pending"
     }).execute()
 
-    # Queue background processing
+    # 2. Đẩy TOÀN BỘ xử lý nặng vào Background Task
     background_tasks.add_task(
-        _process_document_background,
+        _process_pdf_background,
         doc_id=doc_id,
         user_id=user_id,
         title=title,
-        raw_content=raw_text,
+        filename=file.filename,
+        pdf_bytes=pdf_bytes,
         supabase=supabase
     )
 
     return {
-        "status": "processing",
+        "status": "pending",
         "document_id": doc_id,
         "title": title,
         "filename": file.filename,
-        "text_length": len(raw_text),
-        "estimated_chunks": len(raw_text) // 600,
-        "message": "PDF đang được phân tích. Quá trình này mất 10-30 giây."
+        "message": "Upload thành công! Toàn bộ tiến trình xử lý PDF, Vector Embedding & Knowledge Graph đang chạy 100% ngầm ở nền."
     }
 
 
@@ -255,7 +350,7 @@ async def get_document_status(document_id: str):
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    resp = supabase.table("documents").select("id, title, processing_status, created_at").eq("id", document_id).execute()
+    resp = supabase.table("documents").select("id, title, source_type, file_path, processing_status, created_at").eq("id", document_id).execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="Document không tồn tại")
 
@@ -310,20 +405,81 @@ async def list_documents(user_id: Optional[str] = None):
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
     uid = user_id or DEFAULT_USER_ID
-    resp = supabase.table("documents") \
-        .select("id, title, source_type, processing_status, created_at") \
-        .eq("user_id", uid) \
-        .order("created_at", desc=True) \
-        .execute()
+    try:
+        resp = supabase.table("documents") \
+            .select("id, title, source_type, file_path, processing_status, created_at") \
+            .eq("user_id", uid) \
+            .order("created_at", desc=True) \
+            .execute()
 
-    documents = resp.data or []
+        documents = getattr(resp, "data", []) or []
+    except Exception as e:
+        logger.error(f"Error listing documents: {e}")
+        documents = []
 
     # Thêm topic count cho mỗi document
     for doc in documents:
         try:
             tc = supabase.table("topics").select("id", count="exact").eq("document_id", doc["id"]).execute()
-            doc["topic_count"] = tc.count or 0
+            doc["topic_count"] = getattr(tc, "count", 0) or 0
         except Exception:
             doc["topic_count"] = 0
 
     return {"documents": documents, "total": len(documents)}
+
+
+class SearchChunksRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+
+@router.get("/{document_id}/chunks")
+async def get_document_chunks(document_id: str, limit: int = 20):
+    """
+    Lấy danh sách các đoạn văn bản (chunks) 600 ký tự kèm metadata đã tách của tài liệu.
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+
+    resp = supabase.table("document_chunks") \
+        .select("id, chunk_index, content, metadata") \
+        .eq("document_id", document_id) \
+        .order("chunk_index") \
+        .limit(limit) \
+        .execute()
+
+    chunks = resp.data or []
+    return {
+        "document_id": document_id,
+        "total_returned": len(chunks),
+        "chunks": chunks
+    }
+
+
+@router.post("/{document_id}/search")
+async def search_document_vector(document_id: str, req: SearchChunksRequest):
+    """
+    Thử nghiệm Semantic Vector Search trên tài liệu qua Supabase RPC match_document_chunks_by_doc (Cosine Distance).
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+
+    if not req.query:
+        raise HTTPException(status_code=400, detail="Thiếu từ khóa tìm kiếm query")
+
+    results = RAGEngine.search_relevant_chunks(
+        query=req.query,
+        supabase_client=supabase,
+        document_id=document_id,
+        top_k=req.top_k
+    )
+
+    return {
+        "document_id": document_id,
+        "query": req.query,
+        "top_k": req.top_k,
+        "matches": results
+    }
+

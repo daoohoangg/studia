@@ -31,6 +31,84 @@ class ReviewFlashcardRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+class CustomFlashcardCreate(BaseModel):
+    front: str
+    back: str
+    topic_name: Optional[str] = "Bộ thẻ tùy chỉnh"
+    topic_id: Optional[str] = None
+    document_id: Optional[str] = None
+    card_type: Optional[str] = "concept"
+    source_chunk: Optional[str] = "Tự tạo bởi người dùng"
+    user_id: Optional[str] = None
+
+
+@router.post("/custom-create")
+async def create_custom_flashcard(req: CustomFlashcardCreate):
+    """
+    Người dùng tự tạo thẻ flashcard tùy chỉnh (Manual Custom Flashcard).
+    Hệ thống tự động tạo topic (nếu chưa có) và khởi tạo FSRS state.
+    """
+    user_id = req.user_id or DEFAULT_USER_ID
+    supabase = get_supabase_client()
+
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+
+    card_id = str(uuid.uuid4())
+    topic_id = req.topic_id or str(uuid.uuid4())
+
+    # Check/insert topic record if missing
+    try:
+        if not req.topic_id:
+            supabase.table("topics").insert({
+                "id": topic_id,
+                "name": req.topic_name,
+                "slug": f"custom-{topic_id[:8]}",
+                "description": "Bộ thẻ flashcard tự tạo bởi người dùng",
+                "difficulty_level": 1
+            }).execute()
+    except Exception:
+        pass
+
+    try:
+        supabase.table("flashcards").insert({
+            "id": card_id,
+            "topic_id": topic_id,
+            "document_id": req.document_id,
+            "front": req.front,
+            "back": req.back,
+            "source_chunk": req.source_chunk,
+            "card_type": req.card_type
+        }).execute()
+
+        # Khởi tạo FSRS state cho user
+        supabase.table("flashcard_states").insert({
+            "user_id": user_id,
+            "flashcard_id": card_id,
+            "stability": 1.0,
+            "difficulty_rating": 5.0,
+            "mastery_score": 0.0,
+            "next_review_at": "now()"
+        }).execute()
+
+        return {
+            "status": "success",
+            "message": f"Đã tạo thành công thẻ flashcard mới cho bộ '{req.topic_name}'",
+            "flashcard": {
+                "id": card_id,
+                "topic_id": topic_id,
+                "topic_name": req.topic_name,
+                "front": req.front,
+                "back": req.back,
+                "card_type": req.card_type,
+                "mastery_score": 0.0,
+                "review_count": 0
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi tạo flashcard: {e}")
+
+
 @router.post("/generate")
 async def generate_flashcards(req: GenerateFlashcardsRequest):
     """

@@ -32,12 +32,13 @@ export default function BooksPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [backgroundNotice, setBackgroundNotice] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchBooks();
-    const interval = setInterval(fetchBooks, 5000); // poll for processing status
+    const interval = setInterval(fetchBooks, 3000); // poll for processing status
     return () => clearInterval(interval);
   }, []);
 
@@ -75,10 +76,12 @@ export default function BooksPage() {
       }
       const data = await res.json();
       if (res.ok) {
-        setUploadMsg({ type: "success", text: `✅ "${title}" đang được xử lý! AI đang bóc tách knowledge graph...` });
-        setTitle(""); setTextContent(""); setPdfFile(null);
+        // Đóng ngay popup modal để người dùng không phải chờ
+        setShowUpload(false);
+        setBackgroundNotice(`🚀 Đã nhận tệp "${title}"! Toàn bộ tiến trình xử lý PDF, Embeddings và Knowledge Graph đang chạy 100% ngầm ở nền.`);
+        setTitle(""); setTextContent(""); setPdfFile(null); setUploadMsg(null);
         fetchBooks();
-        setTimeout(() => { setShowUpload(false); setUploadMsg(null); }, 3000);
+        setTimeout(() => setBackgroundNotice(null), 6000);
       } else {
         setUploadMsg({ type: "error", text: data.detail || "Upload thất bại" });
       }
@@ -115,7 +118,27 @@ export default function BooksPage() {
         </button>
       </div>
 
-      {/* Upload Modal */}
+      {/* Background Processing Notification Banner */}
+      {backgroundNotice && (
+        <div className="glass-panel fade-in-up" style={{
+          padding: "16px 20px",
+          borderRadius: "14px",
+          background: "rgba(99, 102, 241, 0.1)",
+          border: "1px solid rgba(99, 102, 241, 0.3)",
+          color: "var(--text-primary)",
+          fontSize: "0.9rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          fontWeight: 600
+        }}>
+          <Loader2 size={18} className="spin" color="var(--accent-indigo)" />
+          <span style={{ flex: 1 }}>{backgroundNotice}</span>
+          <button onClick={() => setBackgroundNotice(null)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
       {showUpload && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)",

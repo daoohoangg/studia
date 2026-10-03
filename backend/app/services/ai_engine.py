@@ -1,11 +1,15 @@
 """
-AI Engine — Studia v2
+AI Engine — Studia v3 (Learnova)
 Tích hợp thực sự với Gemini API (google-generativeai) để:
   - Trích xuất Topics và Knowledge Graph từ tài liệu
-  - Sinh bài học (Lesson) cá nhân hóa theo RAG context
-  - Tạo câu hỏi Quiz thích ứng (Adaptive Quiz)
+  - Sinh bài học (Lesson) cá nhân hóa theo RAG context + i+1 vocabulary highlight
+  - Tạo câu hỏi Quiz thích ứng (Adaptive Quiz) — multi-type: MC, fill_blank, recall
   - Sinh Flashcards từ content
   - AI Tutor: trả lời câu hỏi từ nội dung sách
+  - Vocabulary Card: phân tích từ vựng chi tiết (meaning_vi, collocations, examples)
+  - Open Answer Grading: Gemini chấm điểm câu trả lời mở
+  - Error Analysis: phân tích lỗi từ quiz/scenario để sinh feedback cá nhân hóa
+  - Remedial Exercises: sinh bài tập nhắm vào weak points từ error logs
 """
 from typing import List, Dict, Any, Optional
 import json
@@ -489,3 +493,481 @@ Return ONLY valid JSON:
                       else "✅ Tốt! Tiếp tục với chủ đề tiếp theo")
             )
         }
+
+    # ================================================================
+    # LEARNOVA v3 — New Methods
+    # ================================================================
+
+    @staticmethod
+    def generate_lesson_with_vocabulary(
+        topic_name: str,
+        user_mastery: float,
+        rag_context: List[str],
+        proficiency_level: str = "intermediate"
+    ) -> Dict[str, Any]:
+        """
+        Feature A: i+1 Adaptive Lesson với Vocabulary Highlights.
+        Sinh bài học cá nhân hóa + trích xuất từ vựng khó giải thích bằng tiếng Việt.
+        Không giới thiệu quá nhiều khái niệm mới cùng lúc (i+1 principle).
+        """
+        depth_label = (
+            "cơ bản, dễ hiểu với nhiều ví dụ minh họa" if user_mastery < 40
+            else ("trung cấp, kết hợp lý thuyết và thực hành" if user_mastery < 70
+                  else "nâng cao, chuyên sâu với phân tích kỹ thuật")
+        )
+        proficiency_map = {
+            "beginner": "A1-A2 (người mới bắt đầu, ưu tiên từ vựng đơn giản)",
+            "elementary": "A2-B1 (cơ bản, giải thích kỹ thuật ngữ)",
+            "intermediate": "B1-B2 (trung cấp, cân bằng từ mới và từ đã biết)",
+            "advanced": "C1-C2 (nâng cao, có thể dùng thuật ngữ chuyên ngành)"
+        }
+        level_desc = proficiency_map.get(proficiency_level, proficiency_map["intermediate"])
+        context_str = "\n\n---\n\n".join(rag_context) if rag_context else ""
+
+        prompt = f"""You are an expert Vietnamese educator applying the i+1 comprehensible input principle.
+
+Topic: "{topic_name}"
+Student mastery: {user_mastery:.0f}% → Depth: {depth_label}
+Student proficiency level: {level_desc}
+
+Reference content from the textbook:
+{context_str[:3000]}
+
+Create a comprehensive lesson in MARKDOWN format that:
+1. Introduces at most 5-7 new vocabulary/concepts (i+1 principle — slightly above current level)
+2. Explains difficult English words/grammar in Vietnamese inline
+3. Preserves original meaning and source references
+
+Return ONLY valid JSON:
+{{
+  "title": "Lesson title in Vietnamese",
+  "content_markdown": "Full lesson in Markdown (Vietnamese). Wrap difficult vocabulary like: **word** *(nghĩa: giải thích tiếng Việt)* — Example: The **transformer** *(máy biến đổi chuỗi)* architecture... Min 400 words.",
+  "key_takeaways": ["takeaway 1", "takeaway 2", "takeaway 3"],
+  "vocabulary_highlights": [
+    {{
+      "word": "English word or term",
+      "meaning_vi": "Nghĩa tiếng Việt ngắn gọn",
+      "source_sentence": "Câu gốc từ tài liệu chứa từ này",
+      "word_type": "noun"
+    }}
+  ],
+  "new_concepts_count": 5
+}}
+
+Requirements:
+- Vietnamese language for explanations
+- vocabulary_highlights: 5-10 key terms extracted from the lesson
+- word_type: noun/verb/adjective/adverb/phrase
+- Do NOT introduce more than 7 completely unfamiliar concepts at once"""
+
+        result = _call_gemini(prompt, expect_json=True)
+
+        if result and "content_markdown" in result:
+            if "vocabulary_highlights" not in result:
+                result["vocabulary_highlights"] = []
+            return result
+
+        # Fallback to basic lesson
+        basic = AIEngine._fallback_lesson(topic_name, user_mastery, context_str)
+        basic["vocabulary_highlights"] = []
+        basic["new_concepts_count"] = 0
+        return basic
+
+    @staticmethod
+    def generate_vocabulary_card(
+        word: str,
+        source_sentence: str,
+        rag_context: List[str],
+        target_language: str = "en"
+    ) -> Dict[str, Any]:
+        """
+        Feature C: Sinh Vocabulary Card chi tiết cho một từ vựng.
+        Trả về meaning_vi, examples, collocations, pronunciation guide.
+        """
+        context_str = "\n\n---\n\n".join(rag_context[:3]) if rag_context else ""
+
+        prompt = f"""You are an expert Vietnamese language learning specialist.
+
+Word/Phrase: "{word}"
+Found in sentence: "{source_sentence}"
+Context from document:
+{context_str[:1500]}
+
+Create a detailed vocabulary learning card. Return ONLY valid JSON:
+{{
+  "word": "{word}",
+  "word_type": "noun",
+  "meaning_vi": "Nghĩa tiếng Việt rõ ràng, chính xác",
+  "pronunciation": "Phiên âm IPA hoặc hướng dẫn đọc: /ˈwɜːrd/",
+  "source_sentence": "{source_sentence}",
+  "example_sentences": [
+    {{"en": "English example sentence 1", "vi": "Bản dịch tiếng Việt 1"}},
+    {{"en": "English example sentence 2", "vi": "Bản dịch tiếng Việt 2"}}
+  ],
+  "collocations": ["common collocation 1", "verb + {word}", "adjective + {word}"],
+  "synonyms": ["synonym 1", "synonym 2"],
+  "usage_note": "Ghi chú về cách dùng hoặc ngữ cảnh thích hợp (tiếng Việt)"
+}}
+
+Requirements:
+- meaning_vi: rõ ràng, dễ hiểu, bằng tiếng Việt
+- example_sentences: lấy từ hoặc liên quan đến context tài liệu
+- collocations: 3-5 cụm từ thông dụng
+- pronunciation: IPA notation nếu có thể"""
+
+        result = _call_gemini(prompt, expect_json=True)
+
+        if result and "meaning_vi" in result:
+            return result
+
+        return {
+            "word": word,
+            "word_type": "unknown",
+            "meaning_vi": f"Từ '{word}' xuất hiện trong tài liệu. Vui lòng tra từ điển để biết nghĩa chính xác.",
+            "pronunciation": "",
+            "source_sentence": source_sentence,
+            "example_sentences": [],
+            "collocations": [],
+            "synonyms": [],
+            "usage_note": ""
+        }
+
+    @staticmethod
+    def generate_multi_type_quiz(
+        topic_name: str,
+        user_mastery: float,
+        rag_context: List[str],
+        question_count: int = 5,
+        exercise_types: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Feature B: Sinh câu hỏi đa dạng loại (multi-type exercises).
+        Hỗ trợ: multiple_choice, fill_blank, sentence_construction, recall.
+        """
+        if exercise_types is None:
+            if user_mastery < 40:
+                exercise_types = ["multiple_choice", "fill_blank"]
+            elif user_mastery < 70:
+                exercise_types = ["multiple_choice", "fill_blank", "recall"]
+            else:
+                exercise_types = ["fill_blank", "recall", "sentence_construction"]
+
+        types_str = ", ".join(exercise_types)
+        difficulty_label = (
+            "easy (basic recognition)" if user_mastery < 40
+            else ("medium (understanding and application)" if user_mastery < 70
+                  else "hard (production and synthesis)")
+        )
+        context_str = "\n\n---\n\n".join(rag_context) if rag_context else ""
+
+        prompt = f"""You are an expert language educator creating diverse exercise types.
+
+Topic: "{topic_name}"
+Student mastery: {user_mastery:.0f}% → {difficulty_label}
+Exercise types to include: {types_str}
+Number of questions: {question_count}
+
+Reference content:
+{context_str[:3000]}
+
+Generate exercises. Return ONLY valid JSON:
+{{
+  "questions": [
+    {{
+      "question_text": "Question or instruction in Vietnamese",
+      "exercise_type": "multiple_choice",
+      "question_type": "multiple_choice",
+      "options": [{{"id": "A", "text": "..."}}, {{"id": "B", "text": "..."}}, {{"id": "C", "text": "..."}}, {{"id": "D", "text": "..."}}],
+      "correct_answer": "A",
+      "explanation": "Giải thích tại sao đúng (Vietnamese)",
+      "difficulty": 2,
+      "requires_ai_grading": false
+    }},
+    {{
+      "question_text": "Điền vào chỗ trống: The ___ (transformer/encoder/decoder) processes input tokens in parallel.",
+      "exercise_type": "fill_blank",
+      "question_type": "short_answer",
+      "options": [],
+      "correct_answer": "transformer",
+      "acceptable_answers": ["transformer", "Transformer"],
+      "explanation": "Transformer xử lý các token đầu vào song song.",
+      "difficulty": 2,
+      "requires_ai_grading": false
+    }},
+    {{
+      "question_text": "Hãy viết một câu giải thích khái niệm [concept] bằng ngôn ngữ của bạn.",
+      "exercise_type": "recall",
+      "question_type": "short_answer",
+      "options": [],
+      "correct_answer": "",
+      "grading_rubric": "Câu trả lời phải đề cập đến: [key point 1], [key point 2]",
+      "explanation": "Đây là câu hỏi tự do — AI sẽ chấm điểm dựa trên rubric.",
+      "difficulty": 3,
+      "requires_ai_grading": true
+    }}
+  ]
+}}
+
+Rules:
+- Mix different exercise_type based on the requested types list
+- fill_blank: dùng ___ để đánh dấu chỗ trống, correct_answer là từ/cụm từ cần điền
+- recall: câu hỏi mở, cần AI grading — set requires_ai_grading: true
+- sentence_construction: yêu cầu viết câu hoàn chỉnh
+- All text Vietnamese, based strictly on reference content"""
+
+        result = _call_gemini(prompt, expect_json=True)
+
+        if result and "questions" in result and len(result["questions"]) > 0:
+            return result["questions"]
+
+        # Fallback to basic MC questions
+        return AIEngine._fallback_quiz(topic_name, user_mastery, question_count)
+
+    @staticmethod
+    def grade_open_answer(
+        question_text: str,
+        grading_rubric: str,
+        user_answer: str,
+        rag_context: List[str],
+        topic_name: str
+    ) -> Dict[str, Any]:
+        """
+        Feature B: Gemini chấm điểm câu trả lời mở (recall, sentence_construction).
+        Trả về score (0-100), feedback, identified_errors.
+        """
+        context_str = "\n\n---\n\n".join(rag_context[:3]) if rag_context else ""
+
+        prompt = f"""You are an expert language teacher grading a student's open-ended answer.
+
+Topic: "{topic_name}"
+Question: "{question_text}"
+Grading Rubric: "{grading_rubric}"
+Reference material: {context_str[:1500]}
+
+Student's answer: "{user_answer}"
+
+Grade the answer and provide feedback. Return ONLY valid JSON:
+{{
+  "score": 75,
+  "is_acceptable": true,
+  "feedback_vi": "Nhận xét chi tiết bằng tiếng Việt: điểm tốt và điểm cần cải thiện",
+  "correct_points": ["Điểm đúng 1", "Điểm đúng 2"],
+  "missing_points": ["Điểm còn thiếu 1"],
+  "errors_detected": [
+    {{
+      "error_type": "vocabulary",
+      "user_input": "từ/cụm từ sai của user",
+      "correct_form": "Dạng đúng",
+      "error_detail": "Giải thích lỗi"
+    }}
+  ],
+  "improved_version": "Câu trả lời mẫu cải thiện (tiếng Việt/English tùy câu hỏi)"
+}}
+
+Rules:
+- score: 0-100 (70+ = acceptable)
+- is_acceptable: true if score >= 60
+- errors_detected: grammar, vocabulary, comprehension errors found
+- Be constructive and encouraging in Vietnamese"""
+
+        result = _call_gemini(prompt, expect_json=True)
+
+        if result and "score" in result:
+            return result
+
+        # Fallback grading
+        has_content = len(user_answer.strip()) > 10
+        return {
+            "score": 60 if has_content else 0,
+            "is_acceptable": has_content,
+            "feedback_vi": "Câu trả lời đã được ghi nhận. Hãy tham khảo tài liệu để bổ sung thêm chi tiết.",
+            "correct_points": [],
+            "missing_points": [],
+            "errors_detected": [],
+            "improved_version": ""
+        }
+
+    @staticmethod
+    def analyze_error_patterns(
+        error_logs: List[Dict[str, Any]],
+        user_profile: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Feature F: Phân tích mẫu lỗi từ error_logs để sinh Personalized Feedback.
+        Nhóm lỗi theo type, tìm recurring patterns, đề xuất remedial actions.
+        """
+        if not error_logs:
+            return {
+                "has_patterns": False,
+                "summary": "Chưa có đủ dữ liệu lỗi để phân tích.",
+                "error_categories": [],
+                "recommendations": [],
+                "priority_topics": []
+            }
+
+        # Build error summary for prompt
+        error_summary_lines = []
+        for err in error_logs[:20]:
+            error_summary_lines.append(
+                f"- [{err.get('error_type', 'unknown')}] {err.get('error_detail', '')} "
+                f"(xảy ra {err.get('occurrence_count', 1)} lần, nguồn: {err.get('source', '')})"
+            )
+        error_summary_str = "\n".join(error_summary_lines)
+
+        prompt = f"""You are an expert language learning analyst.
+
+Student profile:
+- Overall mastery: {user_profile.get('overall_mastery', 0):.0f}%
+- Total topics studied: {user_profile.get('total_topics', 0)}
+
+Recurring errors detected:
+{error_summary_str}
+
+Analyze these error patterns and provide personalized recommendations. Return ONLY valid JSON:
+{{
+  "has_patterns": true,
+  "summary": "Tóm tắt tình trạng học tập và các vấn đề chính (tiếng Việt, 2-3 câu)",
+  "error_categories": [
+    {{
+      "category": "vocabulary",
+      "label": "Từ vựng",
+      "count": 5,
+      "severity": "high",
+      "description": "Mô tả vấn đề cụ thể"
+    }}
+  ],
+  "recommendations": [
+    {{
+      "type": "flashcard_review",
+      "title": "Tiêu đề gợi ý",
+      "description": "Mô tả chi tiết hành động cần làm",
+      "priority": "high"
+    }}
+  ],
+  "priority_topics": ["topic cần ưu tiên ôn tập 1", "topic 2"]
+}}"""
+
+        result = _call_gemini(prompt, expect_json=True)
+
+        if result and "has_patterns" in result:
+            return result
+
+        # Fallback analysis
+        from collections import Counter
+        type_counts = Counter(e.get("error_type", "unknown") for e in error_logs)
+        categories = [
+            {"category": t, "label": t.capitalize(), "count": c, "severity": "medium", "description": f"{c} lỗi loại {t}"}
+            for t, c in type_counts.most_common(5)
+        ]
+        return {
+            "has_patterns": True,
+            "summary": f"Phát hiện {len(error_logs)} lỗi. Loại lỗi phổ biến nhất: {type_counts.most_common(1)[0][0] if type_counts else 'chưa xác định'}.",
+            "error_categories": categories,
+            "recommendations": [
+                {"type": "flashcard_review", "title": "Ôn tập Flashcard", "description": "Ôn lại các từ vựng hay gặp lỗi", "priority": "high"}
+            ],
+            "priority_topics": []
+        }
+
+    @staticmethod
+    def generate_remedial_exercises(
+        error_categories: List[Dict[str, Any]],
+        rag_context: List[str],
+        topic_name: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Feature F: Sinh bài tập khắc phục dựa trên error patterns.
+        """
+        context_str = "\n\n---\n\n".join(rag_context[:3]) if rag_context else ""
+        categories_str = ", ".join([c.get("category", "") for c in error_categories[:3]])
+
+        prompt = f"""You are creating targeted remedial exercises for a language learner.
+
+Topic: "{topic_name}"
+Error patterns to address: {categories_str}
+Reference material: {context_str[:2000]}
+
+Create 3-5 targeted exercises specifically addressing these errors. Return ONLY valid JSON:
+{{
+  "exercises": [
+    {{
+      "exercise_type": "fill_blank",
+      "question_text": "Câu hỏi nhắm vào lỗi cụ thể",
+      "target_error": "vocabulary",
+      "correct_answer": "đáp án",
+      "explanation": "Giải thích tại sao đúng",
+      "difficulty": 2
+    }}
+  ]
+}}
+
+Requirements:
+- Each exercise must directly target one of the identified error patterns
+- Use Vietnamese for instructions and explanations
+- Based on the reference material content"""
+
+        result = _call_gemini(prompt, expect_json=True)
+
+        if result and "exercises" in result:
+            return result["exercises"]
+
+        return [
+            {
+                "exercise_type": "fill_blank",
+                "question_text": f"Ôn tập lại khái niệm chính của {topic_name}: ___",
+                "target_error": categories_str,
+                "correct_answer": topic_name,
+                "explanation": f"Hãy ôn lại định nghĩa và cách dùng các khái niệm trong {topic_name}.",
+                "difficulty": 2
+            }
+        ]
+
+    @staticmethod
+    def extract_scenario_vocabulary(
+        scenario_title: str,
+        user_message: str,
+        ai_response: str,
+        rag_context: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Feature E: Trích xuất từ vựng và lỗi từ một lượt roleplay scenario.
+        Gọi sau mỗi interact_scenario_step để build vocabulary & error log.
+        """
+        context_str = "\n\n---\n\n".join(rag_context[:2]) if rag_context else ""
+
+        prompt = f"""You are analyzing a language learning roleplay session.
+
+Scenario: "{scenario_title}"
+Learner said: "{user_message}"
+AI response contained: "{ai_response[:500]}"
+Reference material: {context_str[:1000]}
+
+Extract vocabulary and errors from this exchange. Return ONLY valid JSON:
+{{
+  "vocabulary_items": [
+    {{
+      "word": "key term from the exchange",
+      "meaning_vi": "Nghĩa tiếng Việt",
+      "source_sentence": "Câu chứa từ này",
+      "word_type": "noun"
+    }}
+  ],
+  "errors_in_user_input": [
+    {{
+      "error_type": "grammar",
+      "user_input": "câu/từ sai của user",
+      "correct_form": "dạng đúng",
+      "error_detail": "giải thích lỗi (Vietnamese)"
+    }}
+  ],
+  "key_phrases_used": ["phrase 1", "phrase 2"]
+}}
+
+Extract at most 5 vocabulary items and identify real language errors (not just imperfect style)."""
+
+        result = _call_gemini(prompt, expect_json=True)
+
+        if result and ("vocabulary_items" in result or "errors_in_user_input" in result):
+            return result
+
+        return {"vocabulary_items": [], "errors_in_user_input": [], "key_phrases_used": []}

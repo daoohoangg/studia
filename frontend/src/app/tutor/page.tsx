@@ -120,8 +120,8 @@ function TutorContent() {
             <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", padding: "0 4px" }}>Chưa có cuộc hội thoại nào</p>
           ) : sessions.map(s => (
             <button key={s.id} onClick={() => loadSession(s.id)} style={{
-              background: sessionId === s.id ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${sessionId === s.id ? "rgba(99,102,241,0.3)" : "var(--border-subtle)"}`,
+              background: sessionId === s.id ? "var(--bg-chat-session-active)" : "var(--bg-card)",
+              border: `1px solid ${sessionId === s.id ? "var(--border-chat-session-active)" : "var(--border-subtle)"}`,
               borderRadius: "10px", padding: "10px 12px", cursor: "pointer", textAlign: "left",
               color: "var(--text-secondary)", fontSize: "0.78rem", transition: "all 0.15s ease"
             }}>
@@ -159,8 +159,9 @@ function TutorContent() {
         {/* Messages */}
         <div style={{
           flex: 1, overflowY: "auto", padding: "20px",
-          background: "rgba(10,14,26,0.6)", border: "1px solid var(--border-subtle)",
-          display: "flex", flexDirection: "column", gap: "16px"
+          background: "var(--bg-chat-container)", border: "1px solid var(--border-subtle)",
+          display: "flex", flexDirection: "column", gap: "16px",
+          transition: "background 0.3s ease"
         }}>
           {messages.length === 0 && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "20px", padding: "40px 0" }}>
@@ -180,12 +181,12 @@ function TutorContent() {
                 </div>
                 {SUGGESTIONS.map(s => (
                   <button key={s} onClick={() => sendMessage(s)} style={{
-                    background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-subtle)",
+                    background: "var(--bg-card)", border: "1px solid var(--border-subtle)",
                     borderRadius: "10px", padding: "10px 14px", cursor: "pointer", textAlign: "left",
                     color: "var(--text-secondary)", fontSize: "0.82rem", transition: "all 0.15s ease"
                   }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "rgba(99,102,241,0.08)"; e.currentTarget.style.borderColor = "rgba(99,102,241,0.3)"; e.currentTarget.style.color = "#c7d2fe"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "var(--border-subtle)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "rgba(99,102,241,0.08)"; e.currentTarget.style.borderColor = "rgba(99,102,241,0.3)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "var(--bg-card)"; e.currentTarget.style.borderColor = "var(--border-subtle)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
                   >
                     {s}
                   </button>
@@ -227,9 +228,10 @@ function TutorContent() {
                 <div style={{ marginLeft: "36px", display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
                   {msg.follow_up_suggestions.slice(0, 2).map((s, i) => (
                     <button key={i} onClick={() => sendMessage(s)} style={{
-                      background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.2)",
+                      background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.25)",
                       borderRadius: "8px", padding: "5px 10px", cursor: "pointer",
-                      color: "#a5b4fc", fontSize: "0.72rem", transition: "all 0.15s ease"
+                      color: "var(--accent-indigo)", fontSize: "0.72rem", transition: "all 0.15s ease",
+                      fontWeight: 600
                     }}>
                       {s}
                     </button>
@@ -252,7 +254,7 @@ function TutorContent() {
         </div>
 
         {/* Input */}
-        <div style={{ border: "1px solid var(--border-subtle)", borderTop: "none", borderRadius: "0 0 16px 16px", background: "rgba(10,14,26,0.8)", padding: "16px" }}>
+        <div style={{ border: "1px solid var(--border-subtle)", borderTop: "none", borderRadius: "0 0 16px 16px", background: "var(--bg-chat-input-bar)", padding: "16px", transition: "background 0.3s ease" }}>
           <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
             <textarea
               ref={inputRef}
@@ -262,9 +264,9 @@ function TutorContent() {
               placeholder="Hỏi AI Tutor về nội dung sách... (Enter để gửi)"
               rows={2}
               style={{
-                flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-subtle)",
-                borderRadius: "12px", color: "#fff", padding: "12px 16px", resize: "none",
-                fontFamily: "Plus Jakarta Sans, sans-serif", fontSize: "0.9rem", outline: "none"
+                flex: 1, background: "var(--bg-card)", border: "1px solid var(--border-subtle)",
+                borderRadius: "12px", color: "var(--text-primary)", padding: "12px 16px", resize: "none",
+                fontFamily: "Plus Jakarta Sans, Inter, sans-serif", fontSize: "0.9rem", outline: "none"
               }}
             />
             <button className="btn-primary" onClick={() => sendMessage()} disabled={!input.trim() || loading}

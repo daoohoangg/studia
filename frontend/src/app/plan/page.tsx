@@ -52,17 +52,22 @@ export default function PlanPage() {
     <div style={{ display: "flex", gap: "28px", maxWidth: "1020px" }}>
       {/* Calendar */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "20px" }}>
-        <div>
-          <span className="badge badge-amber" style={{ marginBottom: "10px" }}>
-            <Map size={13} /> Lịch học
-          </span>
-          <h1 style={{ fontSize: "2rem", fontWeight: "800", fontFamily: "Outfit, sans-serif" }}>
-            Kế hoạch học tập
-          </h1>
-          <p style={{ color: "var(--text-secondary)", marginTop: "4px" }}>
-            Lịch học thích ứng — tự động điều chỉnh theo tiến độ của bạn
-          </p>
-        </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <span className="badge badge-amber" style={{ marginBottom: "10px" }}>
+                <Map size={13} /> Lịch học
+              </span>
+              <h1 style={{ fontSize: "2rem", fontWeight: "800", fontFamily: "Outfit, sans-serif" }}>
+                Kế hoạch học tập
+              </h1>
+              <p style={{ color: "var(--text-secondary)", marginTop: "4px" }}>
+                Lịch học thích ứng — tự động điều chỉnh theo tiến độ của bạn
+              </p>
+            </div>
+            <a href={`${API}/export/schedule/ical`} target="_blank" className="btn-secondary" title="Đồng bộ lịch học với Google Calendar / Outlook">
+              📅 Export iCalendar (.ics)
+            </a>
+          </div>
 
         <div className="glass-panel" style={{ padding: "24px" }}>
           {/* Month navigation */}

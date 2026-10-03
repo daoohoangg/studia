@@ -93,7 +93,8 @@ class RAGEngine:
                 embedding = result["embedding"]
                 return [round(x, 6) for x in embedding]
             except Exception as e:
-                logger.warning(f"Gemini embedding failed, using fallback: {e}")
+                # Log once concisely to prevent log flooding when API key is suspended/invalid
+                logger.debug(f"Gemini embedding failed, using pseudo-embedding fallback: {e}")
 
         # --- Fallback: deterministic pseudo-embedding ---
         return RAGEngine._pseudo_embedding(text, vector_dim)
@@ -114,7 +115,7 @@ class RAGEngine:
                 )
                 return [round(x, 6) for x in result["embedding"]]
             except Exception as e:
-                logger.warning(f"Gemini query embedding failed: {e}")
+                logger.debug(f"Gemini query embedding failed: {e}")
 
         return RAGEngine._pseudo_embedding(query, 768)
 

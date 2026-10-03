@@ -1,5 +1,5 @@
 """
-Quizzes API v2 — RAG-based generation, real Supabase persistence, adaptive plan trigger
+Quizzes API v3 — RAG-based generation, multi-type exercises, AI open grading, error tracking
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -10,6 +10,9 @@ from app.services.fsrs_engine import FSRSEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/quizzes", tags=["Quizzes & Evaluation"])
 
@@ -287,3 +290,213 @@ async def get_weak_topics(user_id: Optional[str] = None):
         })
 
     return {"user_id": uid, "weak_topics": weak_topics, "count": len(weak_topics)}
+
+
+class GenerateMultiTypeQuizRequest(BaseModel):
+    topic_id: str
+    topic_name: str
+    user_mastery: float = 50.0
+    document_id: Optional[str] = None
+    question_count: int = 5
+    exercise_types: Optional[List[str]] = None  # None = auto-select based on mastery
+    user_id: Optional[str] = None
+
+
+class GradeOpenAnswerRequest(BaseModel):
+    question_text: str
+    grading_rubric: Optional[str] = ""
+    user_answer: str
+    topic_id: str
+    topic_name: str
+    document_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+@router.post("/generate-multi")
+async def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
+    """
+    Feature B: Sinh quiz đa dạng loại câu hỏi (fill_blank, recall, sentence_construction, multiple_choice).
+    Tự động chọn exercise_types dựa trên mastery nếu không chỉ định.
+    """
+    user_id = req.user_id or DEFAULT_USER_ID
+    supabase = get_supabase_client()
+
+    # RAG context
+    rag_chunks = []
+    if supabase and req.document_id:
+        rag_chunks = RAGEngine.search_relevant_chunks(
+            query=req.topic_name,
+            supabase_client=supabase,
+            document_id=req.document_id,
+            top_k=5
+        )
+    rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
+
+    # Sinh multi-type questions
+    questions = AIEngine.generate_multi_type_quiz(
+        topic_name=req.topic_name,
+        user_mastery=req.user_mastery,
+        rag_context=rag_texts,
+        question_count=req.question_count,
+        exercise_types=req.exercise_types
+    )
+
+    # Lưu quiz vào Supabase
+    quiz_id = str(uuid.uuid4())
+    if supabase:
+        try:
+            supabase.table("quizzes").insert({
+                "id": quiz_id,
+                "topic_id": req.topic_id,
+                "title": f"Multi-Type Quiz: {req.topic_name}",
+                "quiz_type": "adaptive"
+            }).execute()
+
+            for q in questions:
+                q_id = str(uuid.uuid4())
+                q["id"] = q_id
+                try:
+                    supabase.table("questions").insert({
+                        "id": q_id,
+                        "quiz_id": quiz_id,
+                        "question_text": q.get("question_text", ""),
+                        "question_type": q.get("question_type", "multiple_choice"),
+                        "options": q.get("options", []),
+                        "correct_answer": q.get("correct_answer", ""),
+                        "explanation": q.get("explanation", ""),
+                        "difficulty": q.get("difficulty", 2),
+                        "exercise_type": q.get("exercise_type", "multiple_choice")
+                    }).execute()
+                except Exception as qe:
+                    logger.warning(f"Question save warning: {qe}")
+        except Exception as e:
+            logger.warning(f"Multi quiz save warning: {e}")
+
+    exercise_type_summary = list(set(q.get("exercise_type", "multiple_choice") for q in questions))
+
+    return {
+        "quiz_id": quiz_id,
+        "topic_id": req.topic_id,
+        "topic_name": req.topic_name,
+        "user_mastery": req.user_mastery,
+        "rag_chunks_used": len(rag_chunks),
+        "exercise_types_used": exercise_type_summary,
+        "questions": questions
+    }
+
+
+@router.post("/grade-open")
+async def grade_open_answer(req: GradeOpenAnswerRequest):
+    """
+    Feature B: Gemini chấm điểm câu trả lời mở (recall, sentence_construction).
+    Tự động ghi nhận lỗi vào error_logs.
+    """
+    user_id = req.user_id or DEFAULT_USER_ID
+    supabase = get_supabase_client()
+
+    # RAG context
+    rag_chunks = []
+    if supabase and req.document_id:
+        rag_chunks = RAGEngine.search_relevant_chunks(
+            query=req.topic_name + " " + req.question_text[:100],
+            supabase_client=supabase,
+            document_id=req.document_id,
+            top_k=3
+        )
+    rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
+
+    # Chấm điểm qua Gemini
+    grading = AIEngine.grade_open_answer(
+        question_text=req.question_text,
+        grading_rubric=req.grading_rubric or "",
+        user_answer=req.user_answer,
+        rag_context=rag_texts,
+        topic_name=req.topic_name
+    )
+
+    # Ghi nhận errors vào error_logs
+    errors_detected = grading.get("errors_detected", [])
+    if supabase and errors_detected:
+        for err in errors_detected:
+            try:
+                # Check existing
+                existing = supabase.table("error_logs") \
+                    .select("id, occurrence_count") \
+                    .eq("user_id", user_id) \
+                    .eq("error_detail", err.get("error_detail", "")[:200]) \
+                    .limit(1).execute()
+
+                if existing.data:
+                    supabase.table("error_logs").update({
+                        "occurrence_count": existing.data[0]["occurrence_count"] + 1,
+                        "last_seen_at": "now()"
+                    }).eq("id", existing.data[0]["id"]).execute()
+                else:
+                    supabase.table("error_logs").insert({
+                        "user_id": user_id,
+                        "topic_id": req.topic_id,
+                        "error_type": err.get("error_type", "comprehension"),
+                        "error_detail": err.get("error_detail", "")[:500],
+                        "user_input": err.get("user_input", ""),
+                        "correct_form": err.get("correct_form", ""),
+                        "context_sentence": req.question_text[:300],
+                        "source": "quiz"
+                    }).execute()
+            except Exception as le:
+                logger.warning(f"Error log save failed: {le}")
+
+    return {
+        "topic_id": req.topic_id,
+        "question_text": req.question_text,
+        "user_answer": req.user_answer,
+        "grading": grading,
+        "errors_logged": len(errors_detected)
+    }
+
+
+@router.get("/recurring-mistakes")
+async def get_recurring_mistakes(
+    user_id: Optional[str] = None,
+    topic_id: Optional[str] = None,
+    min_occurrences: int = 2,
+    limit: int = 20
+):
+    """Lấy danh sách lỗi tái diễn từ question_attempts và error_logs."""
+    uid = user_id or DEFAULT_USER_ID
+    supabase = get_supabase_client()
+
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+
+    try:
+        # Lấy từ error_logs (nguồn tổng hợp)
+        query = supabase.table("error_logs") \
+            .select("*") \
+            .eq("user_id", uid) \
+            .gte("occurrence_count", min_occurrences) \
+            .order("occurrence_count", desc=True) \
+            .limit(limit)
+
+        if topic_id:
+            query = query.eq("topic_id", topic_id)
+
+        resp = query.execute()
+
+        # Nhóm theo error_type
+        errors = resp.data or []
+        by_type: Dict[str, List] = {}
+        for err in errors:
+            et = err.get("error_type", "unknown")
+            by_type.setdefault(et, []).append(err)
+
+        return {
+            "user_id": uid,
+            "total_recurring": len(errors),
+            "by_type": {
+                et: {"count": len(items), "items": items[:5]}
+                for et, items in by_type.items()
+            },
+            "top_errors": errors[:10]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

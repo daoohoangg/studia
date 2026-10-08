@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RotateCcw, ChevronLeft, ChevronRight, CheckCircle2, Loader2, Sparkles, Download, Volume2, Mic, Plus, X, FilePlus } from "lucide-react";
+import Link from "next/link";
+import { RotateCcw, ChevronLeft, ChevronRight, CheckCircle2, Loader2, Sparkles, Download, Volume2, Mic, Plus } from "lucide-react";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -27,15 +28,6 @@ export default function FlashcardsPage() {
   const [shadowingGuide, setShadowingGuide] = useState<any>(null);
   const [evalResult, setEvalResult] = useState<any>(null);
   const [userSpeechInput, setUserSpeechInput] = useState("");
-
-  // Custom Flashcard Creation State
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [customDeckName, setCustomDeckName] = useState("");
-  const [customFront, setCustomFront] = useState("");
-  const [customBack, setCustomBack] = useState("");
-  const [customCardType, setCustomCardType] = useState("concept");
-  const [creating, setCreating] = useState(false);
-  const [createMsg, setCreateMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => { fetchDue(); }, []);
 
@@ -130,44 +122,6 @@ export default function FlashcardsPage() {
     } catch {}
   };
 
-  const handleCreateCustomFlashcard = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customFront.trim() || !customBack.trim()) return;
-
-    setCreating(true);
-    setCreateMsg(null);
-    try {
-      const res = await fetch(`${API}/flashcards/custom-create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          front: customFront,
-          back: customBack,
-          topic_name: customDeckName.trim() || "Bộ thẻ tùy chỉnh",
-          card_type: customCardType,
-          source_chunk: "Tự tạo bởi người dùng"
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.flashcard) {
-        setCards(prev => [...prev, data.flashcard]);
-        setCustomFront("");
-        setCustomBack("");
-        setCreateMsg({ type: "success", text: `🚀 Đã tạo thẻ thành công cho bộ "${data.flashcard.topic_name}"!` });
-        setTimeout(() => {
-          setShowCreateModal(false);
-          setCreateMsg(null);
-        }, 1500);
-      } else {
-        setCreateMsg({ type: "error", text: data.detail || "Không thể tạo thẻ. Vui lòng thử lại." });
-      }
-    } catch {
-      setCreateMsg({ type: "error", text: "Lỗi kết nối tới server backend." });
-    } finally {
-      setCreating(false);
-    }
-  };
-
   const exportAnki = async () => {
     const card = cards[currentIdx];
     const topicId = card?.topic_id || "all";
@@ -211,9 +165,9 @@ export default function FlashcardsPage() {
         </div>
 
         <div style={{ display: "flex", gap: "10px" }}>
-          <button className="btn-primary" onClick={() => setShowCreateModal(true)}>
+          <Link href="/flashcards/new" className="btn-primary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
             <Plus size={16} /> Tự Tạo Thẻ Flashcard
-          </button>
+          </Link>
           {cards.length > 0 && (
             <button className="btn-secondary" onClick={exportAnki} title="Xuất thẻ ra tệp Anki CSV/TSV">
               <Download size={16} /> Export Anki (.apkg)
@@ -223,99 +177,6 @@ export default function FlashcardsPage() {
       </div>
 
       {/* Custom Flashcard Creation Modal */}
-      {showCreateModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)",
-          zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px"
-        }}>
-          <div className="glass-panel fade-in-up" style={{ width: "100%", maxWidth: "560px", padding: "32px", position: "relative" }}>
-            <button onClick={() => { setShowCreateModal(false); setCreateMsg(null); }}
-              style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-              <X size={20} />
-            </button>
-
-            <h2 style={{ fontSize: "1.4rem", fontWeight: "800", marginBottom: "6px", fontFamily: "Outfit, sans-serif", display: "flex", alignItems: "center", gap: "8px" }}>
-              <FilePlus size={22} color="var(--accent-indigo)" />
-              Tự Tạo Thẻ Flashcard Mới
-            </h2>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginBottom: "20px" }}>
-              Tự nhập từ vựng, định nghĩa hoặc câu hỏi riêng của bạn để đưa vào thuật toán ôn tập FSRS
-            </p>
-
-            <form onSubmit={handleCreateCustomFlashcard} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div>
-                <label className="label-text">Tên Bộ thẻ / Chủ đề (Deck Name)</label>
-                <input
-                  className="input-field"
-                  value={customDeckName}
-                  onChange={e => setCustomDeckName(e.target.value)}
-                  placeholder="Ví dụ: Từ vựng IELTS Band 8, Lập trình Python, Từ vựng Tiếng Anh..."
-                />
-              </div>
-
-              <div>
-                <label className="label-text">Mặt trước (Front / Câu hỏi / Từ vựng)</label>
-                <input
-                  className="input-field"
-                  value={customFront}
-                  onChange={e => setCustomFront(e.target.value)}
-                  placeholder="Ví dụ: Resilient (adj) hoặc 'Khái niệm RAG là gì?'"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="label-text">Mặt sau (Back / Giải nghĩa / Đáp án / Ví dụ)</label>
-                <textarea
-                  className="input-field"
-                  rows={4}
-                  value={customBack}
-                  onChange={e => setCustomBack(e.target.value)}
-                  placeholder="Ví dụ: Kiên cường, có khả năng phục hồi nhanh. Example: She is a resilient person."
-                  style={{ resize: "vertical" }}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="label-text">Loại thẻ (Card Type)</label>
-                <select
-                  className="input-field"
-                  value={customCardType}
-                  onChange={e => setCustomCardType(e.target.value)}
-                >
-                  <option value="concept">Khái niệm (Concept)</option>
-                  <option value="definition">Định nghĩa từ vựng (Definition)</option>
-                  <option value="question">Câu hỏi & Đáp án (Question)</option>
-                  <option value="fill_blank">Điền vào chỗ trống (Fill in Blank)</option>
-                </select>
-              </div>
-
-              {createMsg && (
-                <div style={{
-                  padding: "12px 16px", borderRadius: "12px",
-                  background: createMsg.type === "success" ? "rgba(16,185,129,0.1)" : "rgba(244,63,94,0.1)",
-                  border: `1px solid ${createMsg.type === "success" ? "rgba(16,185,129,0.3)" : "rgba(244,63,94,0.3)"}`,
-                  color: createMsg.type === "success" ? "#34d399" : "#fb7185",
-                  fontSize: "0.875rem",
-                }}>
-                  {createMsg.text}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
-                <button type="button" className="btn-secondary" onClick={() => { setShowCreateModal(false); setCreateMsg(null); }} style={{ flex: 1, justifyContent: "center" }}>
-                  Hủy
-                </button>
-                <button type="submit" className="btn-primary" disabled={creating} style={{ flex: 2, justifyContent: "center" }}>
-                  {creating ? <><Loader2 size={18} className="spin" /> Đang tạo...</> : <><Plus size={18} /> Lưu Thẻ Flashcard</>}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Session Done */}
       {sessionDone && (
         <div className="glass-panel fade-in-up" style={{ padding: "48px 40px", textAlign: "center" }}>

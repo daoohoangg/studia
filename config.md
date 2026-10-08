@@ -1,7 +1,11 @@
 # 📘 STUDIA — MASTER CONFIG & BUSINESS BLUEPRINT
 > **Tài liệu Tổng hợp Nghiệp vụ Tổng thể, Kiến trúc Kỹ thuật & Master Plan Dự án**  
 > **Vai trò**: Senior Technical Business Analyst  
-> **Cập nhật lần cuối**: 03/10/2026 | **Phiên bản**: v2.0-Production-Ready  
+> **Cập nhật lần cuối**: 03/10/2026 | **Phiên bản**: v2.1-Config-Updated  
+
+> [!IMPORTANT]
+> **CẤU HÌNH BÁO CÁO & PHÂN TÍCH NGHIỆP VỤ (PROJECT DIRECTIVE)**:
+> Khi phân tích, giải đáp và báo cáo tiến độ triển khai các tính năng/luồng nghiệp vụ, **KHÔNG CẦN VẼ THÊM BIỂU ĐỒ HAY ĐỒ THỊ (D2 / Mermaid / Chart)** trừ khi người dùng có yêu cầu vẽ cụ thể. Tập trung phân tích trực tiếp trên source code và mô tả nghiệp vụ bằng văn bản ngắn gọn, chính xác.
 
 ---
 

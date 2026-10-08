@@ -14,6 +14,7 @@ from app.api.v1.export import router as export_router
 from app.api.v1.dual_coding import router as dual_coding_router
 from app.api.v1.vocabulary import router as vocabulary_router
 from app.api.v1.feedback import router as feedback_router
+from app.api.v1.exam import router as exam_router
 import logging
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ app.include_router(dual_coding_router, prefix=settings.API_V1_STR)
 # V3 — Learnova Language Learning Features
 app.include_router(vocabulary_router, prefix=settings.API_V1_STR)
 app.include_router(feedback_router, prefix=settings.API_V1_STR)
+app.include_router(exam_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Sun, Moon } from "lucide-react";
 
-export default function ThemeToggle() {
+export default function ThemeToggle({ compact = false }: { compact?: boolean }) {
   const [theme, setTheme] = useState<"dark" | "light">("light");
   const [mounted, setMounted] = useState(false);
 
@@ -24,7 +24,44 @@ export default function ThemeToggle() {
 
   if (!mounted) {
     return (
-      <div style={{ width: "100%", height: "40px", borderRadius: "12px", background: "rgba(0,0,0,0.03)" }} />
+      <div style={{ width: compact ? "42px" : "100%", height: "40px", borderRadius: "12px", background: "rgba(0,0,0,0.03)", margin: compact ? "0 auto" : 0 }} />
+    );
+  }
+
+  if (compact) {
+    return (
+      <button
+        onClick={toggleTheme}
+        title={theme === "dark" ? "Giao diện Tối (Bấm để chuyển sang Sáng)" : "Giao diện Sáng (Bấm để chuyển sang Tối)"}
+        style={{
+          width: "42px",
+          height: "42px",
+          margin: "0 auto",
+          borderRadius: "12px",
+          border: "1px solid var(--border-subtle)",
+          background: "var(--bg-card)",
+          color: "var(--text-primary)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "all 0.2s ease",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "rgba(99, 102, 241, 0.12)";
+          e.currentTarget.style.borderColor = "rgba(99, 102, 241, 0.3)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "var(--bg-card)";
+          e.currentTarget.style.borderColor = "var(--border-subtle)";
+        }}
+      >
+        {theme === "dark" ? (
+          <Sun size={18} color="#fbbf24" />
+        ) : (
+          <Moon size={18} color="#818cf8" />
+        )}
+      </button>
     );
   }
 
@@ -71,3 +108,4 @@ export default function ThemeToggle() {
     </button>
   );
 }
+

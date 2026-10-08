@@ -1,0 +1,870 @@
+{
+  "listening_audio": "/audio/cambridge_21_test_1.mp3",
+  "listening": [
+    {
+      "number": 1,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "Oyster Bay Sailing Club Courses: Taster day, £120 if booking one place, small groups (max 1 ___ people)"
+    },
+    {
+      "number": 2,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "Level 1: basic theory e.g. understanding the 2 ___ and tides"
+    },
+    {
+      "number": 3,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "Level 1: basic sailing skills including 3 ___"
+    },
+    {
+      "number": 4,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "Level 1: 4 ___ available for club members"
+    },
+    {
+      "number": 5,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "Level 1: all inclusive (plus a useful 5 ___ )"
+    },
+    {
+      "number": 6,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "Level 1: a 6 ___ at the end of the course for all participants"
+    },
+    {
+      "number": 7,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "General info: Bring suitable clothing, a 7 ___ and toiletries"
+    },
+    {
+      "number": 8,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "General info: There is a 8 ___ at the club"
+    },
+    {
+      "number": 9,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "General info: Online training 9 ___ are recommended"
+    },
+    {
+      "number": 10,
+      "type": "note_completion",
+      "section": "Part 1",
+      "question": "General info: 10 ___ are available for course participants"
+    },
+    {
+      "number": 11,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "What should trainees always expect to get when working on low budget short films?",
+      "options": [
+        "A. travel expenses",
+        "B. a minimum wage",
+        "C. meals"
+      ]
+    },
+    {
+      "number": 12,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "According to the speaker, on big budget films trainees may get experience of",
+      "options": [
+        "A. makeup for special effects",
+        "B. working with different ethnicities",
+        "C. creating a variety of hair styles"
+      ]
+    },
+    {
+      "number": 13,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "The speaker says a problem for makeup artists is",
+      "options": [
+        "A. dealing with difficult directors",
+        "B. being shouted at by their supervisor",
+        "C. waiting around for hours doing nothing"
+      ]
+    },
+    {
+      "number": 14,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "How did the speaker feel when she met famous actors for the first time?",
+      "options": [
+        "A. very shy",
+        "B. very proud",
+        "C. very disappointed"
+      ]
+    },
+    {
+      "number": 15,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "What advice does the speaker give about makeup kits?",
+      "options": [
+        "A. Always carry a basic kit with you",
+        "B. Only buy the best products for a makeup kit",
+        "C. Ask other makeup artists to check your kit"
+      ]
+    },
+    {
+      "number": 16,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "What advice does the speaker give about creating a portfolio?",
+      "options": [
+        "A. Keep print and digital photos",
+        "B. Only include a small selection of photos",
+        "C. Get permission to use photos"
+      ]
+    },
+    {
+      "number": 17,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "Prepping an actor requires:",
+      "options": [
+        "A. being well-organised",
+        "B. being flexible",
+        "C. working quickly"
+      ]
+    },
+    {
+      "number": 18,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "Continuity requires:",
+      "options": [
+        "A. being well-organised",
+        "B. being flexible",
+        "C. working quickly"
+      ]
+    },
+    {
+      "number": 19,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "General duties require:",
+      "options": [
+        "A. being well-organised",
+        "B. being flexible",
+        "C. working quickly"
+      ]
+    },
+    {
+      "number": 20,
+      "type": "multiple_choice",
+      "section": "Part 2",
+      "question": "Applying makeup requires:",
+      "options": [
+        "A. being well-organised",
+        "B. being flexible",
+        "C. working quickly"
+      ]
+    },
+    {
+      "number": 21,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Which TWO features of the lecture on ocean biodiversity had the greatest impact on the students?",
+      "options": [
+        "A. the references to local problems",
+        "B. the broad focus of the examples",
+        "C. the practical suggestions for solutions",
+        "D. the type of issues discussed",
+        "E. the implications for government policy"
+      ]
+    },
+    {
+      "number": 22,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Second feature of the lecture on ocean biodiversity that had the greatest impact on the students?",
+      "options": [
+        "A. the references to local problems",
+        "B. the broad focus of the examples",
+        "C. the practical suggestions for solutions",
+        "D. the type of issues discussed",
+        "E. the implications for government policy"
+      ]
+    },
+    {
+      "number": 23,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Which TWO details about the research project particularly impressed the students?",
+      "options": [
+        "A. the team's previous successes",
+        "B. its wide geographical scale",
+        "C. the use of new technology",
+        "D. the extensive statistical evidence",
+        "E. the large range of specialists involved"
+      ]
+    },
+    {
+      "number": 24,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Second detail about the research project that particularly impressed the students?",
+      "options": [
+        "A. the team's previous successes",
+        "B. its wide geographical scale",
+        "C. the use of new technology",
+        "D. the extensive statistical evidence",
+        "E. the large range of specialists involved"
+      ]
+    },
+    {
+      "number": 25,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Article on invasive lionfish. Opinions: A. specialist audience, B. outdated, C. new danger, D. improve situation, E. not balanced, F. predictable, G. insufficient evidence, H. clear explanation",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H"
+      ]
+    },
+    {
+      "number": 26,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Documentary on microplastics",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H"
+      ]
+    },
+    {
+      "number": 27,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Podcast on ocean pollution",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H"
+      ]
+    },
+    {
+      "number": 28,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Book on coastal ecosystems",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H"
+      ]
+    },
+    {
+      "number": 29,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Article on metal toxicity",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H"
+      ]
+    },
+    {
+      "number": 30,
+      "type": "multiple_choice",
+      "section": "Part 3",
+      "question": "Podcast on floating marine cities",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H"
+      ]
+    },
+    {
+      "number": 31,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "Three resources which are essential for industrial civilisation: 31 ___, fossil fuels, rubber"
+    },
+    {
+      "number": 32,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "The supply of natural rubber is limited because the growth of the tree is 32 ___"
+    },
+    {
+      "number": 33,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "Production cannot easily be adjusted because of increasing or decreasing 33 ___"
+    },
+    {
+      "number": 34,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "The tree only grows near the 34 ___"
+    },
+    {
+      "number": 35,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "It is very difficult to 35 ___ rubber after production"
+    },
+    {
+      "number": 36,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "Lack of genetic diversity, leading to danger of disease caused by a 36 ___"
+    },
+    {
+      "number": 37,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "Extreme 37 ___ events"
+    },
+    {
+      "number": 38,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "Synthetic rubber is less 38 ___ than natural rubber"
+    },
+    {
+      "number": 39,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "A wild flower (a type of dandelion) has rubber in its 39 ___"
+    },
+    {
+      "number": 40,
+      "type": "note_completion",
+      "section": "Part 4",
+      "question": "It can be grown in many locations and does not require good 40 ___"
+    }
+  ],
+  "reading_passage": "**READING PASSAGE 1**\n\nPASSAGE 1 \nYou should spend about 20 minutes on Questions 1-13, which are based on Reading \nPassage 1 below. \nThe Davies Sisters \nBetween 1908 and 1924, Gwendoline and Margaret Davies amassed one of \nthe largest collections of late-nineteenth and early-twentieth-century \nFrench \npaintings in Britain \nGwendoline (1882-1951) and Margaret (1884-1963) Davies were the granddaughters \nof David Davies, a Welshman who amassed a fortune in the shipping and mining \nindustries. In 1907, when Gwendoline came into her inheritance (Margaret would follow \nin 1909), the sisters were said to be the wealthiest unmarried women in Britain. Their \nreligious upbringing in rural Wales gave them a deep sense of social responsibility and \nthey chose to use their inheritance for cultural and philanthropic* purposes. \nWhile there was no real family history of art collecting, the sisters' education was \nrigorously geared toward such pursuits. Their London school focused on cultural rather \nthan academic study, and they travelled extensively with their governess, Jane Blaker, \nvisiting art galleries and making extensive notes on the collections there. \nThe sisters began to make regular art purchases from 1908, which roughly coincided \nwith the dates of their inheritance. They took advice from various people, including \nthe art dealer Hugh Blaker (the brother of Jane Blaker) and David Croal Thompson, \nwho was also an art dealer. While it was long assumed that these men were largely \nresponsible for the nature of the sisters' collection, it has recently been accepted that \nGwendoline and Margaret retained a far more active role in the process. \nThe sisters' journals reveal their preference for Old Master** paintings. Yet they initially \nmade very few attempts to secure any such works. ·while the sisters were wealthy in \nrelative terms, their income was nothing compared to the fortunes of American art \ncollectors of this period, such as J. Pierpont Morgan. Quite simply, high quality Old \nMaster works were, if not beyond their means, then beyond what they were willing to \npay for them. Instead, their early purchases were of the fashionable, safe variety, and \nincluded, for example, paintings by the French artist Jean- Baptiste-Camille Corot. \n• philanthropic: seeking to promote the welfare of others, often by charitable funding \n•• Old Master: a highly respected artist of great skill who worked in Europe before about 1800 \n\nReading \nHowever, it was only a few years before their collecting took a new direction and they \nturned to the work of the French Impressionists***. We lmow that Hugh Blaker, as a \nchampion of contemporaiy French art had a hand in the decision, and we lmow also that \nthey would have seen examples on their various trips to Paris. Whatever the precise reason \nfor this change, their first purchases of Impressionist art, made in October 1912, were \nscenes of Venice by the French artist Claude Monet. Over the next 12 years, the sisters \namassed the bulk of their Impressionist collection, including six further works by Monet, \ntwo more by Manet, and three by Renoir, including his well-lmown painting La Parisienne. \nThe First World War (1914-1918) played a part in the development of the sisters' \ncollection. Their initial response to the war effort was to finance the safe passage of \nartists from occupied Belgium to Wales, as a humanitarian act, but also with the hope of \nestablishing a vibrant artists' community in the area. Later in the conflict, both sisters \ndecided to volunteer at a canteen for troops at Troyes, in northern France; Gwendoline \nin 1916, followed by Margaret in 1917. \nIt was tedious and distressing work, which would have a permanent effect on Gwendoline's \nhealth. Yet on one of numerous trips to nearby Paris, she visited the Bernheim-Jeune \nGallery. Here she acquired two works by Cezanne - Provenc;al Landscape and The Franc;ois \nZola Dam. The paintings were shipped directly to Bath, England, where they became the \nfirst works by Cezanne to go on display in a public gallery in Britain. \nCommentators have often described the sisters as unlikely pioneer collectors. Much is \nmade of their isolation in rural Wales and the fact that they didn't make friends with \nartists or gallery owners. Yet they didn't feel obliged to follow fashionable tastes and \nwere free to pursue their own preferences. Although they relied on a trusted circle of \nadvisers, they made frequent trips to London and Paris, and also regularly had paintings \nsent to their home for consideration. \nBy the early 1920s, Gwendoline felt increasingly uncomfortable buying art works \nwhen faced with the poverty and social upheaval created by the First World War. Her \nphilanthropic pursuits then became focused almost exclusively on social causes and the \ndevelopment of the sisters' home at Gregynog Hall into a conference center and venue \nfor the Gregynog Festival of Music and Poetry. Gwendoline made her final art purchase \nin March 1926. Margaret also stopped collecting around this time, but started again in \nthe 1930s acquiring, on a relatively small scale, work by contemporary British artists. \nThe sisters collected French Impressionist paintings at a time when such art was \nroutinely ignored by individuals and institutions alike. The Gwendoline and Margaret \nDavies collection, donated in 1951 and 1963 respectively to the National Museum \nWales, contains major examples of work by leading French Impressionists. In collecting \npaintings that they loved, the sisters created a lasting and meaningful cultural legacy for \nthe people of Wales and beyond. \n*** Impressionist: an artist with a style of painting that developed in France in the late 1800s by Renoir, including his well-known painting \nLa Parisienne \n\nTest 1 \nQuestions \n1-7 \nComplete the notes below. \nChoose ONE WORD ONLY from the passage for each answer. \nWrite your answers in boxes 1-7 on your answer sheet. \nGwendoline and Margaret Davies \nFamily and early life \n• \ntheir grandfather's wealth came from 1 ........................................... \nand transportation \nbusinesses \n• \ntheir upbringing gave them a sense of social responsibility \n• \ntheir 2 ........................................... \nwas designed to give them an interest in activities \nsuch as collecting art \n• \ntheir governess took them on trips to art galleries \n• \nthey took lengthy 3 ........................................... \nabout the things they saw in art \ngalleries \nThe sisters as art collectors \n• \ntheir 4 ........................................... \nshowed they liked Old Master paintings, but they \nwere expensive to buy \n• \ntheir early purchases were safe, popular paintings \n• \nthe first Impressionist paintings they bought showed places in \n5 ......................................... \n.. \nImpact of First World War \n• \nthey helped bring artists from Belgium to Wales \n• \nthey worked in a 6 ........................................... \nfor soldiers in France \nOpinions about the sisters as art collectors \n• \nwere not considered typical collectors - they lived in isolation in the \ncountryside and did not have any 7 ........................................... \nwho were artists\n\n---\n\n**READING PASSAGE 2**\n\nPASSAGE 2 \nYou should spend about 20 minutes on Questions 14-26, which are based on Reading \nPassage 2 below. \nWhy we need silence \nA \nHumans are finely attuned to noise, and for good reason. From an evolutionary \nperspective, sounds give us vital information, helping us navigate the world and avoid \ndanger. To help ensure loud or unexpected noises get the attention they deserve, our \ninternal chemistry alters in response to them. Our blood pressure goes up, muscles \ntense and glands release hormones that prepare us for fight or flight. In the short \nterm, this is a good thing. When we are exposed to too much noise over the long \nterm, however, those responses can lead to a multitude of health issues, from sleep \ndisturbance to even cardiovascular disease. \nB \nThe World Health Organization has recently designated excessive noise as an \n'underestimated threat' to public health, and has said that people living in cities \nsuch as Mumbai, Tokyo and Buenos Aires are being exposed to far more than the \nrecommended 40 decibels of noise at night. A report from the European Environment \nAgency concluded that noise was an ongoing and widespread issue in Europe, with at \nleast 1 in 5 people consistently exposed to levels considered harmful to health. 'There \nare no \"earlids\" that can protect your brain from noise,' says Nick Antonio, an acoustic \nconsultant who has contributed to the British and international standards for noise. \nC \nThe good news is that several cities have been working to turn the volume down. One of \nthe first to do so was London. 'By providing recommendations for quieter buses, reducing \nnoise from roads and also controlling noise from aircraft, they were able to make the \ncity quieter,' says Antonio. Other cities have introduced noise-reducing road coatings, \nfor instance, alongside greenery that muffles sound. Some solutions are more specific: \nWashington DC's ban on petrol-powered leaf blowers came into effect recently, while in \nNew York City, legislation has been approved to fine people who modify their vehicles \nto make them noisier. 'People are seeing the benefits of these more quiet environments in \ntheir cities,' Antonio says. 'I expect we will see much more of this in the future.' \nD \nResearchers are also seeking to understand what aspects of silent experiences are most \nbeneficial to our health. One of the best-researched is the flotation tank: a lightproof, \nsoundproof tank of salt water in which a person floats as a form of deep relaxation. \nWhile some people experience altered perception in the tanks, involving subtle \nhumming sounds and visual effects, these effects are benign and do not detract from \nthe benefits of the experience, says Justin Feinstein, a clinical neuropsychologist. 'When \nyou don't have external sensory stimuli coming in, the brain tries to fill the void to \nmake sense of this dark and silent world,' he explains. 'In these tanks, some people can \neven hear the sound of their eyes blinking,' says Feinstein. 'But it is the ability to focus \non the breath that helps people reach a relaxed or meditative state.' \n\nReading \nE \nTo further explore flotation tanks as a therapeutic tool, Feinstein and his colleagues \nrecruited 50 people with a variety of conditions related to stress and had them answer a \nquestionnaire prior to and following a flotation session. Participants reported decreases \nin muscle tension, pain and symptoms of their conditions after a single, I-hour float, \nalongside an increase in feelings of relaxation and overall wellbeing. \nLess is known about what effects sensory deprivation can have on the brain. To \ninvestigate, Feinstein's team had 48 people participate in either three 90-minute float \nsessions or three 90-minute periods of relaxing on a chair which reclined. Participants \nhad their brains scanned using functional magnetic resonance imaging at the beginning \nand end of the trial. Float sessions uniquely decreased activity in the default mode \nnetwork (DMN), a collection of brain regions commonly linked with depression. \nFeinstein says it is an exciting finding, because flotation tanks seem to offer a way of \n'resetting' our nervous system to prevent it from getting out of balance. \nF \nNeurobiologist Tai Dotan Ben-Soussan is also an advocate of silence as a therapy. \n'When we find ways to be quiet, we are not only quiet in our environment, but quiet in \nour inner selves,' she explains. 'This allows us to be more aware of what is happening \naround us and what the situation may require from us so we can provide [a more] \nadequate response.' \nNot everyone will benefit from silence to the same extent, but Ben-Soussan says one \ncharacteristic is key: the person must need to want to engage in the experience. 'We see \nfrom animal models and human studies that volition and intentionality is important,' \nshe says. 'When people do not want silence, it can be very distressing.' \nG \nEric Pfeifer, a psychotherapy researcher, also concedes that some people may not \nbenefit from silence, particularly those who are in a heightened state of stress. 'People \nin these states may not be able to relax or calm down in a silent condition,' he says. \nProfessional guidance can be useful, he adds, allowing people to approach silence \nslowly so that they can gradually enjoy the benefits. And Pfeifer is convinced that \nsilence is more attainable in everyday life than people think. First, complete silence isn't \nnecessary. In a recent study, he found that participants reported more relaxation and \nless boredom when they sat quietly in an outdoor garden compared with a completely \nsilent room. Second, Pfeifer believes we don't need a lot of silence to gain benefits. 'You \ndon't need to spend hours in silence,' he says. 'It is likely better to have more frequency \nof silence for a few minutes at a time than a longer period of silence only once a week. \nJust finding those places in your daily life where you can find some silence ... can make \na big difference.'\n\n---\n\n**READING PASSAGE 3**\n\nReading \nREADING \nPASSAGE 3 \nYou should spend about 20 minutes on Questions 27-40, which are based on Reading \nPassage 3 below. \nBook review: The World of Sugar by \nUlbeBosma \nUlbe Bosma's The World of Sugar is a genuinely global history. Bosma discusses all the sugar-\ngrowing places of the world, beginning with Cuba and Java, the largest exporters of the early \n20th century. But this is a history not just of cane sugar but also of beet sugar, an equally \nimportant form of traded sugar over the last hundred years. Beet sugar is grown mainly in \nEurope and the United States. It has also been massively subsidised and sold at artificially low \nprices on world markets, threatening the livelihood of producers of cane sugar. \nBosma's discussion of the sugar market in Britain gives a sense of the book's range. \nThe sweet-toothed British first bought cane sugar from their own slavery-dependent \ncolonial plantations. Following the abolition of slavery in the British Empire, cane sugar \nwas imported to Britain from places which retained the practice, such as Cuba and \nBrazil. Towards the end of the 19th century, the British started to import beet sugar from \ncontinental Europe. Only in the 20th century was there a move to develop a national beet \nsugar industry. \nThe book provides a global labour history, investigating the wide range of labour regimes \nassociated with growing sugar. Contrary to popular belief, cane sugar production was never \njust restricted to large, dedicated plantations owned by rich men. For example, in Java, a \nhuge exporter of sugar in the early 20th century, sugar cane was grown together with rice in \nan extraordinarily labour-intensive way by small farmers. \nThe World of Sugar is also a story of similarity and continuity in sugar cultivation. \nFor example, imported labour has been used for much large-scale production. German beet \nfields employed Polish workers; Mexicans and many others, including Sicilians, were vital \nto US sugar production. Cane cutting, Bosma shows, remains a poorly paid and brutal \nbusiness to this day in many places in the world. But as well as this, the book is about the \ncontinuity of the use of traditional methods on small farms. In the mid 20th-century, this \ntype of sugar production dominated in South Asia and Latin America. \nThis is also a history of capitalists and sugar dynasties, as well as corporations that in \nsome cases have remained influential over very long periods. Great firms and great interests \nhave had profound influence on the policies of states. In many places - not just the British \nCaribbean but Cuba and the Philippines too - a powerful sugar bourgeoisie played a \nmajor role in politics and their interests were consequently protected by trade barriers and \nsubsidies. In the battle for control of the industry, it was inevitably the poor countries which \ncame off worse. All this is explored by Bosma with wonderful subtlety and control. \n\nTest 1 \nBut sugar production was never just a matter of agriculture. It also involved the extraction, \nclose to the place of harvest, of sucrose from the sugar plant, a process which required \nmachinery powered by humans, animals, wind or steam. Further processes involved \nboiling (from the 19th century, this often involved vacuum systems) and the separation of \nsugar from other materials in a process known as refinement. From very early on, sugar \nproduction was an energy-intensive industrial process, mostly taking place in the countryside \nand in refineries in centres of consumption, both small and large. The growth of the industry \nentailed a very rapid diffusion of ideas and techniques from one country to another. Cuba, \nfor example, developed an extraordinarily dense system of railways to transport workers and \ncane, as well as steam-powered sugar factories. Particular varieties of cane sugar and beet \nsugar spread very rapidly across the world, in accordance with local needs and demands. \nWhere once only tiny quantities of sugar could be produced, now new techniques, varieties, \nfertilisers, irrigation systems and much more have turned gleaming white sugar into a \nubiquitous chemical. Over the same time, there has been a massive increase in consumption. \nOnce regarded as a luxury, sugar came to be promoted as a valuable source of energy. But as \nthe consumption of sugar has increased, so has the harm it does, whether to people's teeth \nor weight. In the face of appalling obstruction from the sugar industry to attempts to reduce \nconsumption, some countries have been forced to tax sugar in order to bring that about. The \nsugar industry has a history of attacking its critics and, when it comes to obesity, of trying \nto blame fats, and lack of exercise and self-control. And the recent past has seen worrying \nnew developments in mass sweetening. High-fructose corn syrup made from maize using an \nenzymatic process invented in Japan in the 1960s has a similar number of calories to table \nsugar but is far cheaper to produce. It is now widely consumed, having been adopted in the \nmaking of soft drinks and a large number of processed foods, and is regarded as a leading \ncause of obesity. \nThis is a wonderfully rich book, a model of global history, the history of production and \nthe history of capitalism. Bosma avoids outbursts of emotion, celebratory or critical, even \nif they might have made his analysis of the multiple tragedies involving sugar all the more \npowerful. He shows that we could always have done without sugar and that today we have \nmany alternative sources of sweetness. Yet many of the poorest people in the world still \ndepend on it to make a living. \n\nReading",
+  "reading": [
+    {
+      "number": 1,
+      "passage": "Passage 1",
+      "type": "note_completion",
+      "question": "their grandfather's wealth came from 1 ___ and transportation businesses"
+    },
+    {
+      "number": 2,
+      "passage": "Passage 1",
+      "type": "note_completion",
+      "question": "their 2 ___ was designed to give them an interest in activities such as collecting art"
+    },
+    {
+      "number": 3,
+      "passage": "Passage 1",
+      "type": "note_completion",
+      "question": "they took lengthy 3 ___ about the things they saw in art galleries"
+    },
+    {
+      "number": 4,
+      "passage": "Passage 1",
+      "type": "note_completion",
+      "question": "their 4 ___ showed they liked Old Master paintings, but they were expensive to buy"
+    },
+    {
+      "number": 5,
+      "passage": "Passage 1",
+      "type": "note_completion",
+      "question": "the first Impressionist paintings they bought showed places in 5 ___"
+    },
+    {
+      "number": 6,
+      "passage": "Passage 1",
+      "type": "note_completion",
+      "question": "they worked in a 6 ___ for soldiers in France"
+    },
+    {
+      "number": 7,
+      "passage": "Passage 1",
+      "type": "note_completion",
+      "question": "did not have any 7 ___ who were artists"
+    },
+    {
+      "number": 8,
+      "passage": "Passage 1",
+      "type": "true_false_ng",
+      "question": "The Davies sisters' childhood influenced the way they decided to use their wealth.",
+      "options": [
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 9,
+      "passage": "Passage 1",
+      "type": "true_false_ng",
+      "question": "The Jean-Baptiste-Camille Corot paintings in the Davies sisters' collection were purchased from a gallery in France.",
+      "options": [
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 10,
+      "passage": "Passage 1",
+      "type": "true_false_ng",
+      "question": "Hugh Blaker opposed the Davies sisters' decision to buy art by French Impressionists.",
+      "options": [
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 11,
+      "passage": "Passage 1",
+      "type": "true_false_ng",
+      "question": "The exhibition of Cezanne paintings at the Bath gallery was very popular with the public.",
+      "options": [
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 12,
+      "passage": "Passage 1",
+      "type": "true_false_ng",
+      "question": "The impact of the First World War encouraged Gwendoline to reconsider her interest in collecting art.",
+      "options": [
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 13,
+      "passage": "Passage 1",
+      "type": "true_false_ng",
+      "question": "The Davies sisters bought French Impressionist art during a period when very few people were doing so.",
+      "options": [
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 14,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "Which section contains examples of strategies to decrease the noise that the public are exposed to?",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G"
+      ]
+    },
+    {
+      "number": 15,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "Which section contains data indicating the extent of the problem of excessive noise?",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G"
+      ]
+    },
+    {
+      "number": 16,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "Which section contains a description of physiological changes in our bodies when we hear sudden noises?",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G"
+      ]
+    },
+    {
+      "number": 17,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "Which section contains evidence that a relatively quiet environment can be more beneficial than a totally silent one?",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G"
+      ]
+    },
+    {
+      "number": 18,
+      "passage": "Passage 2",
+      "type": "note_completion",
+      "question": "Flotation tanks allow people to concentrate on their own 18 ___, which helps them relax and meditate."
+    },
+    {
+      "number": 19,
+      "passage": "Passage 2",
+      "type": "note_completion",
+      "question": "Feinstein and his colleagues gave 50 people a 19 ___ to complete before and after using a flotation tank."
+    },
+    {
+      "number": 20,
+      "passage": "Passage 2",
+      "type": "note_completion",
+      "question": "Participants reported signs of relaxation and improved general 20 ___."
+    },
+    {
+      "number": 21,
+      "passage": "Passage 2",
+      "type": "note_completion",
+      "question": "Brain scans revealed decreased activity in parts of the brain associated with 21 ___."
+    },
+    {
+      "number": 22,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "It is unpleasant and upsetting for people to be placed in a silent environment against their will.",
+      "options": [
+        "A. Nick Antonio",
+        "B. Justin Feinstein",
+        "C. Tai Dotan Ben-Soussan",
+        "D. Eric Pfeifer"
+      ]
+    },
+    {
+      "number": 23,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "The trend towards creating quieter urban locations is likely to increase in the coming years.",
+      "options": [
+        "A. Nick Antonio",
+        "B. Justin Feinstein",
+        "C. Tai Dotan Ben-Soussan",
+        "D. Eric Pfeifer"
+      ]
+    },
+    {
+      "number": 24,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "When our body's senses are deprived of input, our minds compensate by creating illusions of images and sounds.",
+      "options": [
+        "A. Nick Antonio",
+        "B. Justin Feinstein",
+        "C. Tai Dotan Ben-Soussan",
+        "D. Eric Pfeifer"
+      ]
+    },
+    {
+      "number": 25,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "Even a short amount of silent time can have a positive impact.",
+      "options": [
+        "A. Nick Antonio",
+        "B. Justin Feinstein",
+        "C. Tai Dotan Ben-Soussan",
+        "D. Eric Pfeifer"
+      ]
+    },
+    {
+      "number": 26,
+      "passage": "Passage 2",
+      "type": "multiple_choice",
+      "question": "External and internal quietness makes us more conscious of events in our surroundings.",
+      "options": [
+        "A. Nick Antonio",
+        "B. Justin Feinstein",
+        "C. Tai Dotan Ben-Soussan",
+        "D. Eric Pfeifer"
+      ]
+    },
+    {
+      "number": 27,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "What does the reviewer suggest about the cultivation and trading of sugar in the first paragraph?",
+      "options": [
+        "A. Sugar has played a major role in international relations.",
+        "B. Beet sugar has been made more internationally competitive.",
+        "C. Cane sugar is thought to be of superior quality to beet sugar.",
+        "D. New locations for cultivating sugar have increased production."
+      ]
+    },
+    {
+      "number": 28,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "In the second paragraph, when discussing the sugar market in Britain, the reviewer stresses:",
+      "options": [
+        "A. how the sources used changed over time.",
+        "B. how developments in agriculture affected trade.",
+        "C. the increased demand for sugar over the years.",
+        "D. the growing support for ethical methods of cultivation."
+      ]
+    },
+    {
+      "number": 29,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "What is the reviewer doing in the third paragraph?",
+      "options": [
+        "A. describing an efficient approach to sugar cultivation",
+        "B. explaining why the use of sugar plantations declined",
+        "C. addressing a misconception about the growing of sugar cane",
+        "D. evaluating different approaches to the cultivation of sugar cane"
+      ]
+    },
+    {
+      "number": 30,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "In the final paragraph, what does the reviewer suggest is the overall message of Bosma's book?",
+      "options": [
+        "A. Sugar is a harmful and unnecessary product.",
+        "B. Economic pressure is needed to control sugar production.",
+        "C. Conditions for workers in sugar production should be improved.",
+        "D. Intensive marketing of sugar has had disastrous consequences."
+      ]
+    },
+    {
+      "number": 31,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "In the big industries in both Germany and the US, sugar farming depended on 31 ___",
+      "options": [
+        "A. national",
+        "B. agricultural",
+        "C. less wealthy nations",
+        "D. untrained workers",
+        "E. small-scale cultivation",
+        "F. outdated methods",
+        "G. financial controls",
+        "H. migrant workers",
+        "I. powerful individuals and businesses"
+      ]
+    },
+    {
+      "number": 32,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "However, in other parts of the world such as South Asia and Latin America, 32 ___ continued.",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I"
+      ]
+    },
+    {
+      "number": 33,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "Sugar production has also involved 33 ___ who were eager to protect their markets.",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I"
+      ]
+    },
+    {
+      "number": 34,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "In countries such as Cuba the sugar industry therefore had a major influence on 34 ___.",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I"
+      ]
+    },
+    {
+      "number": 35,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "To support the interests of sugar producers, 35 ___ were established.",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I"
+      ]
+    },
+    {
+      "number": 36,
+      "passage": "Passage 3",
+      "type": "multiple_choice",
+      "question": "As a result of this, 36 ___ were penalised.",
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I"
+      ]
+    },
+    {
+      "number": 37,
+      "passage": "Passage 3",
+      "type": "true_false_ng",
+      "question": "Sugar has now become available in large quantities due to a range of agricultural developments.",
+      "options": [
+        "YES",
+        "NO",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 38,
+      "passage": "Passage 3",
+      "type": "true_false_ng",
+      "question": "Advertisers initially marketed sugar as a luxury product.",
+      "options": [
+        "YES",
+        "NO",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 39,
+      "passage": "Passage 3",
+      "type": "true_false_ng",
+      "question": "The invention of high-fructose corn syrup was a positive development.",
+      "options": [
+        "YES",
+        "NO",
+        "NOT GIVEN"
+      ]
+    },
+    {
+      "number": 40,
+      "passage": "Passage 3",
+      "type": "true_false_ng",
+      "question": "High-fructose corn syrup is an ingredient in many processed foods.",
+      "options": [
+        "YES",
+        "NO",
+        "NOT GIVEN"
+      ]
+    }
+  ],
+  "writing_task1": "Writing \nWRITING \nWRITING \nTASK 1 \nYou should spend about 20 minutes on this task. \nThe graph below gives information about the number of jobs in four sectors of \nthe economy in the US between 1960 and 2020. \nSummarise the information by selecting and reporting the main features, and \nmake comparisons where relevant. \nWrite at least 1 50 words. \nNumber of jobs in four sectors of the economy in the US, 1960-2020 \n25 \n20 \nVI \nC: \n.2 15 \n--0-\nManufacturing \nE \n- -c- - Retail \nC: \nVI 10 \n.c \n-·---·-\nAgriculture \n0 -, \n•····+····· \nHealthcare \n5 \n0 -t-------\"\"\"T\"\"------\"\"\"T'\"--------, \n1960 \n1980 \n2000 \n2020 \nYear \n➔ 1~ p. 1251 29",
+  "writing_task2": "Test 1 \nWRITING \nTASK 2 \nYou should spend about 40 minutes on this task. \nWrite about the following topic: \nThe best way to provide enough homes in large cities is to build tall apartment \nblocks. \nTo what extent do you agree or disagree with this statement? \nGive reasons for your answer and include any relevant examples from your own \nknowledge or experience. \nWrite at least 250 words. \n30 \n➔I~ p. 1271",
+  "speaking": {
+    "part1": {
+      "title": "Part 1 — Introduction & Interview",
+      "duration": 270,
+      "questions": [
+        "Where do you go to get a haircut?",
+        "Have you changed your hairstyle recently?",
+        "Would you ever change the colour of your hair?",
+        "Do you enjoy going to the hairdresser/barber?"
+      ]
+    },
+    "part2": {
+      "title": "Part 2 — Individual Long Turn",
+      "prep": 60,
+      "speaking": 120,
+      "cue_card": "Describe a time when you used information for tourists, for example from a guidebook or online.\nYou should say:\n• where you got this information\n• what place this information was about\n• what information you got\nand explain whether this information was very helpful for you."
+    },
+    "part3": {
+      "title": "Part 3 — Two-way Discussion",
+      "duration": 270,
+      "questions": [
+        "What are the most popular kinds of holidays for people from your country to go on?",
+        "Do you think most people prefer to have a holiday abroad rather than in their own country?",
+        "Why do some people want to do absolutely nothing when they go away on holiday?",
+        "What are the kinds of tourist attraction that visitors to your country like to see?",
+        "Do you think tourist attractions such as museums should be free for local people to visit?",
+        "What can make a tourist attraction disappointing for visitors?"
+      ]
+    }
+  },
+  "speaking_raw": "Speaking \nSPEAKING \nPART 1 \nThe examiner asks you about yourself, your home, work or studies and other familiar \ntopics. \nEXAMPLE \nHairstyles \n• Where do you go to get a haircut? \n• Have you changed your hairstyle recently? \n• Would you ever change the colour of your hair? \n• Do you enjoy going to the hairdresser/barber? \nPART 2 \nDescribe a time when you used information for \ntourists, for example from a guidebook or online. \nYou should say: \nwhere you got this information \nwhat place this information was about \nwhat information you got \nand explain whether this information was very \nhelpful for you. \nPART 3 \nDiscussion topics: \nDifferent types of holidays \nExample questions: \nYou will have to talk \nabout the topic for 1 to \n2 minutes. You have \n1 minute to think about \nwhat you are going to \nsay. You can make some \nnotes to help you if \nyou wish. \nWhat are the most popular kinds of holidays for people from your country to go on? \nDo you think most people prefer to have a holiday abroad rather than in their \nown country? \nWhy do some people want to do absolutely nothing when they go away on holiday? \nTourist attractions \nExample questions: \nWhat are the kinds of tourist attraction that visitors to your country like to see? \nDo you think tourist attractions such as museums should be free for local people to visit? \nWhat can make a tourist attraction disappointing for visitors? \n31",
+  "reading_passages": {
+    "passage1": "PASSAGE 1 \nYou should spend about 20 minutes on Questions 1-13, which are based on Reading \nPassage 1 below. \nThe Davies Sisters \nBetween 1908 and 1924, Gwendoline and Margaret Davies amassed one of \nthe largest collections of late-nineteenth and early-twentieth-century \nFrench \npaintings in Britain \nGwendoline (1882-1951) and Margaret (1884-1963) Davies were the granddaughters \nof David Davies, a Welshman who amassed a fortune in the shipping and mining \nindustries. In 1907, when Gwendoline came into her inheritance (Margaret would follow \nin 1909), the sisters were said to be the wealthiest unmarried women in Britain. Their \nreligious upbringing in rural Wales gave them a deep sense of social responsibility and \nthey chose to use their inheritance for cultural and philanthropic* purposes. \nWhile there was no real family history of art collecting, the sisters' education was \nrigorously geared toward such pursuits. Their London school focused on cultural rather \nthan academic study, and they travelled extensively with their governess, Jane Blaker, \nvisiting art galleries and making extensive notes on the collections there. \nThe sisters began to make regular art purchases from 1908, which roughly coincided \nwith the dates of their inheritance. They took advice from various people, including \nthe art dealer Hugh Blaker (the brother of Jane Blaker) and David Croal Thompson, \nwho was also an art dealer. While it was long assumed that these men were largely \nresponsible for the nature of the sisters' collection, it has recently been accepted that \nGwendoline and Margaret retained a far more active role in the process. \nThe sisters' journals reveal their preference for Old Master** paintings. Yet they initially \nmade very few attempts to secure any such works. ·while the sisters were wealthy in \nrelative terms, their income was nothing compared to the fortunes of American art \ncollectors of this period, such as J. Pierpont Morgan. Quite simply, high quality Old \nMaster works were, if not beyond their means, then beyond what they were willing to \npay for them. Instead, their early purchases were of the fashionable, safe variety, and \nincluded, for example, paintings by the French artist Jean- Baptiste-Camille Corot. \n• philanthropic: seeking to promote the welfare of others, often by charitable funding \n•• Old Master: a highly respected artist of great skill who worked in Europe before about 1800 \n\nReading \nHowever, it was only a few years before their collecting took a new direction and they \nturned to the work of the French Impressionists***. We lmow that Hugh Blaker, as a \nchampion of contemporaiy French art had a hand in the decision, and we lmow also that \nthey would have seen examples on their various trips to Paris. Whatever the precise reason \nfor this change, their first purchases of Impressionist art, made in October 1912, were \nscenes of Venice by the French artist Claude Monet. Over the next 12 years, the sisters \namassed the bulk of their Impressionist collection, including six further works by Monet, \ntwo more by Manet, and three by Renoir, including his well-lmown painting La Parisienne. \nThe First World War (1914-1918) played a part in the development of the sisters' \ncollection. Their initial response to the war effort was to finance the safe passage of \nartists from occupied Belgium to Wales, as a humanitarian act, but also with the hope of \nestablishing a vibrant artists' community in the area. Later in the conflict, both sisters \ndecided to volunteer at a canteen for troops at Troyes, in northern France; Gwendoline \nin 1916, followed by Margaret in 1917. \nIt was tedious and distressing work, which would have a permanent effect on Gwendoline's \nhealth. Yet on one of numerous trips to nearby Paris, she visited the Bernheim-Jeune \nGallery. Here she acquired two works by Cezanne - Provenc;al Landscape and The Franc;ois \nZola Dam. The paintings were shipped directly to Bath, England, where they became the \nfirst works by Cezanne to go on display in a public gallery in Britain. \nCommentators have often described the sisters as unlikely pioneer collectors. Much is \nmade of their isolation in rural Wales and the fact that they didn't make friends with \nartists or gallery owners. Yet they didn't feel obliged to follow fashionable tastes and \nwere free to pursue their own preferences. Although they relied on a trusted circle of \nadvisers, they made frequent trips to London and Paris, and also regularly had paintings \nsent to their home for consideration. \nBy the early 1920s, Gwendoline felt increasingly uncomfortable buying art works \nwhen faced with the poverty and social upheaval created by the First World War. Her \nphilanthropic pursuits then became focused almost exclusively on social causes and the \ndevelopment of the sisters' home at Gregynog Hall into a conference center and venue \nfor the Gregynog Festival of Music and Poetry. Gwendoline made her final art purchase \nin March 1926. Margaret also stopped collecting around this time, but started again in \nthe 1930s acquiring, on a relatively small scale, work by contemporary British artists. \nThe sisters collected French Impressionist paintings at a time when such art was \nroutinely ignored by individuals and institutions alike. The Gwendoline and Margaret \nDavies collection, donated in 1951 and 1963 respectively to the National Museum \nWales, contains major examples of work by leading French Impressionists. In collecting \npaintings that they loved, the sisters created a lasting and meaningful cultural legacy for \nthe people of Wales and beyond. \n*** Impressionist: an artist with a style of painting that developed in France in the late 1800s by Renoir, including his well-known painting \nLa Parisienne \n\nTest 1 \nQuestions \n1-7 \nComplete the notes below. \nChoose ONE WORD ONLY from the passage for each answer. \nWrite your answers in boxes 1-7 on your answer sheet. \nGwendoline and Margaret Davies \nFamily and early life \n• \ntheir grandfather's wealth came from 1 ........................................... \nand transportation \nbusinesses \n• \ntheir upbringing gave them a sense of social responsibility \n• \ntheir 2 ........................................... \nwas designed to give them an interest in activities \nsuch as collecting art \n• \ntheir governess took them on trips to art galleries \n• \nthey took lengthy 3 ........................................... \nabout the things they saw in art \ngalleries \nThe sisters as art collectors \n• \ntheir 4 ........................................... \nshowed they liked Old Master paintings, but they \nwere expensive to buy \n• \ntheir early purchases were safe, popular paintings \n• \nthe first Impressionist paintings they bought showed places in \n5 ......................................... \n.. \nImpact of First World War \n• \nthey helped bring artists from Belgium to Wales \n• \nthey worked in a 6 ........................................... \nfor soldiers in France \nOpinions about the sisters as art collectors \n• \nwere not considered typical collectors - they lived in isolation in the \ncountryside and did not have any 7 ........................................... \nwho were artists",
+    "passage2": "PASSAGE 2 \nYou should spend about 20 minutes on Questions 14-26, which are based on Reading \nPassage 2 below. \nWhy we need silence \nA \nHumans are finely attuned to noise, and for good reason. From an evolutionary \nperspective, sounds give us vital information, helping us navigate the world and avoid \ndanger. To help ensure loud or unexpected noises get the attention they deserve, our \ninternal chemistry alters in response to them. Our blood pressure goes up, muscles \ntense and glands release hormones that prepare us for fight or flight. In the short \nterm, this is a good thing. When we are exposed to too much noise over the long \nterm, however, those responses can lead to a multitude of health issues, from sleep \ndisturbance to even cardiovascular disease. \nB \nThe World Health Organization has recently designated excessive noise as an \n'underestimated threat' to public health, and has said that people living in cities \nsuch as Mumbai, Tokyo and Buenos Aires are being exposed to far more than the \nrecommended 40 decibels of noise at night. A report from the European Environment \nAgency concluded that noise was an ongoing and widespread issue in Europe, with at \nleast 1 in 5 people consistently exposed to levels considered harmful to health. 'There \nare no \"earlids\" that can protect your brain from noise,' says Nick Antonio, an acoustic \nconsultant who has contributed to the British and international standards for noise. \nC \nThe good news is that several cities have been working to turn the volume down. One of \nthe first to do so was London. 'By providing recommendations for quieter buses, reducing \nnoise from roads and also controlling noise from aircraft, they were able to make the \ncity quieter,' says Antonio. Other cities have introduced noise-reducing road coatings, \nfor instance, alongside greenery that muffles sound. Some solutions are more specific: \nWashington DC's ban on petrol-powered leaf blowers came into effect recently, while in \nNew York City, legislation has been approved to fine people who modify their vehicles \nto make them noisier. 'People are seeing the benefits of these more quiet environments in \ntheir cities,' Antonio says. 'I expect we will see much more of this in the future.' \nD \nResearchers are also seeking to understand what aspects of silent experiences are most \nbeneficial to our health. One of the best-researched is the flotation tank: a lightproof, \nsoundproof tank of salt water in which a person floats as a form of deep relaxation. \nWhile some people experience altered perception in the tanks, involving subtle \nhumming sounds and visual effects, these effects are benign and do not detract from \nthe benefits of the experience, says Justin Feinstein, a clinical neuropsychologist. 'When \nyou don't have external sensory stimuli coming in, the brain tries to fill the void to \nmake sense of this dark and silent world,' he explains. 'In these tanks, some people can \neven hear the sound of their eyes blinking,' says Feinstein. 'But it is the ability to focus \non the breath that helps people reach a relaxed or meditative state.' \n\nReading \nE \nTo further explore flotation tanks as a therapeutic tool, Feinstein and his colleagues \nrecruited 50 people with a variety of conditions related to stress and had them answer a \nquestionnaire prior to and following a flotation session. Participants reported decreases \nin muscle tension, pain and symptoms of their conditions after a single, I-hour float, \nalongside an increase in feelings of relaxation and overall wellbeing. \nLess is known about what effects sensory deprivation can have on the brain. To \ninvestigate, Feinstein's team had 48 people participate in either three 90-minute float \nsessions or three 90-minute periods of relaxing on a chair which reclined. Participants \nhad their brains scanned using functional magnetic resonance imaging at the beginning \nand end of the trial. Float sessions uniquely decreased activity in the default mode \nnetwork (DMN), a collection of brain regions commonly linked with depression. \nFeinstein says it is an exciting finding, because flotation tanks seem to offer a way of \n'resetting' our nervous system to prevent it from getting out of balance. \nF \nNeurobiologist Tai Dotan Ben-Soussan is also an advocate of silence as a therapy. \n'When we find ways to be quiet, we are not only quiet in our environment, but quiet in \nour inner selves,' she explains. 'This allows us to be more aware of what is happening \naround us and what the situation may require from us so we can provide [a more] \nadequate response.' \nNot everyone will benefit from silence to the same extent, but Ben-Soussan says one \ncharacteristic is key: the person must need to want to engage in the experience. 'We see \nfrom animal models and human studies that volition and intentionality is important,' \nshe says. 'When people do not want silence, it can be very distressing.' \nG \nEric Pfeifer, a psychotherapy researcher, also concedes that some people may not \nbenefit from silence, particularly those who are in a heightened state of stress. 'People \nin these states may not be able to relax or calm down in a silent condition,' he says. \nProfessional guidance can be useful, he adds, allowing people to approach silence \nslowly so that they can gradually enjoy the benefits. And Pfeifer is convinced that \nsilence is more attainable in everyday life than people think. First, complete silence isn't \nnecessary. In a recent study, he found that participants reported more relaxation and \nless boredom when they sat quietly in an outdoor garden compared with a completely \nsilent room. Second, Pfeifer believes we don't need a lot of silence to gain benefits. 'You \ndon't need to spend hours in silence,' he says. 'It is likely better to have more frequency \nof silence for a few minutes at a time than a longer period of silence only once a week. \nJust finding those places in your daily life where you can find some silence ... can make \na big difference.'",
+    "passage3": "Reading \nREADING \nPASSAGE 3 \nYou should spend about 20 minutes on Questions 27-40, which are based on Reading \nPassage 3 below. \nBook review: The World of Sugar by \nUlbeBosma \nUlbe Bosma's The World of Sugar is a genuinely global history. Bosma discusses all the sugar-\ngrowing places of the world, beginning with Cuba and Java, the largest exporters of the early \n20th century. But this is a history not just of cane sugar but also of beet sugar, an equally \nimportant form of traded sugar over the last hundred years. Beet sugar is grown mainly in \nEurope and the United States. It has also been massively subsidised and sold at artificially low \nprices on world markets, threatening the livelihood of producers of cane sugar. \nBosma's discussion of the sugar market in Britain gives a sense of the book's range. \nThe sweet-toothed British first bought cane sugar from their own slavery-dependent \ncolonial plantations. Following the abolition of slavery in the British Empire, cane sugar \nwas imported to Britain from places which retained the practice, such as Cuba and \nBrazil. Towards the end of the 19th century, the British started to import beet sugar from \ncontinental Europe. Only in the 20th century was there a move to develop a national beet \nsugar industry. \nThe book provides a global labour history, investigating the wide range of labour regimes \nassociated with growing sugar. Contrary to popular belief, cane sugar production was never \njust restricted to large, dedicated plantations owned by rich men. For example, in Java, a \nhuge exporter of sugar in the early 20th century, sugar cane was grown together with rice in \nan extraordinarily labour-intensive way by small farmers. \nThe World of Sugar is also a story of similarity and continuity in sugar cultivation. \nFor example, imported labour has been used for much large-scale production. German beet \nfields employed Polish workers; Mexicans and many others, including Sicilians, were vital \nto US sugar production. Cane cutting, Bosma shows, remains a poorly paid and brutal \nbusiness to this day in many places in the world. But as well as this, the book is about the \ncontinuity of the use of traditional methods on small farms. In the mid 20th-century, this \ntype of sugar production dominated in South Asia and Latin America. \nThis is also a history of capitalists and sugar dynasties, as well as corporations that in \nsome cases have remained influential over very long periods. Great firms and great interests \nhave had profound influence on the policies of states. In many places - not just the British \nCaribbean but Cuba and the Philippines too - a powerful sugar bourgeoisie played a \nmajor role in politics and their interests were consequently protected by trade barriers and \nsubsidies. In the battle for control of the industry, it was inevitably the poor countries which \ncame off worse. All this is explored by Bosma with wonderful subtlety and control. \n\nTest 1 \nBut sugar production was never just a matter of agriculture. It also involved the extraction, \nclose to the place of harvest, of sucrose from the sugar plant, a process which required \nmachinery powered by humans, animals, wind or steam. Further processes involved \nboiling (from the 19th century, this often involved vacuum systems) and the separation of \nsugar from other materials in a process known as refinement. From very early on, sugar \nproduction was an energy-intensive industrial process, mostly taking place in the countryside \nand in refineries in centres of consumption, both small and large. The growth of the industry \nentailed a very rapid diffusion of ideas and techniques from one country to another. Cuba, \nfor example, developed an extraordinarily dense system of railways to transport workers and \ncane, as well as steam-powered sugar factories. Particular varieties of cane sugar and beet \nsugar spread very rapidly across the world, in accordance with local needs and demands. \nWhere once only tiny quantities of sugar could be produced, now new techniques, varieties, \nfertilisers, irrigation systems and much more have turned gleaming white sugar into a \nubiquitous chemical. Over the same time, there has been a massive increase in consumption. \nOnce regarded as a luxury, sugar came to be promoted as a valuable source of energy. But as \nthe consumption of sugar has increased, so has the harm it does, whether to people's teeth \nor weight. In the face of appalling obstruction from the sugar industry to attempts to reduce \nconsumption, some countries have been forced to tax sugar in order to bring that about. The \nsugar industry has a history of attacking its critics and, when it comes to obesity, of trying \nto blame fats, and lack of exercise and self-control. And the recent past has seen worrying \nnew developments in mass sweetening. High-fructose corn syrup made from maize using an \nenzymatic process invented in Japan in the 1960s has a similar number of calories to table \nsugar but is far cheaper to produce. It is now widely consumed, having been adopted in the \nmaking of soft drinks and a large number of processed foods, and is regarded as a leading \ncause of obesity. \nThis is a wonderfully rich book, a model of global history, the history of production and \nthe history of capitalism. Bosma avoids outbursts of emotion, celebratory or critical, even \nif they might have made his analysis of the multiple tragedies involving sugar all the more \npowerful. He shows that we could always have done without sugar and that today we have \nmany alternative sources of sweetness. Yet many of the poorest people in the world still \ndepend on it to make a living. \n\nReading"
+  }
+}

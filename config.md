@@ -169,6 +169,18 @@ Hệ thống được thiết kế theo kiến trúc Microservices & Decoupled F
 - **Thẻ Flashcard (`/flashcards`)**: Giao diện lật thẻ 3D, đánh giá 4 nút FSRS rating.
 - **Hàng chờ Ôn tập (`/review`)**: Danh sách bài cần ôn tập theo độ ưu tiên FSRS.
 - **AI Tutor Chat (`/tutor`)**: Khung chat tương tác trực tiếp với sách.
+- **Trình đọc & chỉnh sửa ebook (`/books/[id]/read`)**: xem chi tiết ở mục 3.8.
+- **Dựng đề thi từ sách (`/books/[id]/exam-builder`)** và **Phòng thi ảo (`/exam`, `/exam/[id]`)**: xem mục 3.8.
+
+### 3.8. Ebook, Dựng đề thi & Phòng thi ảo (cập nhật 14/10/2026)
+*Mã nguồn*: `backend/app/services/doc_ingest/`, `backend/app/services/exam_builder/`, `backend/app/services/exam_grading.py`,
+`backend/app/api/v1/{ebook,exam_sets,exam}.py`, `frontend/src/components/{ebook,exam}/`. Kế hoạch & nhật ký: `docs/PLAN_PDF_EBOOK_EXAM.md`.
+
+- **Nạp tài liệu**: PDF (PDFium: tiêu đề theo cỡ chữ, gộp dòng thành đoạn, bỏ header/footer lặp, nối từ ngắt dòng; OCR Gemini Vision cho trang scan) và DOCX (theo style của Word). Kết quả là các *khối* (`document_blocks`): tiêu đề / đoạn / mục danh sách / bảng, kèm số trang. Đọc được ngay sau vài giây; embedding theo lô, chủ đề + flashcard chạy song song ở nền.
+- **Ebook**: đọc, chỉnh sửa từng khối (có lịch sử, tách/gộp, khôi phục bản gốc), in đậm, highlight 5 màu lưu lâu dài, sổ ghi chú theo sách, tìm kiếm, vị trí đang đọc, mục lục, ảnh trang gốc, xuất Markdown/in PDF; chỉ mục AI được lập lại tăng dần sau khi sửa.
+- **Dựng đề**: phân đoạn sách đề (Test → kỹ năng → Part/Passage/Task → nhóm câu hỏi), trích câu hỏi 16 dạng IELTS, đọc trang đáp án (cặp "in either order", biến thể `/`, `(a)`), kiểm lỗi (`validator`), AI làm lại nhóm khó nhưng bị kiểm chứng với nguyên văn. Bản nháp phải được duyệt ở màn hình 3 cột (có trang gốc bên cạnh) rồi mới publish.
+- **Phòng thi**: phiên thi chụp nội dung + đáp án lúc bắt đầu; API không bao giờ trả đáp án; câu trả lời lưu từng câu; đồng hồ do server tính nên tải lại vẫn thi tiếp; chấm tại server (band Listening/Reading theo bảng chuẩn, Writing bằng AI theo 4 tiêu chí hoặc ước lượng có gắn nhãn, Speaking chưa chấm); kết quả có bảng xem lại từng câu, phân tích theo dạng câu hỏi, audioscript/bài mẫu.
+- **Bài kiểm tra từ giáo trình**: AI sinh câu hỏi từ một chương, chỉ giữ câu có bằng chứng nguyên văn.
 
 ---
 
@@ -182,7 +194,7 @@ Sơ đồ thể hiện toàn bộ vòng lặp từ lúc học viên nạp sách 
 
 ## 5. CƠ SỞ DỮ LIỆU & SCHEMA MATRIX
 
-Hệ thống bao gồm **16 bảng dữ liệu PostgreSQL** chuẩn hóa được quản lý trên Supabase Cloud:
+Hệ thống bao gồm **23 nhóm bảng dữ liệu PostgreSQL** chuẩn hóa được quản lý trên Supabase Cloud:
 
 | STT | Tên Bảng (Table Name) | Chức năng Nghiệp vụ | Liên kết chính (Foreign Keys) |
 | :--- | :--- | :--- | :--- |
@@ -202,6 +214,13 @@ Hệ thống bao gồm **16 bảng dữ liệu PostgreSQL** chuẩn hóa đượ
 | 14 | `study_goals` | Mục tiêu deadline & quỹ thời gian học | `auth.users(id)`, `documents(id)` |
 | 15 | `daily_learning_plans` | Lịch học chi tiết từng ngày (Adaptive) | `auth.users(id)`, `study_goals(id)` |
 | 16 | `flashcards` & `flashcard_states` | Thẻ ghi nhớ & Trạng thái FSRS từng thẻ | `topics(id)`, `flashcards(id)` |
+| 17 | `document_blocks` | Nội dung sách theo từng khối (sửa được, giữ bản gốc) — migration v5 | `documents(id)` |
+| 18 | `document_notes` | Sổ ghi chú của người dùng theo sách — migration v5 | `auth.users(id)`, `documents(id)`, `document_blocks(id)` |
+| 19 | `document_highlights` | Highlight nhiều màu lưu lâu dài — migration v6 | `auth.users(id)`, `document_blocks(id)` |
+| 20 | `document_block_revisions` | Lịch sử sửa từng khối (giữ 30 bản) — migration v6 | `document_blocks(id)` |
+| 21 | `reading_progress` | Vị trí đang đọc theo người dùng/sách — migration v6 | `auth.users(id)`, `documents(id)` |
+| 22 | `exam_sets` | Bộ đề dựng từ sách: nội dung (không đáp án), đáp án, kết quả kiểm lỗi — migration v7 | `auth.users(id)`, `documents(id)` |
+| 23 | `exam_sessions` | Phiên thi (+ `exam_set_id`, `exam_snapshot`, `answers_json`, `result_json`) — migration v4/v7 | `auth.users(id)`, `exam_sets(id)` |
 
 ---
 
@@ -231,6 +250,8 @@ pie title Tỷ lệ Hoàn thành Tiến độ Hệ thống Studia
 | **AI Tutor Chatbot** | ✅ Ready | **100%** | Chatbot RAG với trích dẫn nguồn sách & lưu phiên chat `ai_chat_sessions`. |
 | **Web UI (Next.js)** | ✅ Ready | **95%** | Đã hoàn thiện 9 trang giao diện chính (Dashboard, Books, Plan, Quiz, Flashcard, Tutor...). |
 | **Auth & Security (RLS)** | 🟡 Partial | **80%** | Bảng migration v2 đã hỗ trợ Service Role Bypass; cần hoàn thiện JWT Client Auth. |
+| **Ebook (đọc/sửa/ghi chú/highlight)** | ✅ Ready | **90%** | PDF/DOCX → khối, OCR, chỉ mục tăng dần; còn thiếu dựng lại bảng PDF. Cần chạy migration v5–v6. |
+| **Dựng đề & Phòng thi ảo** | ✅ Ready | **85%** | Cambridge IELTS 21: 4 test đủ 320 đáp án; ≈9% câu cần sửa tay (bảng/bản đồ). Speaking chưa chấm. Cần migration v7. |
 
 ---
 

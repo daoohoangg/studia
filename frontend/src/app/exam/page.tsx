@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Clock, Headphones, BookOpen, PenLine, Mic, ChevronRight, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 
-const API = "http://localhost:8000/api/v1";
+import { API, apiFetch } from "@/lib/api";
+import { Check, Clock, BookOpen } from "lucide-react";
 
 type ExamType = "full" | "cambridge21_test1" | "cambridge21_test2" | "cambridge21_test3" | "cambridge21_test4" | "listening" | "reading" | "writing" | "speaking";
 type ExamMode = "academic" | "general";
@@ -14,107 +15,98 @@ const EXAM_CONFIGS = {
     label: "Full Mock Test",
     desc: "Listening + Reading + Writing + Speaking",
     duration: "2 giờ 45 phút",
-    icon: "🎯",
     sections: [
-      { name: "Listening", time: "30 phút", questions: "40 câu", icon: Headphones },
-      { name: "Reading",   time: "60 phút", questions: "40 câu", icon: BookOpen },
-      { name: "Writing",   time: "60 phút", questions: "2 Tasks", icon: PenLine },
-      { name: "Speaking",  time: "15 phút", questions: "3 Parts", icon: Mic },
+      { name: "Listening", time: "30 phút", questions: "40 câu" },
+      { name: "Reading",   time: "60 phút", questions: "40 câu" },
+      { name: "Writing",   time: "60 phút", questions: "2 Tasks" },
+      { name: "Speaking",  time: "15 phút", questions: "3 Parts" },
     ],
-    color: "#1e40af",
-    bg: "linear-gradient(135deg, #1e3a8a 0%, #4c1d95 100%)",
+    color: "var(--brand)",
+    bg: "var(--secondary)",
   },
   cambridge21_test1: {
     label: "Cambridge 21 - Test 1",
     desc: "Đề thi chuẩn từ Cambridge IELTS 21 (Audio + Đề thật)",
     duration: "2 giờ 45 phút",
-    icon: "📚",
     sections: [
-      { name: "Listening", time: "30 phút", questions: "40 câu", icon: Headphones },
-      { name: "Reading",   time: "60 phút", questions: "40 câu", icon: BookOpen },
-      { name: "Writing",   time: "60 phút", questions: "2 Tasks", icon: PenLine },
-      { name: "Speaking",  time: "15 phút", questions: "3 Parts", icon: Mic },
+      { name: "Listening", time: "30 phút", questions: "40 câu" },
+      { name: "Reading",   time: "60 phút", questions: "40 câu" },
+      { name: "Writing",   time: "60 phút", questions: "2 Tasks" },
+      { name: "Speaking",  time: "15 phút", questions: "3 Parts" },
     ],
-    color: "#b91c1c",
-    bg: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+    color: "var(--danger)",
+    bg: "var(--secondary)",
   },
   cambridge21_test2: {
     label: "Cambridge 21 - Test 2",
     desc: "Đề thi chuẩn từ Cambridge IELTS 21 (Audio + Đề thật)",
     duration: "2 giờ 45 phút",
-    icon: "📚",
     sections: [
-      { name: "Listening", time: "30 phút", questions: "40 câu", icon: Headphones },
-      { name: "Reading",   time: "60 phút", questions: "40 câu", icon: BookOpen },
-      { name: "Writing",   time: "60 phút", questions: "2 Tasks", icon: PenLine },
-      { name: "Speaking",  time: "15 phút", questions: "3 Parts", icon: Mic },
+      { name: "Listening", time: "30 phút", questions: "40 câu" },
+      { name: "Reading",   time: "60 phút", questions: "40 câu" },
+      { name: "Writing",   time: "60 phút", questions: "2 Tasks" },
+      { name: "Speaking",  time: "15 phút", questions: "3 Parts" },
     ],
-    color: "#b91c1c",
-    bg: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+    color: "var(--danger)",
+    bg: "var(--secondary)",
   },
   cambridge21_test3: {
     label: "Cambridge 21 - Test 3",
     desc: "Đề thi chuẩn từ Cambridge IELTS 21 (Audio + Đề thật)",
     duration: "2 giờ 45 phút",
-    icon: "📚",
     sections: [
-      { name: "Listening", time: "30 phút", questions: "40 câu", icon: Headphones },
-      { name: "Reading",   time: "60 phút", questions: "40 câu", icon: BookOpen },
-      { name: "Writing",   time: "60 phút", questions: "2 Tasks", icon: PenLine },
-      { name: "Speaking",  time: "15 phút", questions: "3 Parts", icon: Mic },
+      { name: "Listening", time: "30 phút", questions: "40 câu" },
+      { name: "Reading",   time: "60 phút", questions: "40 câu" },
+      { name: "Writing",   time: "60 phút", questions: "2 Tasks" },
+      { name: "Speaking",  time: "15 phút", questions: "3 Parts" },
     ],
-    color: "#b91c1c",
-    bg: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+    color: "var(--danger)",
+    bg: "var(--secondary)",
   },
   cambridge21_test4: {
     label: "Cambridge 21 - Test 4",
     desc: "Đề thi chuẩn từ Cambridge IELTS 21 (Audio + Đề thật)",
     duration: "2 giờ 45 phút",
-    icon: "📚",
     sections: [
-      { name: "Listening", time: "30 phút", questions: "40 câu", icon: Headphones },
-      { name: "Reading",   time: "60 phút", questions: "40 câu", icon: BookOpen },
-      { name: "Writing",   time: "60 phút", questions: "2 Tasks", icon: PenLine },
-      { name: "Speaking",  time: "15 phút", questions: "3 Parts", icon: Mic },
+      { name: "Listening", time: "30 phút", questions: "40 câu" },
+      { name: "Reading",   time: "60 phút", questions: "40 câu" },
+      { name: "Writing",   time: "60 phút", questions: "2 Tasks" },
+      { name: "Speaking",  time: "15 phút", questions: "3 Parts" },
     ],
-    color: "#b91c1c",
-    bg: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+    color: "var(--danger)",
+    bg: "var(--secondary)",
   },
   listening: {
     label: "Listening Only",
     desc: "Section luyện tập Listening riêng lẻ",
     duration: "30 phút",
-    icon: "🎧",
-    sections: [{ name: "Listening", time: "30 phút", questions: "40 câu", icon: Headphones }],
-    color: "#0891b2",
-    bg: "linear-gradient(135deg, #164e63 0%, #0e7490 100%)",
+    sections: [{ name: "Listening", time: "30 phút", questions: "40 câu" }],
+    color: "var(--brand)",
+    bg: "var(--secondary)",
   },
   reading: {
     label: "Reading Only",
     desc: "Section luyện tập Reading riêng lẻ",
     duration: "60 phút",
-    icon: "📖",
-    sections: [{ name: "Reading", time: "60 phút", questions: "40 câu", icon: BookOpen }],
-    color: "#059669",
-    bg: "linear-gradient(135deg, #064e3b 0%, #065f46 100%)",
+    sections: [{ name: "Reading", time: "60 phút", questions: "40 câu" }],
+    color: "var(--success)",
+    bg: "var(--secondary)",
   },
   writing: {
     label: "Writing Only",
     desc: "Task 1 + Task 2 riêng lẻ",
     duration: "60 phút",
-    icon: "✍️",
-    sections: [{ name: "Writing", time: "60 phút", questions: "2 Tasks", icon: PenLine }],
-    color: "#d97706",
-    bg: "linear-gradient(135deg, #78350f 0%, #92400e 100%)",
+    sections: [{ name: "Writing", time: "60 phút", questions: "2 Tasks" }],
+    color: "var(--warning)",
+    bg: "var(--secondary)",
   },
   speaking: {
     label: "Speaking Only",
     desc: "Phỏng vấn Speaking với AI Examiner",
     duration: "15 phút",
-    icon: "🎙️",
-    sections: [{ name: "Speaking", time: "15 phút", questions: "3 Parts", icon: Mic }],
-    color: "#7c3aed",
-    bg: "linear-gradient(135deg, #4c1d95 0%, #5b21b6 100%)",
+    sections: [{ name: "Speaking", time: "15 phút", questions: "3 Parts" }],
+    color: "var(--brand)",
+    bg: "var(--secondary)",
   },
 };
 
@@ -127,6 +119,16 @@ const INSTRUCTIONS = [
   "Bạn có thể điều hướng qua lại giữa các câu bằng Question Navigator.",
 ];
 
+function sessionLabel(t?: string) {
+  if (!t) return "Phiên thi";
+  const m = /^cambridge21_test(\d)$/.exec(t);
+  if (m) return `Cambridge 21 - Test ${m[1]}`;
+  const names: Record<string, string> = {
+    full: "Full Mock Test", listening: "Listening", reading: "Reading", writing: "Writing", speaking: "Speaking",
+  };
+  return names[t] || "Phiên thi";
+}
+
 export default function ExamLobbyPage() {
   const router = useRouter();
   const [examType, setExamType] = useState<ExamType>("full");
@@ -134,11 +136,50 @@ export default function ExamLobbyPage() {
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
 
+  // Đề dựng từ sách của người dùng (đã publish) + lịch sử thi
+  const [sets, setSets] = useState<any[]>([]);
+  const [setId, setSetId] = useState<string | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch(`${API}/exam-sets?status=published`).then(async (res) => {
+      if (res.ok) setSets((await res.json()).exam_sets || []);
+    }).catch(() => {});
+    apiFetch(`${API}/exam/sessions?limit=5`).then(async (res) => {
+      if (res.ok) setHistory((await res.json()).sessions || []);
+    }).catch(() => {});
+  }, []);
+
   const config = EXAM_CONFIGS[examType];
+  const skillTypes: ExamType[] = ["full", "listening", "reading", "writing", "speaking"];
 
   const handleStartTest = async () => {
     if (!checked) return;
     setLoading(true);
+    setStartError(null);
+
+    if (setId) {
+      try {
+        const res = await apiFetch(`${API}/exam/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            exam_set_id: setId,
+            exam_type: skillTypes.includes(examType) ? examType : "full",
+            exam_mode: examMode,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Không tạo được phiên thi");
+        router.push(`/exam/${data.session.session_id}`);
+        return;
+      } catch (e: any) {
+        setStartError(e?.message || "Không tạo được phiên thi");
+        setLoading(false);
+        return;
+      }
+    }
 
     if (examType.startsWith("cambridge21")) {
       router.push(`/exam/demo?type=${examType}`);
@@ -146,7 +187,7 @@ export default function ExamLobbyPage() {
     }
 
     try {
-      const res = await fetch(`${API}/exam/sessions`, {
+      const res = await apiFetch(`${API}/exam/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ exam_type: examType, exam_mode: examMode }),
@@ -169,211 +210,151 @@ export default function ExamLobbyPage() {
     }
   };
 
+  const inProgress = history.find(h => h.status === "IN_PROGRESS");
+  const bandFor = (t: string) => {
+    const h = history.find(x => x.exam_type === t && (x.status === "SUBMITTED" || x.status === "AUTO_SUBMITTED"));
+    return h ? h.overall_band : undefined;
+  };
+  const selectedSet = sets.find(s => s.id === setId);
+  const fullTests: ExamType[] = ["cambridge21_test1", "cambridge21_test2", "cambridge21_test3", "cambridge21_test4", "full"];
+  const pick = (t: ExamType) => { setExamType(t); setSetId(null); };
+  const totalMinutes = config.sections.reduce((n, s) => n + (parseInt(s.time) || 0), 0);
+  const hhmm = `${Math.floor(totalMinutes / 60)}:${String(totalMinutes % 60).padStart(2, "0")}:00`;
+  const RULES = [
+    "Đồng hồ chạy ngay khi bạn bấm Bắt đầu và không tạm dừng được.",
+    "Phần nghe chỉ phát một lần — hãy đeo tai nghe.",
+    "Hết giờ, bài được nộp tự động. Bạn có thể chuyển câu bằng thanh điều hướng phía dưới.",
+    "Không có gợi ý, từ điển hay đáp án cho tới khi nộp bài.",
+  ];
+  const testSound = () => {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance("This is a sound check. If you can hear this clearly, you are ready.");
+    u.lang = "en-GB"; window.speechSynthesis.speak(u);
+  };
+
   return (
-    <div className="exam-lobby">
-      <div style={{ width: "100%", maxWidth: "900px" }}>
-        {/* Top Header */}
-        <div style={{ textAlign: "center", marginBottom: "48px" }}>
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: "12px",
-            background: "var(--bg-card)", border: "1px solid var(--border-subtle)",
-            padding: "8px 20px", borderRadius: "99px", marginBottom: "20px"
-          }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent-emerald)" }} />
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-              IELTS Computer-Delivered Simulation
-            </span>
-          </div>
-          <h1 style={{ fontSize: "2.8rem", fontWeight: "800", color: "var(--text-primary)", fontFamily: "Outfit, sans-serif", letterSpacing: "-0.02em", marginBottom: "10px" }}>
-            IELTS Mock Test Room
-          </h1>
-          <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem" }}>
-            Trải nghiệm phòng thi IELTS mô phỏng như thi thật. Không gợi ý. Không tra từ điển. Không đáp án.
-          </p>
+    <div className="wrap stagger">
+      <header className="page-head">
+        <div>
+          <span className="st-badge st-badge-success" style={{ marginBottom: 10 }}>Mô phỏng IELTS trên máy tính</span>
+          <h1 className="page-title">Thi thử IELTS</h1>
+          <p className="page-sub">Như phòng thi thật: không gợi ý, không tra từ, không xem đáp án cho tới khi nộp bài.</p>
         </div>
+      </header>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "24px", alignItems: "start" }}>
-          {/* Left — Config */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-            {/* Exam Mode */}
-            <div className="glass-panel" style={{ padding: "24px" }}>
-              <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "12px" }}>
-                Loại bài thi
-              </div>
-              <div style={{ display: "flex", gap: "10px" }}>
+      {inProgress && (
+        <div role="status" className="row-wrap" style={{ gap: 14, padding: "14px 18px", borderRadius: "var(--radius-md)", background: "var(--warning-tint)" }}>
+          <span className="tile tile-sm tile-warning" aria-hidden="true"><Clock size={18} strokeWidth={1.75} /></span>
+          <span style={{ flex: 1, color: "var(--ink)" }}><b style={{ fontWeight: 600 }}>Bạn còn một bài đang làm dở:</b> {inProgress.title || sessionLabel(inProgress.exam_type)}</span>
+          <Link className="st-btn st-btn-secondary st-btn-sm" href={`/exam/${inProgress.session_id}`}>Làm tiếp</Link>
+        </div>
+      )}
+
+      <div className="split" style={{ gridTemplateColumns: "minmax(0, 1.6fr) minmax(300px, 1fr)" }}>
+        <div className="stack" style={{ gap: 16 }}>
+          <section className="st-card" aria-labelledby="t-h">
+            <div className="sec-head">
+              <h2 id="t-h" className="sec-title">Chọn đề</h2>
+              <div className="seg" role="radiogroup" aria-label="Loại bài thi">
                 {(["academic", "general"] as ExamMode[]).map(m => (
-                  <button key={m} onClick={() => setExamMode(m)} style={{
-                    flex: 1, padding: "12px", borderRadius: "12px",
-                    border: `2px solid ${examMode === m ? "var(--border-glow)" : "var(--border-subtle)"}`,
-                    background: examMode === m ? "rgba(99,102,241,0.15)" : "transparent",
-                    color: examMode === m ? "var(--text-primary)" : "var(--text-muted)",
-                    cursor: "pointer", fontWeight: 700, fontSize: "0.85rem",
-                    transition: "all 0.15s ease"
-                  }}>
-                    {m === "academic" ? "Academic" : "General Training"}
+                  <button key={m} className="seg-btn" type="button" role="radio" aria-checked={examMode === m} aria-pressed={examMode === m} onClick={() => setExamMode(m)}>{m === "academic" ? "Academic" : "General Training"}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="eyebrow" style={{ color: "var(--ink-muted)", marginBottom: 8 }}>Đề đầy đủ · 2 giờ 45 phút</div>
+            <div role="radiogroup" aria-label="Đề đầy đủ" className="lobby-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
+              {fullTests.map(t => {
+                const band = bandFor(t);
+                return (
+                  <button key={t} className="lobby-test" type="button" role="radio" aria-checked={!setId && examType === t} onClick={() => pick(t)}>
+                    <b>{t === "full" ? "Đề tổng hợp" : EXAM_CONFIGS[t].label.replace(" - ", " · ")}</b>
+                    {band != null ? <span className="st-badge st-badge-success">Đã thi · {Number(band).toFixed(1)}</span> : <span className="meta">{t === "full" ? "Câu hỏi sinh tự động" : "Chưa thi · có audio"}</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="eyebrow" style={{ color: "var(--ink-muted)", margin: "18px 0 8px" }}>Luyện từng kỹ năng</div>
+            <div role="radiogroup" aria-label="Luyện từng kỹ năng" className="lobby-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+              {(["listening", "reading", "writing", "speaking"] as ExamType[]).map(t => {
+                const s = EXAM_CONFIGS[t].sections[0];
+                return (
+                  <button key={t} className="lobby-test" type="button" role="radio" aria-checked={!setId && examType === t} onClick={() => pick(t)}>
+                    <b>{s.name}</b><span className="meta">{s.time} · {s.questions.replace("Tasks", "task").replace("Parts", "part")}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="eyebrow" style={{ color: "var(--ink-muted)", margin: "18px 0 8px" }}>Đề dựng từ sách của bạn</div>
+            {sets.length === 0 ? (
+              <p className="meta">Chưa có đề nào. Mở một cuốn sách đề trong <Link className="link" href="/books">Thư viện</Link> rồi chọn “Dựng đề thi” để tạo bộ đề kèm đáp án.</p>
+            ) : (
+              <div role="radiogroup" aria-label="Đề từ sách" className="stack" style={{ gap: 8 }}>
+                {sets.map(s => (
+                  <button key={s.id} className="lobby-test lobby-set" type="button" role="radio" aria-checked={setId === s.id} onClick={() => { setSetId(s.id); if (!skillTypes.includes(examType)) setExamType("full"); }}>
+                    <span className="tile tile-sm" aria-hidden="true"><BookOpen size={18} strokeWidth={1.75} /></span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <b style={{ display: "block" }}>{s.title}</b>
+                      <span className="meta">Listening {s.stats?.listening ?? 0} câu · Reading {s.stats?.reading ?? 0} câu{s.has_audio ? " · có audio" : " · chưa có audio"}</span>
+                    </span>
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* Exam Type Grid */}
-            <div className="glass-panel" style={{ padding: "24px" }}>
-              <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "16px" }}>
-                Chọn bài thi
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                {(Object.entries(EXAM_CONFIGS) as [ExamType, typeof EXAM_CONFIGS.full][]).map(([key, cfg]) => (
-                  <button key={key} onClick={() => setExamType(key)} style={{
-                    padding: "16px",
-                    borderRadius: "14px",
-                    border: `2px solid ${examType === key ? "var(--border-glow)" : "var(--border-subtle)"}`,
-                    background: examType === key ? "rgba(99,102,241,0.12)" : "var(--bg-card)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "all 0.15s ease",
-                    display: "flex", flexDirection: "column", gap: "6px",
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: "1.4rem" }}>{cfg.icon}</span>
-                      {examType === key && (
-                        <div style={{ width: 18, height: 18, borderRadius: "50%", background: "var(--accent-indigo)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <CheckCircle2 size={12} color="#fff" />
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--text-primary)" }}>{cfg.label}</div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{cfg.duration}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Instructions */}
-            <div className="glass-panel" style={{ padding: "24px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
-                <AlertCircle size={16} color="var(--accent-amber)" />
-                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-amber)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                  Quy định phòng thi
-                </span>
-              </div>
-              <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "8px" }}>
-                {INSTRUCTIONS.map((inst, i) => (
-                  <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "10px", fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                    <span style={{ color: "var(--text-muted)", fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
-                    {inst}
-                  </li>
-                ))}
-              </ul>
-
-              <div
-                onClick={() => setChecked(c => !c)}
-                style={{
-                  display: "flex", alignItems: "center", gap: "12px",
-                  marginTop: "20px", cursor: "pointer", padding: "14px 16px",
-                  borderRadius: "12px",
-                  background: checked ? "rgba(99,102,241,0.1)" : "var(--bg-card)",
-                  border: `1.5px solid ${checked ? "var(--border-glow)" : "var(--border-subtle)"}`,
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <div style={{
-                  width: 20, height: 20, borderRadius: 6,
-                  border: `2px solid ${checked ? "var(--accent-indigo)" : "var(--text-muted)"}`,
-                  background: checked ? "var(--accent-indigo)" : "transparent",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  flexShrink: 0, transition: "all 0.15s ease"
-                }}>
-                  {checked && <CheckCircle2 size={12} color="#fff" />}
-                </div>
-                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
-                  Tôi đã đọc và đồng ý với các quy định của phòng thi
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Right — Summary & Start */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px", position: "sticky", top: "20px" }}>
-            {/* Selected Test Summary */}
-            <div style={{
-              borderRadius: "20px",
-              padding: "28px",
-              background: config.bg,
-              color: "#fff",
-            }}>
-              <div style={{ fontSize: "2.5rem", marginBottom: "12px" }}>{config.icon}</div>
-              <div style={{ fontSize: "1.25rem", fontWeight: 800, fontFamily: "Outfit, sans-serif", marginBottom: "4px" }}>
-                {examMode === "academic" ? "IELTS Academic" : "IELTS General"} — {config.label}
-              </div>
-              <div style={{ fontSize: "0.82rem", opacity: 0.8, marginBottom: "20px" }}>{config.desc}</div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-                <Clock size={14} />
-                <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>{config.duration}</span>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {config.sections.map((sec, i) => (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    background: "rgba(255,255,255,0.1)",
-                    padding: "10px 14px", borderRadius: "10px"
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.82rem" }}>
-                      <sec.icon size={14} />
-                      <span style={{ fontWeight: 600 }}>{sec.name}</span>
-                    </div>
-                    <div style={{ fontSize: "0.72rem", opacity: 0.8 }}>{sec.time} · {sec.questions}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Start Button */}
-            <button
-              onClick={handleStartTest}
-              disabled={!checked || loading}
-              style={{
-                width: "100%",
-                padding: "18px",
-                borderRadius: "16px",
-                border: "none",
-                background: checked
-                  ? "var(--gradient-main)"
-                  : "var(--bg-card)",
-                color: checked ? "#fff" : "var(--text-muted)",
-                fontSize: "1rem",
-                fontWeight: 800,
-                cursor: checked && !loading ? "pointer" : "not-allowed",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "10px",
-                transition: "all 0.2s ease",
-                boxShadow: checked ? "0 8px 32px rgba(79,70,229,0.4)" : "none",
-                fontFamily: "Outfit, sans-serif",
-                letterSpacing: "0.02em",
-              }}
-            >
-              {loading ? (
-                <><Loader2 size={18} className="spin" /> Đang chuẩn bị...</>
-              ) : (
-                <><span>Bắt Đầu Thi</span> <ChevronRight size={20} /></>
-              )}
-            </button>
-
-            {!checked && (
-              <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", textAlign: "center" }}>
-                Vui lòng đồng ý với quy định phòng thi để tiếp tục
-              </p>
             )}
+          </section>
 
-            <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", textAlign: "center", lineHeight: 1.6 }}>
-              Bài thi mô phỏng IELTS Computer-Delivered<br />
-              Dữ liệu câu hỏi có thể thay đổi
-            </p>
-          </div>
+          <section className="st-card" aria-labelledby="rule-h">
+            <h2 id="rule-h" className="heading-3">Trước khi bắt đầu</h2>
+            <ol className="ink2" style={{ margin: "12px 0 0", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 6 }}>
+              {RULES.map(r => <li key={r}>{r}</li>)}
+            </ol>
+            <label className="row" style={{ marginTop: 16, padding: 14, borderRadius: "var(--radius-md)", background: checked ? "var(--brand-tint)" : "var(--surface-sunken)", cursor: "pointer", transition: "background-color var(--dur-fast)" }}>
+              <span className={`check ${checked ? "check-on" : ""}`} aria-hidden="true">{checked && <Check size={14} strokeWidth={3} />}</span>
+              <input type="checkbox" className="st-sr" checked={checked} onChange={e => setChecked(e.target.checked)} />
+              <span style={{ color: "var(--ink)" }}>Tôi đã đọc và đồng ý với quy định phòng thi</span>
+            </label>
+          </section>
+
+          {history.length > 0 && (
+            <section className="st-card" aria-labelledby="h-h">
+              <div className="sec-head"><h2 id="h-h" className="sec-title">Lịch sử thi gần đây</h2><Link className="link" href="/dashboard">Xem tiến độ</Link></div>
+              <div>
+                {history.slice(0, 6).map(h => {
+                  const done = h.status === "SUBMITTED" || h.status === "AUTO_SUBMITTED";
+                  return (
+                    <Link key={h.session_id} href={`/exam/${h.session_id}`} className="row lobby-hist">
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontWeight: 600, fontSize: 14.5 }}>{h.title || sessionLabel(h.exam_type)}</span>
+                        {h.created_at && <span className="meta">{new Date(h.created_at).toLocaleDateString("vi-VN")}</span>}
+                      </span>
+                      {done ? <b className="num">Band {h.overall_band != null ? Number(h.overall_band).toFixed(1) : "—"}</b> : <span className="st-badge st-badge-warning">{h.status === "IN_PROGRESS" ? "Đang làm" : "Chưa bắt đầu"}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </div>
+
+        <aside className="navy-block" aria-labelledby="sum-h" style={{ padding: 28, display: "flex", flexDirection: "column", gap: 14, position: "sticky", top: 24, alignSelf: "start" }}>
+          <div className="eyebrow" style={{ color: "var(--on-navy)", opacity: 0.75 }}>{examMode === "academic" ? "Academic" : "General Training"} · {config.sections.length > 1 ? "Đề đầy đủ" : "Một kỹ năng"}</div>
+          <h2 id="sum-h" style={{ font: "700 26px/32px var(--font-display)", letterSpacing: "-0.4px", color: "var(--on-navy)" }}>{selectedSet ? selectedSet.title : config.label.replace(" - ", " · ")}</h2>
+          <div className="stack" style={{ gap: 8 }}>
+            {config.sections.map(s => (
+              <div key={s.name} className="lobby-secrow"><b style={{ fontWeight: 600 }}>{s.name}</b><span className="num" style={{ opacity: 0.85 }}>{s.time} · {s.questions}</span></div>
+            ))}
+          </div>
+          <div className="row" style={{ justifyContent: "space-between", paddingTop: 6 }}><span style={{ opacity: 0.85 }}>Tổng thời gian</span><b className="num" style={{ font: "700 20px/1 var(--font-display)" }}>{hhmm}</b></div>
+          {startError && <div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--danger-tint)", color: "var(--danger)", fontSize: 14 }}>{startError}</div>}
+          <button className="st-btn st-btn-accent st-btn-lg st-btn-block" type="button" onClick={handleStartTest} disabled={!checked || loading}>
+            {loading ? <><span className="st-spinner" />Đang chuẩn bị đề…</> : "Bắt đầu thi"}
+          </button>
+          {!checked && <p style={{ fontSize: 13, opacity: 0.8, textAlign: "center" }}>Đánh dấu đồng ý quy định phòng thi để bắt đầu.</p>}
+          <p style={{ fontSize: 13, opacity: 0.8, textAlign: "center" }}>Kiểm tra loa trước: <button type="button" onClick={testSound} style={{ background: "none", border: 0, padding: 0, color: "var(--on-navy)", textDecoration: "underline", cursor: "pointer", font: "inherit" }}>phát âm thanh thử</button></p>
+        </aside>
       </div>
     </div>
   );

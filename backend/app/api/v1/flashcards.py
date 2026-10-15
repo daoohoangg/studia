@@ -9,11 +9,11 @@ from app.services.rag_engine import RAGEngine
 from app.services.fsrs_engine import FSRSEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id
 import uuid
 
 router = APIRouter(prefix="/flashcards", tags=["Flashcards"])
 
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 class GenerateFlashcardsRequest(BaseModel):
@@ -48,7 +48,7 @@ async def create_custom_flashcard(req: CustomFlashcardCreate):
     Người dùng tự tạo thẻ flashcard tùy chỉnh (Manual Custom Flashcard).
     Hệ thống tự động tạo topic (nếu chưa có) và khởi tạo FSRS state.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -115,7 +115,7 @@ async def generate_flashcards(req: GenerateFlashcardsRequest):
     Sinh flashcards cho topic từ RAG context (content trong sách).
     Lưu vào Supabase với topic_id.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -187,7 +187,7 @@ async def get_due_flashcards(
     """
     Lấy danh sách flashcards đến hạn ôn tập (FSRS schedule).
     """
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -242,7 +242,7 @@ async def review_flashcard(req: ReviewFlashcardRequest):
     Submit kết quả review một flashcard.
     Cập nhật FSRS state (stability, difficulty, next_review_at).
     """
-    uid = req.user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -304,7 +304,7 @@ async def review_flashcard(req: ReviewFlashcardRequest):
 @router.get("/topic/{topic_id}")
 async def get_topic_flashcards(topic_id: str, user_id: Optional[str] = None):
     """Lấy tất cả flashcards của một topic."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:

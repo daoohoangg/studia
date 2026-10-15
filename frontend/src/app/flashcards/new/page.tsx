@@ -3,9 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, FilePlus, Sparkles, CheckCircle2, Loader2, Layers, BookOpen, Plus } from "lucide-react";
 
-const API = "http://localhost:8000/api/v1";
+import { API, apiFetch } from "@/lib/api";
+import { ChevronLeft, Check } from "lucide-react";
 
 interface CreatedCardSummary {
   id: string;
@@ -39,7 +39,7 @@ export default function FlashcardNewPage() {
     const finalDeck = deckName.trim() || "Bộ thẻ tùy chỉnh";
 
     try {
-      const res = await fetch(`${API}/flashcards/custom-create`, {
+      const res = await apiFetch(`${API}/flashcards/custom-create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -65,7 +65,7 @@ export default function FlashcardNewPage() {
         setCreatedSessionCards(prev => [newCard, ...prev]);
         setFront("");
         setBack("");
-        setMsg({ type: "success", text: `🚀 Đã lưu thẻ thành công vào bộ "${newCard.topic_name}"!` });
+        setMsg({ type: "success", text: `Đã lưu thẻ thành công vào bộ "${newCard.topic_name}"!` });
 
         if (redirectAfter) {
           setTimeout(() => {
@@ -76,211 +76,96 @@ export default function FlashcardNewPage() {
         setMsg({ type: "error", text: data.detail || "Không thể tạo thẻ flashcard. Vui lòng thử lại." });
       }
     } catch {
-      setMsg({ type: "error", text: "Không thể kết nối đến máy chủ Backend (FastAPI)." });
+      setMsg({ type: "error", text: "Không thể kết nối. Vui lòng thử lại sau." });
     } finally {
       setLoading(false);
     }
   };
 
+  const TYPES = [
+    { v: "definition", t: "Định nghĩa từ", d: "Từ ↔ nghĩa, ví dụ" },
+    { v: "concept", t: "Khái niệm", d: "Một ý cần nhớ" },
+    { v: "question", t: "Câu hỏi & đáp án", d: "Hỏi – đáp ngắn" },
+    { v: "fill_blank", t: "Điền chỗ trống", d: "Câu có ___ cần điền" },
+  ];
+  const backLines = back.split("\n");
+
   return (
-    <div style={{ maxWidth: "840px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "24px" }}>
-      {/* Top Header / Navigation */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Link href="/flashcards" className="btn-ghost" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-          <ArrowLeft size={18} />
-          Quay lại Ôn tập Flashcards
-        </Link>
-        <span className="badge badge-indigo">
-          🃏 FSRS Spaced Repetition Ready
-        </span>
-      </div>
+    <div className="wrap stagger">
+      <header>
+        <Link className="crumb" href="/flashcards"><ChevronLeft size={16} strokeWidth={2} />Ôn flashcard</Link>
+        <h1 className="page-title">Tạo thẻ mới</h1>
+        <p className="page-sub">Thẻ mới vào hàng đợi ôn ngay hôm nay.</p>
+      </header>
 
-      {/* Main Form Panel */}
-      <div className="glass-panel fade-in-up" style={{ padding: "36px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
-          <div style={{
-            width: "42px", height: "42px", borderRadius: "14px",
-            background: "var(--gradient-main)", display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 20px rgba(99, 102, 241, 0.3)"
-          }}>
-            <FilePlus size={22} color="#ffffff" />
-          </div>
-          <div>
-            <h1 style={{ fontSize: "1.75rem", fontWeight: "800", fontFamily: "Outfit, sans-serif" }}>
-              Tự Tạo Thẻ Flashcard Mới
-            </h1>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-              Tạo thẻ thủ công với đầy đủ thông tin để đưa thẳng vào thuật toán giãn cách FSRS
-            </p>
-          </div>
-        </div>
-
-        <hr style={{ border: "none", borderTop: "1px solid var(--border-subtle)", margin: "24px 0" }} />
-
-        <form onSubmit={(e) => { e.preventDefault(); submitCard(false); }} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          
-          {/* Deck Name */}
-          <div>
-            <label className="label-text" style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "6px" }}>
-              <Layers size={16} color="var(--accent-indigo)" />
-              Bộ Thẻ / Chủ Đề (Deck Name)
-            </label>
-            <input
-              type="text"
-              className="input-field"
-              value={deckName}
-              onChange={e => setDeckName(e.target.value)}
-              placeholder="Ví dụ: Từ vựng IELTS Band 8, Lập trình Python, Khái niệm AI..."
-            />
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
-              Nếu để trống, hệ thống sẽ tự đặt tên bộ thẻ là &quot;Bộ thẻ tùy chỉnh&quot;.
-            </span>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-            {/* Card Type */}
-            <div>
-              <label className="label-text" style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "6px" }}>
-                <BookOpen size={16} color="var(--accent-purple)" />
-                Loại Thẻ (Card Type)
-              </label>
-              <select
-                className="input-field"
-                value={cardType}
-                onChange={e => setCardType(e.target.value)}
-              >
-                <option value="concept">Khái niệm (Concept)</option>
-                <option value="definition">Định nghĩa từ vựng (Definition)</option>
-                <option value="question">Câu hỏi &amp; Đáp án (Question)</option>
-                <option value="fill_blank">Điền vào chỗ trống (Fill in Blank)</option>
-              </select>
-            </div>
-
-            {/* Source indication */}
-            <div>
-              <label className="label-text" style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "6px" }}>
-                <Sparkles size={16} color="var(--accent-cyan)" />
-                Nguồn Dữ Liệu (Source)
-              </label>
-              <input
-                type="text"
-                className="input-field"
-                value="Tự tạo bởi người dùng (Manual User Card)"
-                disabled
-                style={{ opacity: 0.7, cursor: "not-allowed" }}
-              />
-            </div>
-          </div>
-
-          {/* Front */}
-          <div>
-            <label className="label-text" style={{ fontWeight: 600 }}>
-              Mặt Trước (Front / Câu hỏi / Từ vựng) <span style={{ color: "#f43f5e" }}>*</span>
-            </label>
-            <input
-              type="text"
-              className="input-field"
-              value={front}
-              onChange={e => setFront(e.target.value)}
-              placeholder="Ví dụ: Resilient (adj) hoặc 'Thuật toán FSRS là gì?'"
-              required
-            />
-          </div>
-
-          {/* Back */}
-          <div>
-            <label className="label-text" style={{ fontWeight: 600 }}>
-              Mặt Sau (Back / Giải nghĩa / Đáp án / Ví dụ) <span style={{ color: "#f43f5e" }}>*</span>
-            </label>
-            <textarea
-              className="input-field"
-              rows={5}
-              value={back}
-              onChange={e => setBack(e.target.value)}
-              placeholder="Ví dụ: Kiên cường, khả năng phục hồi nhanh sau khó khăn. Example: He is a resilient person who learns from failure."
-              style={{ resize: "vertical" }}
-              required
-            />
-          </div>
-
-          {/* Message banner */}
-          {msg && (
-            <div style={{
-              padding: "14px 18px", borderRadius: "14px",
-              background: msg.type === "success" ? "rgba(16,185,129,0.12)" : "rgba(244,63,94,0.12)",
-              border: `1px solid ${msg.type === "success" ? "rgba(16,185,129,0.3)" : "rgba(244,63,94,0.3)"}`,
-              color: msg.type === "success" ? "#34d399" : "#fb7185",
-              fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "8px"
-            }}>
-              {msg.type === "success" && <CheckCircle2 size={18} />}
-              {msg.text}
-            </div>
-          )}
-
-          {/* Action buttons */}
-          <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={loading}
-              onClick={() => submitCard(true)}
-              style={{ flex: 1, justifyContent: "center", padding: "12px 20px" }}
-            >
-              {loading ? <Loader2 size={18} className="spin" /> : "Lưu & Quay lại Ôn tập"}
-            </button>
-
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={loading}
-              style={{ flex: 1, justifyContent: "center", padding: "12px 20px" }}
-            >
-              {loading ? (
-                <><Loader2 size={18} className="spin" /> Đang tạo...</>
-              ) : (
-                <><Plus size={18} /> Lưu &amp; Tạo Tiếp Thẻ Khác</>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Session Created Cards List */}
-      {createdSessionCards.length > 0 && (
-        <div className="glass-panel fade-in-up" style={{ padding: "28px" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <CheckCircle2 size={18} color="#34d399" />
-            Các thẻ vừa tạo trong phiên làm việc này ({createdSessionCards.length})
-          </h3>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {createdSessionCards.map((c, idx) => (
-              <div
-                key={c.id || idx}
-                style={{
-                  padding: "14px 18px", borderRadius: "12px",
-                  background: "var(--bg-card)", border: "1px solid var(--border-subtle)",
-                  display: "flex", justifyContent: "space-between", alignItems: "center"
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: "700", fontSize: "0.95rem", color: "var(--text-primary)" }}>
-                    {c.front}
-                  </div>
-                  <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: "2px" }}>
-                    {c.back}
-                  </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <span className="badge badge-purple" style={{ fontSize: "0.72rem" }}>
-                    {c.topic_name}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+      {msg && (
+        <div role={msg.type === "error" ? "alert" : "status"} className="st-enter row" style={{ gap: 10, padding: "12px 16px", borderRadius: "var(--radius-md)", background: msg.type === "success" ? "var(--success-tint)" : "var(--danger-tint)", color: msg.type === "success" ? "var(--success)" : "var(--danger)", fontWeight: 550 }}>
+          {msg.type === "success" ? <Check size={18} strokeWidth={2.4} /> : null}{msg.text}
         </div>
       )}
+
+      <div className="split" style={{ gridTemplateColumns: "minmax(0, 1.4fr) minmax(300px, 1fr)" }}>
+        <form className="st-card stack" style={{ gap: 20 }} aria-label="Thông tin thẻ" onSubmit={(e) => { e.preventDefault(); submitCard(false); }}>
+          <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+            <legend className="field-label" style={{ marginBottom: 8 }}>Loại thẻ</legend>
+            <div role="radiogroup" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+              {TYPES.map((t) => {
+                const on = cardType === t.v;
+                return (
+                  <button key={t.v} type="button" role="radio" aria-checked={on} onClick={() => setCardType(t.v)}
+                    style={{ display: "flex", flexDirection: "column", gap: 2, padding: "12px 14px", borderRadius: "var(--radius-md)", border: `1.5px solid ${on ? "var(--brand)" : "var(--hairline)"}`, background: on ? "var(--brand-tint)" : "var(--surface)", textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", transition: "border-color var(--dur-fast), background-color var(--dur-fast)" }}>
+                    <b style={{ font: "600 14.5px/20px var(--font-sans)" }}>{t.t}</b><span className="meta">{t.d}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <label className="field"><span className="field-label">Mặt trước <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span></span>
+            <input className="input" value={front} onChange={(e) => setFront(e.target.value)} required placeholder="Ví dụ: resilient" />
+            <span className="meta">Từ, cụm từ hoặc câu hỏi.</span>
+          </label>
+          <label className="field"><span className="field-label">Mặt sau <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span></span>
+            <textarea className="input" rows={4} value={back} onChange={(e) => setBack(e.target.value)} required placeholder={"kiên cường, nhanh phục hồi\nCoastal cities must become more resilient to flooding."} />
+            <span className="meta">Dòng đầu là nghĩa; các dòng sau là ví dụ.</span>
+          </label>
+          <label className="field"><span className="field-label">Bộ thẻ</span>
+            <input className="input" value={deckName} onChange={(e) => setDeckName(e.target.value)} placeholder="Để trống = “Bộ thẻ tùy chỉnh”" />
+          </label>
+
+          <div className="row" style={{ justifyContent: "flex-end", flexWrap: "wrap", paddingTop: 12, borderTop: "1px solid var(--hairline)" }}>
+            <button className="st-btn st-btn-ghost" type="button" disabled={loading} onClick={() => submitCard(true)}>Lưu &amp; quay lại ôn</button>
+            <button className="st-btn st-btn-primary" type="submit" disabled={loading} aria-busy={loading || undefined}>{loading ? <><span className="st-spinner" /> Đang lưu…</> : "Lưu & tạo thẻ tiếp"}</button>
+          </div>
+        </form>
+
+        <aside className="stack" style={{ gap: 12 }} aria-label="Xem trước">
+          <div className="eyebrow">Xem trước</div>
+          <div className="st-card" style={{ minHeight: 150, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", gap: 6, boxShadow: "var(--shadow-sm)", borderRadius: "var(--radius-lg)" }}>
+            <span className="meta">Mặt trước</span>
+            <div style={{ font: "700 32px/1.15 var(--font-display)", letterSpacing: "-0.8px", color: front ? "var(--ink)" : "var(--ink-muted)", wordBreak: "break-word" }}>{front || "resilient"}</div>
+          </div>
+          <div className="st-card" style={{ minHeight: 150, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, boxShadow: "var(--shadow-sm)", borderRadius: "var(--radius-lg)" }}>
+            <span className="meta">Mặt sau</span>
+            <div style={{ font: "650 20px/28px var(--font-display)", color: back ? "var(--ink)" : "var(--ink-muted)" }}>{backLines[0] || "kiên cường, nhanh phục hồi"}</div>
+            {backLines.slice(1).filter(Boolean).length > 0 && <div className="passage-sm ink2" style={{ paddingLeft: 14, borderLeft: "2px solid var(--marker)", fontStyle: "italic" }}>{backLines.slice(1).filter(Boolean).join(" ")}</div>}
+          </div>
+          {createdSessionCards.length > 0 && (
+            <section className="st-card" aria-labelledby="made-h">
+              <h2 id="made-h" className="heading-3" style={{ marginBottom: 8 }}>Vừa tạo ({createdSessionCards.length})</h2>
+              <div className="stack" style={{ gap: 0 }}>
+                {createdSessionCards.slice(0, 6).map((c, i) => (
+                  <div key={c.id} className="row" style={{ padding: "8px 0", borderTop: i ? "1px solid var(--hairline)" : "none" }}>
+                    <b style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.front}</b>
+                    <span className="spacer" /><span className="meta" style={{ whiteSpace: "nowrap" }}>{c.topic_name}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          <p className="meta">Mẹo: bôi đen một từ khi đọc sách để tạo thẻ nhanh hơn, có sẵn câu ví dụ gốc.</p>
+        </aside>
+      </div>
     </div>
   );
 }

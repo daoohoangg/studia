@@ -9,11 +9,11 @@ from app.services.ai_engine import AIEngine
 from app.services.rag_engine import RAGEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id, require_owned
 import uuid
 
 router = APIRouter(prefix="/tutor", tags=["AI Tutor"])
 
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 class AskRequest(BaseModel):
@@ -36,7 +36,7 @@ async def ask_ai_tutor(req: AskRequest):
     AI Tutor: Trả lời câu hỏi của người dùng dựa trên RAG context từ sách.
     Ghi lại conversation history vào Supabase.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     # 1. Lấy document title nếu có
@@ -135,7 +135,7 @@ async def ask_ai_tutor(req: AskRequest):
 @router.get("/sessions")
 async def get_chat_sessions(user_id: Optional[str] = None):
     """Lấy danh sách các phiên chat của user."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -154,6 +154,7 @@ async def get_chat_sessions(user_id: Optional[str] = None):
 @router.get("/sessions/{session_id}")
 async def get_session_messages(session_id: str):
     """Lấy toàn bộ messages của một session."""
+    require_owned("ai_chat_sessions", session_id)
     supabase = get_supabase_client()
 
     if not supabase:

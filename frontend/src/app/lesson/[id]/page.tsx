@@ -3,9 +3,10 @@
 import { useState, useEffect, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { BookOpen, Loader2, Play, ChevronLeft, Database, MessageSquare, BookMarked, ChevronDown, ChevronUp, Volume2, Plus, Check } from "lucide-react";
 
-const API = "http://localhost:8000/api/v1";
+import { API, apiFetch } from "@/lib/api";
+import DiagramView from "@/components/DiagramView";
+import { Volume2, ChevronLeft, ArrowRight, Layers, Mic } from "lucide-react";
 
 type VocabItem = {
   word: string;
@@ -36,6 +37,25 @@ function LessonContent() {
   const [lesson, setLesson] = useState<LessonData | null>(null);
   const [loading, setLoading] = useState(true);
   const [ragChunks, setRagChunks] = useState(0);
+  const [tab, setTab] = useState<"read" | "diagram">("read");
+  const [diagram, setDiagram] = useState<string | null>(null);
+  const [diagramState, setDiagramState] = useState<"idle" | "loading" | "error">("idle");
+
+  const loadDiagram = async () => {
+    if (diagram || diagramState === "loading" || !lesson) return;
+    setDiagramState("loading");
+    try {
+      const res = await apiFetch(`${API}/dual-coding/generate-mermaid`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic_name: lesson.title, concept_description: (lesson.key_takeaways || []).join(". ") || lesson.content_markdown.slice(0, 800) }),
+      });
+      if (!res.ok) throw new Error();
+      setDiagram((await res.json()).diagram_code);
+      setDiagramState("idle");
+    } catch {
+      setDiagramState("error");
+    }
+  };
 
   // Vocabulary panel state
   const [vocabOpen, setVocabOpen] = useState(true);
@@ -56,7 +76,7 @@ function LessonContent() {
       let mastery = 0;
 
       if (docId) {
-        const topicsRes = await fetch(`${API}/documents/${docId}/topics`);
+        const topicsRes = await apiFetch(`${API}/documents/${docId}/topics`);
         if (topicsRes.ok) {
           const data = await topicsRes.json();
           const topic = data.topics?.find((t: any) => t.id === topicId);
@@ -65,7 +85,7 @@ function LessonContent() {
       }
 
       // Feature A: Use generate-lesson-v2 (i+1 with vocab highlights)
-      const res = await fetch(`${API}/learning-paths/generate-lesson-v2`, {
+      const res = await apiFetch(`${API}/learning-paths/generate-lesson-v2`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -105,7 +125,7 @@ function LessonContent() {
     if (savedWords.has(item.word)) return;
     setSavingWord(item.word);
     try {
-      const res = await fetch(`${API}/vocabulary/save`, {
+      const res = await apiFetch(`${API}/vocabulary/save`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -136,7 +156,7 @@ function LessonContent() {
 
     setLoadingCard(word);
     try {
-      const res = await fetch(`${API}/vocabulary/card`, {
+      const res = await apiFetch(`${API}/vocabulary/card`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -167,256 +187,160 @@ function LessonContent() {
   const renderMarkdown = (md: string) => {
     if (!md) return null;
     return md.split("\n").map((line, i) => {
-      if (line.startsWith("# ")) return <h1 key={i} style={{ fontSize: "1.6rem", fontWeight: 800, margin: "24px 0 12px", fontFamily: "Outfit" }}>{line.slice(2)}</h1>;
-      if (line.startsWith("## ")) return <h2 key={i} style={{ fontSize: "1.2rem", fontWeight: 700, margin: "20px 0 8px", color: "#c7d2fe" }}>{line.slice(3)}</h2>;
+      if (line.startsWith("# ")) return <h1 key={i} style={{ fontSize: "1.6rem", fontWeight: 700, margin: "24px 0 12px", fontFamily: "var(--font-display)" }}>{line.slice(2)}</h1>;
+      if (line.startsWith("## ")) return <h2 key={i} style={{ fontSize: "1.2rem", fontWeight: 700, margin: "20px 0 8px", color: "var(--ink)" }}>{line.slice(3)}</h2>;
       if (line.startsWith("### ")) return <h3 key={i} style={{ fontSize: "1rem", fontWeight: 700, margin: "16px 0 6px" }}>{line.slice(4)}</h3>;
       if (line.startsWith("- ") || line.startsWith("* ")) return <li key={i} style={{ color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 4, marginLeft: 20 }}>{line.slice(2).replace(/\*\*(.*?)\*\*/g, "$1")}</li>;
-      if (line.startsWith("> ")) return <blockquote key={i} style={{ borderLeft: "3px solid rgba(99,102,241,0.5)", paddingLeft: 16, color: "var(--text-muted)", fontStyle: "italic", margin: "12px 0" }}>{line.slice(2)}</blockquote>;
+      if (line.startsWith("> ")) return <blockquote key={i} style={{ borderLeft: "3px solid rgba(var(--primary-rgb), 0.5)", paddingLeft: 16, color: "var(--text-muted)", fontStyle: "italic", margin: "12px 0" }}>{line.slice(2)}</blockquote>;
       if (line.startsWith("```")) return null;
       if (line.trim() === "---" || line.trim() === "") return <br key={i} />;
       const boldLine = line
         .replace(/\*\*(.*?)\*\*/g, (_, m) => `<strong>${m}</strong>`)
-        .replace(/`(.*?)`/g, (_, m) => `<code style="background:rgba(99,102,241,0.12);color:#a5b4fc;padding:2px 6px;border-radius:4px;font-size:0.85em">${m}</code>`)
-        .replace(/\*(nghĩa:.*?)\*/g, (_, m) => `<em style="color:#34d399;font-size:0.88em;background:rgba(16,185,129,0.08);padding:1px 6px;border-radius:4px">${m}</em>`);
+        .replace(/`(.*?)`/g, (_, m) => `<code style="background:rgba(var(--primary-rgb), 0.12);color:var(--brand);padding:2px 6px;border-radius:4px;font-size:0.85em">${m}</code>`)
+        .replace(/\*(nghĩa:.*?)\*/g, (_, m) => `<em style="color:var(--success);font-size:0.88em;background:var(--success-tint);padding:1px 6px;border-radius:4px">${m}</em>`);
       return <p key={i} style={{ color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: boldLine }} />;
     });
   };
 
   if (loading) return (
-    <div style={{ maxWidth: "980px", display: "flex", flexDirection: "column", gap: "20px" }}>
-      <div className="skeleton" style={{ height: 60, borderRadius: 16 }} />
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "20px" }}>
-        <div className="skeleton" style={{ height: 500, borderRadius: 16 }} />
-        <div className="skeleton" style={{ height: 400, borderRadius: 16 }} />
-      </div>
+    <div className="wrap">
+      <div className="skeleton" style={{ height: 80 }} />
+      <div className="split"><div className="skeleton" style={{ height: 520 }} /><div className="skeleton" style={{ height: 420 }} /></div>
+      <p className="meta" style={{ textAlign: "center" }}>Studia đang soạn bài học vừa sức bạn…</p>
     </div>
   );
 
   const vocabHighlights = lesson?.vocabulary_highlights || [];
+  const savedCount = vocabHighlights.filter((v) => savedWords.has(v.word)).length;
+  const unsaved = vocabHighlights.filter((v) => !savedWords.has(v.word));
 
   return (
-    <div style={{ maxWidth: "980px", display: "flex", flexDirection: "column", gap: "24px" }}>
-      {/* Back + badges */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <Link href={docId ? `/books/${docId}` : "/books"} className="btn-secondary" style={{ padding: "8px 16px", fontSize: "0.85rem" }}>
-          <ChevronLeft size={16} /> Quay lại
-        </Link>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <span className="badge badge-indigo"><BookOpen size={12} /> i+1 Adaptive Lesson</span>
-          {lesson?.new_concepts_count !== undefined && (
-            <span className="badge badge-emerald">🔤 {lesson.new_concepts_count} khái niệm mới</span>
-          )}
-          {ragChunks > 0 && <span className="badge badge-cyan">RAG: {ragChunks} chunks</span>}
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "20px" }}>
-        {/* Lesson Content */}
-        <div className="glass-panel" style={{ padding: "32px" }}>
-          <h1 style={{ fontSize: "1.8rem", fontWeight: "800", fontFamily: "Outfit, sans-serif", marginBottom: "12px" }}>
-            {lesson?.title}
-          </h1>
-          <div style={{ display: "flex", gap: "10px", marginBottom: "24px" }}>
-            <span className="badge badge-indigo">Mastery: {lesson?.user_mastery?.toFixed(0) || 0}%</span>
-            {lesson?.proficiency_level && (
-              <span className="badge badge-purple">Trình độ: {lesson.proficiency_level}</span>
-            )}
-          </div>
-
-          <div className="prose-dark">
-            {renderMarkdown(lesson?.content_markdown || "")}
-          </div>
-
-          {(lesson?.key_takeaways?.length || 0) > 0 && (
-            <div style={{ marginTop: "28px", padding: "20px", borderRadius: "14px", background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)" }}>
-              <h3 style={{ fontWeight: "700", marginBottom: "12px", color: "#34d399", fontSize: "0.9rem" }}>
-                ✅ Key Takeaways
-              </h3>
-              {lesson!.key_takeaways.map((t: string, i: number) => (
-                <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "6px" }}>
-                  <span style={{ color: "#10b981", flexShrink: 0 }}>→</span>
-                  <span style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>{t}</span>
-                </div>
-              ))}
+    <div className="wrap stagger">
+      <header>
+        <Link className="crumb" href={docId ? `/books/${docId}` : "/books"}><ChevronLeft size={16} strokeWidth={2} />{docId ? "Về sách" : "Thư viện sách"}</Link>
+        <div className="page-head">
+          <div style={{ maxWidth: 720 }}>
+            <div className="row-wrap" style={{ marginBottom: 10 }}>
+              <span className="st-badge st-badge-brand">Thành thạo {lesson?.user_mastery?.toFixed(0) || 0}%</span>
+              {lesson?.proficiency_level && <span className="st-badge">Trình độ {lesson.proficiency_level}</span>}
+              {lesson?.new_concepts_count !== undefined && <span className="st-badge st-badge-success">{lesson.new_concepts_count} khái niệm mới</span>}
             </div>
-          )}
-
-          <div style={{ marginTop: "28px", paddingTop: "20px", borderTop: "1px solid var(--border-subtle)", display: "flex", gap: "12px", flexWrap: "wrap" }}>
-            <Link href={`/quiz/${topicId}`} className="btn-primary">
-              <Play size={16} /> Làm Quiz
-            </Link>
-            <Link href={`/quiz/${topicId}?mode=multi${docId ? `&doc=${docId}` : ""}`} className="btn-secondary">
-              📝 Quiz Đa dạng (Fill-blank, Recall)
-            </Link>
-            <Link href={`/tutor?topic=${topicId}${docId ? `&doc=${docId}` : ""}`} className="btn-secondary">
-              <MessageSquare size={16} /> Hỏi AI Tutor
-            </Link>
+            <h1 className="page-title">{lesson?.title}</h1>
           </div>
+          <ol className="row" aria-label="Các bước bài học" style={{ listStyle: "none", margin: 0, padding: 0, gap: 18, font: "550 14px/1 var(--font-sans)" }}>
+            <li className="row" style={{ gap: 8, color: "var(--ink)" }}><b style={{ width: 26, height: 26, borderRadius: "50%", display: "grid", placeItems: "center", background: "var(--brand)", color: "var(--on-brand)", fontSize: 12 }}>1</b>Đọc</li>
+            <li className="row" style={{ gap: 8, color: vocabHighlights.length ? "var(--ink)" : "var(--ink-muted)" }}><b style={{ width: 26, height: 26, borderRadius: "50%", display: "grid", placeItems: "center", background: savedCount === vocabHighlights.length && vocabHighlights.length ? "var(--success)" : "var(--surface-sunken)", color: savedCount === vocabHighlights.length && vocabHighlights.length ? "var(--surface)" : "var(--ink-muted)", fontSize: 12 }}>2</b>Từ vựng</li>
+            <li className="row" style={{ gap: 8, color: "var(--ink-muted)" }}><b style={{ width: 26, height: 26, borderRadius: "50%", display: "grid", placeItems: "center", background: "var(--surface-sunken)", fontSize: 12 }}>3</b>Quiz</li>
+          </ol>
         </div>
+      </header>
 
-        {/* Right Sidebar */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-
-          {/* Vocabulary Highlights Panel */}
-          {vocabHighlights.length > 0 && (
-            <div className="glass-panel" style={{ padding: "20px" }}>
-              <button
-                onClick={() => setVocabOpen(v => !v)}
-                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)", padding: 0 }}
-              >
-                <h3 style={{ fontSize: "0.9rem", fontWeight: "700", display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
-                  <BookMarked size={15} color="var(--accent-indigo)" />
-                  Từ vựng bài học ({vocabHighlights.length})
-                </h3>
-                {vocabOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </button>
-
-              {vocabOpen && (
-                <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {vocabHighlights.map((item, idx) => {
-                    const isSaved = savedWords.has(item.word);
-                    const isSaving = savingWord === item.word;
-                    const isExpanded = expandedWord === item.word;
-                    const cardData = wordCardData[item.word];
-                    const isLoadingThisCard = loadingCard === item.word;
-
-                    return (
-                      <div key={idx} style={{
-                        borderRadius: "10px",
-                        border: "1px solid var(--border-subtle)",
-                        overflow: "hidden",
-                        background: isSaved ? "rgba(16,185,129,0.04)" : "rgba(255,255,255,0.02)"
-                      }}>
-                        {/* Word header row */}
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px" }}>
-                          <button
-                            onClick={() => handleExpandWord(item.word, item.source_sentence || "")}
-                            style={{ flex: 1, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}
-                          >
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span style={{ fontSize: "0.88rem", fontWeight: 700, color: "var(--text-primary)" }}>{item.word}</span>
-                              {item.word_type && (
-                                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", background: "rgba(99,102,241,0.1)", padding: "1px 5px", borderRadius: 4 }}>
-                                  {item.word_type}
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: "0.78rem", color: "#34d399", marginTop: 2 }}>{item.meaning_vi}</div>
-                          </button>
-
-                          <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
-                            <button
-                              onClick={() => playTTS(item.word)}
-                              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent-indigo)", padding: "2px" }}
-                              title="Nghe phát âm"
-                            >
-                              <Volume2 size={14} />
-                            </button>
-                            <button
-                              onClick={() => handleSaveVocab(item)}
-                              disabled={isSaved || isSaving}
-                              style={{
-                                background: isSaved ? "rgba(16,185,129,0.15)" : "rgba(99,102,241,0.1)",
-                                border: "none", cursor: isSaved ? "default" : "pointer",
-                                color: isSaved ? "#34d399" : "var(--accent-indigo)",
-                                borderRadius: 6, padding: "3px 6px",
-                                fontSize: "0.7rem", fontWeight: 600,
-                                display: "flex", alignItems: "center", gap: 3
-                              }}
-                              title={isSaved ? "Đã lưu" : "Lưu vào Flashcard"}
-                            >
-                              {isSaving ? <Loader2 size={11} className="spin" /> : isSaved ? <Check size={11} /> : <Plus size={11} />}
-                              {isSaved ? "Đã lưu" : "Flashcard"}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Expanded card detail */}
-                        {isExpanded && (
-                          <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "12px", background: "rgba(0,0,0,0.15)" }}>
-                            {isLoadingThisCard ? (
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                                <Loader2 size={12} className="spin" /> Đang tải chi tiết...
-                              </div>
-                            ) : cardData ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.78rem" }}>
-                                {cardData.pronunciation && (
-                                  <div style={{ color: "var(--text-muted)" }}>📢 {cardData.pronunciation}</div>
-                                )}
-                                {item.source_sentence && (
-                                  <div style={{ color: "var(--text-secondary)", fontStyle: "italic", borderLeft: "2px solid rgba(99,102,241,0.3)", paddingLeft: 8 }}>
-                                    "{item.source_sentence}"
-                                  </div>
-                                )}
-                                {cardData.example_sentences?.slice(0, 2).map((ex: any, ei: number) => (
-                                  <div key={ei} style={{ background: "rgba(99,102,241,0.06)", borderRadius: 6, padding: "6px 8px" }}>
-                                    <div style={{ color: "var(--text-primary)", fontWeight: 600 }}>{ex.en}</div>
-                                    <div style={{ color: "#34d399", marginTop: 2 }}>→ {ex.vi}</div>
-                                  </div>
-                                ))}
-                                {cardData.collocations?.length > 0 && (
-                                  <div>
-                                    <span style={{ color: "var(--text-muted)", fontWeight: 700 }}>Cụm từ: </span>
-                                    <span style={{ color: "var(--text-secondary)" }}>{cardData.collocations.slice(0, 3).join(" · ")}</span>
-                                  </div>
-                                )}
-                                {cardData.usage_note && (
-                                  <div style={{ color: "var(--text-muted)", fontStyle: "italic" }}>💡 {cardData.usage_note}</div>
-                                )}
-                              </div>
-                            ) : (
-                              <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                                {item.source_sentence && <em>"{item.source_sentence}"</em>}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {lesson?.vocabulary_auto_saved !== undefined && lesson.vocabulary_auto_saved > 0 && (
-                    <div style={{ fontSize: "0.72rem", color: "#34d399", textAlign: "center", paddingTop: 4 }}>
-                      ✅ {lesson.vocabulary_auto_saved} từ đã tự động lưu vào Flashcard
-                    </div>
-                  )}
+      <div className="split" style={{ gridTemplateColumns: "minmax(0, 1.5fr) minmax(300px, 1fr)" }}>
+        <article className="st-card" style={{ padding: "32px 36px" }}>
+          <div className="tabs" role="tablist" aria-label="Chế độ xem bài học" style={{ marginBottom: 20 }}>
+            <button className="tab" type="button" role="tab" aria-selected={tab === "read"} onClick={() => setTab("read")}>Bài đọc</button>
+            <button className="tab" type="button" role="tab" aria-selected={tab === "diagram"} onClick={() => { setTab("diagram"); loadDiagram(); }}>Sơ đồ</button>
+          </div>
+          {tab === "diagram" ? (
+            <div role="tabpanel" aria-label="Sơ đồ khái niệm" style={{ overflowX: "auto" }}>
+              {diagramState === "loading" && <div className="skeleton" style={{ height: 320 }} />}
+              {diagramState === "error" && (
+                <div role="alert" className="row" style={{ justifyContent: "space-between", padding: "10px 14px", borderRadius: "var(--radius-md)", background: "var(--danger-tint)", color: "var(--danger)" }}>
+                  <span>Không tạo được sơ đồ lúc này.</span>
+                  <button className="st-btn st-btn-ghost st-btn-sm" type="button" onClick={() => { setDiagramState("idle"); loadDiagram(); }}>Thử lại</button>
                 </div>
               )}
+              {diagram && <DiagramView code={diagram} />}
+              <p className="meta" style={{ marginTop: 12 }}>Sơ đồ do AI tóm tắt từ bài học; đối chiếu với bài đọc nếu thấy chưa khớp.</p>
             </div>
+          ) : (
+            <div className="prose-dark">{renderMarkdown(lesson?.content_markdown || "")}</div>
           )}
 
-          {/* RAG Inspector */}
-          <div className="glass-panel" style={{ padding: "20px" }}>
-            <h3 style={{ fontSize: "0.9rem", fontWeight: "700", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
-              <Database size={15} color="var(--accent-cyan)" />
-              Nguồn RAG (pgvector)
-            </h3>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "12px" }}>
-              Bài học sinh từ nội dung sách thực tế qua Gemini embedding + pgvector
-            </p>
-            <div style={{ padding: "10px 12px", borderRadius: "10px", background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.15)" }}>
-              <div style={{ fontSize: "0.75rem", color: "#38bdf8", fontWeight: 600 }}>
-                {ragChunks > 0 ? `✓ ${ragChunks} text chunks được sử dụng` : "⚠ Dùng Gemini general knowledge"}
-              </div>
-            </div>
-          </div>
+          {(lesson?.key_takeaways?.length || 0) > 0 && (
+            <section style={{ marginTop: 28, padding: "18px 20px", borderRadius: "var(--radius-md)", background: "var(--surface-sunken)" }} aria-labelledby="kt-h">
+              <h2 id="kt-h" className="eyebrow" style={{ marginBottom: 10 }}>Ý cần nhớ</h2>
+              <ul className="ink2" style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 6 }}>
+                {lesson!.key_takeaways.map((t: string, i: number) => <li key={i}>{t}</li>)}
+              </ul>
+            </section>
+          )}
 
-          {/* Next Steps */}
-          <div className="glass-panel" style={{ padding: "20px" }}>
-            <h3 style={{ fontSize: "0.9rem", fontWeight: "700", marginBottom: "12px" }}>Tiếp theo</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <Link href={`/quiz/${topicId}`} style={{ padding: "12px", borderRadius: "10px", background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)", textDecoration: "none", color: "#818cf8", fontSize: "0.82rem", fontWeight: 600 }}>
-                📝 Làm Quiz để kiểm tra
-              </Link>
-              <Link href={`/flashcards`} style={{ padding: "12px", borderRadius: "10px", background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.2)", textDecoration: "none", color: "#a78bfa", fontSize: "0.82rem", fontWeight: 600 }}>
-                🃏 Ôn Flashcard đã lưu
-              </Link>
-              <Link href={`/scenarios${docId ? `?doc=${docId}` : ""}`} style={{ padding: "12px", borderRadius: "10px", background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.2)", textDecoration: "none", color: "#34d399", fontSize: "0.82rem", fontWeight: 600 }}>
-                🎭 Thực hành Roleplay TBLT
-              </Link>
+          <div className="row" style={{ marginTop: 28, paddingTop: 20, borderTop: "1px solid var(--hairline)", justifyContent: "space-between", flexWrap: "wrap" }}>
+            <span className="meta">Xong phần từ vựng, làm quiz để chốt chủ đề này.</span>
+            <div className="row-wrap">
+              <Link className="st-btn st-btn-ghost" href={`/tutor?topic=${topicId}${docId ? `&doc=${docId}` : ""}`}>Hỏi trợ lý AI</Link>
+              <Link className="st-btn st-btn-secondary" href={`/quiz/${topicId}?mode=multi${docId ? `&doc=${docId}` : ""}`}>Quiz nhiều dạng</Link>
+              <Link className="st-btn st-btn-primary" href={`/quiz/${topicId}`}>Làm quiz <ArrowRight className="st-btn-arrow" size={18} strokeWidth={2} /></Link>
             </div>
           </div>
-        </div>
+        </article>
+
+        <aside className="stack" style={{ gap: 16 }}>
+          {vocabHighlights.length > 0 && (
+            <section className="st-card" aria-labelledby="v-h">
+              <div className="sec-head" style={{ marginBottom: 8 }}>
+                <h2 id="v-h" className="heading-3">Từ vựng trong bài</h2>
+                <span className="meta num">{savedCount}/{vocabHighlights.length} đã lưu</span>
+              </div>
+              <div>
+                {vocabHighlights.map((item, idx) => {
+                  const isSaved = savedWords.has(item.word);
+                  const isSaving = savingWord === item.word;
+                  const isExpanded = expandedWord === item.word;
+                  const cardData = wordCardData[item.word];
+                  return (
+                    <div key={idx} style={{ padding: "12px 0", borderTop: idx ? "1px solid var(--hairline)" : "none" }}>
+                      <div className="row" style={{ gap: 8, alignItems: "flex-start" }}>
+                        <button type="button" onClick={() => handleExpandWord(item.word, item.source_sentence || "")} aria-expanded={isExpanded}
+                          style={{ flex: 1, minWidth: 0, background: "none", border: 0, padding: 0, textAlign: "left", cursor: "pointer", color: "inherit", font: "inherit" }}>
+                          <span className="row" style={{ gap: 8 }}>
+                            <b style={{ font: "650 17px/24px var(--font-display)", color: "var(--ink)" }}>{item.word}</b>
+                            {item.word_type && <span className="st-badge" style={{ height: 20 }}>{item.word_type}</span>}
+                          </span>
+                          <span className="meta" style={{ display: "block", color: "var(--ink-secondary)" }}>{item.meaning_vi}</span>
+                        </button>
+                        <button className="icon-btn" type="button" aria-label={`Nghe phát âm ${item.word}`} onClick={() => playTTS(item.word)} style={{ width: 36, height: 36, color: "var(--brand)" }}><Volume2 size={18} strokeWidth={1.75} /></button>
+                        {isSaved ? <span className="st-badge st-badge-success">Đã lưu</span> : (
+                          <button className="st-btn st-btn-secondary st-btn-sm" type="button" onClick={() => handleSaveVocab(item)} disabled={isSaving} aria-busy={isSaving || undefined}>{isSaving ? "Đang lưu…" : "Lưu"}</button>
+                        )}
+                      </div>
+                      {isExpanded && (
+                        <div className="st-enter stack" style={{ gap: 8, marginTop: 10, padding: 12, borderRadius: "var(--radius-sm)", background: "var(--surface-sunken)", fontSize: 14 }}>
+                          {loadingCard === item.word ? <span className="meta row" style={{ gap: 8 }}><span className="st-spinner" /> Đang tải chi tiết…</span> : (
+                            <>
+                              {cardData?.pronunciation && <span className="passage-sm muted">{cardData.pronunciation}</span>}
+                              {item.source_sentence && <span className="passage-sm ink2" style={{ fontStyle: "italic", paddingLeft: 10, borderLeft: "2px solid var(--marker)" }}>{item.source_sentence}</span>}
+                              {cardData?.example_sentences?.slice(0, 2).map((ex: any, ei: number) => (
+                                <span key={ei}><span style={{ color: "var(--ink)", display: "block" }}>{ex.en}</span><span className="meta">{ex.vi}</span></span>
+                              ))}
+                              {cardData?.collocations?.length > 0 && <span className="meta">Cụm từ: {cardData.collocations.slice(0, 3).join(" · ")}</span>}
+                              {cardData?.usage_note && <span className="meta">{cardData.usage_note}</span>}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {unsaved.length > 1 && (
+                <button className="st-btn st-btn-ghost st-btn-block" type="button" style={{ marginTop: 8 }} onClick={() => unsaved.forEach((v) => handleSaveVocab(v))}>Lưu cả {unsaved.length} từ còn lại</button>
+              )}
+              {lesson?.vocabulary_auto_saved !== undefined && lesson.vocabulary_auto_saved > 0 && (
+                <p className="meta" style={{ marginTop: 8 }}>{lesson.vocabulary_auto_saved} từ đã tự động lưu vào flashcard.</p>
+              )}
+            </section>
+          )}
+
+          <section className="st-card" aria-labelledby="nx-h">
+            <h2 id="nx-h" className="heading-3" style={{ marginBottom: 12 }}>Luyện thêm</h2>
+            <div className="stack" style={{ gap: 8 }}>
+              <Link className="lrow" href="/flashcards"><span className="tile tile-sm" aria-hidden="true"><Layers size={16} strokeWidth={1.75} /></span><span className="lrow-title" style={{ fontSize: 14.5 }}>Ôn flashcard đã lưu</span></Link>
+              <Link className="lrow" href={`/scenarios${docId ? `?doc=${docId}` : ""}`}><span className="tile tile-sm tile-accent" aria-hidden="true"><Mic size={16} strokeWidth={1.75} /></span><span className="lrow-title" style={{ fontSize: 14.5 }}>Luyện hội thoại theo chủ đề</span></Link>
+            </div>
+          </section>
+        </aside>
       </div>
     </div>
   );
@@ -424,7 +348,7 @@ function LessonContent() {
 
 export default function LessonPage() {
   return (
-    <Suspense fallback={<div className="skeleton" style={{ height: "80vh", borderRadius: 20, maxWidth: 980 }} />}>
+    <Suspense fallback={<div className="skeleton" style={{ height: "80vh" }} />}>
       <LessonContent />
     </Suspense>
   );

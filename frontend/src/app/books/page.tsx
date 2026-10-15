@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Upload, BookOpen, Clock, CheckCircle2, Loader2, X, FileText, AlertCircle, Plus } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 
-const API = "http://localhost:8000/api/v1";
+import { API, apiFetch } from "@/lib/api";
+import { X, Plus, Search, Upload, ArrowRight, Trash2 } from "lucide-react";
+import { useAccount, refreshAccount } from "@/lib/account";
+import BuyPacks from "@/components/BuyPacks";
 
-const bookEmojis = ["📘", "📗", "📙", "📕", "📓", "📒", "📔", "📃"];
 const statusColors: Record<string, string> = {
   completed: "var(--accent-emerald)",
   processing: "var(--accent-amber)",
@@ -35,6 +37,22 @@ export default function BooksPage() {
   const [backgroundNotice, setBackgroundNotice] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { account, isAdmin } = useAccount();
+  const [tab, setTab] = useState<"mine" | "shared" | null>(null);
+  const [showLimit, setShowLimit] = useState(false);
+  const [shareUpload, setShareUpload] = useState(false);
+
+  const openUpload = () => {
+    if (account && !account.quota.unlimited && account.quota.remaining <= 0) setShowLimit(true);
+    else setShowUpload(true);
+  };
+
+  const deleteBook = async (book: any) => {
+    if (!window.confirm(`Xoá "${book.title}"? Bài học, flashcard và ghi chú từ sách này cũng bị xoá.${isAdmin ? "" : " Lượt upload đã dùng không được hoàn lại."}`)) return;
+    const res = await apiFetch(`${API}/documents/${book.id}`, { method: "DELETE" });
+    if (res.ok) fetchBooks();
+    else window.alert("Không xoá được sách này.");
+  };
 
   useEffect(() => {
     fetchBooks();
@@ -44,13 +62,27 @@ export default function BooksPage() {
 
   const fetchBooks = async () => {
     try {
-      const res = await fetch(`${API}/documents/`);
+      const res = await apiFetch(`${API}/documents/`);
       if (res.ok) {
         const data = await res.json();
         setBooks(data.documents || []);
       }
     } catch { /* ignore */ }
     finally { setLoading(false); }
+  };
+
+  const reprocess = async (id: string, discardEdits = false) => {
+    const res = await apiFetch(`${API}/documents/${id}/reprocess${discardEdits ? "?discard_edits=true" : ""}`, { method: "POST" });
+    if (res.status === 409) {
+      const data = await res.json().catch(() => ({}));
+      if (data.detail?.requires === "discard_edits" && window.confirm(`${data.detail.message} Tiếp tục?`)) {
+        return reprocess(id, true);
+      }
+      if (typeof data.detail === "string") window.alert(data.detail);
+      return;
+    }
+    if (res.ok) fetchBooks();
+    else window.alert("Không xử lý lại được tài liệu này.");
   };
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -65,28 +97,35 @@ export default function BooksPage() {
         const fd = new FormData();
         fd.append("file", pdfFile);
         fd.append("title", title);
-        res = await fetch(`${API}/documents/upload-pdf`, { method: "POST", body: fd });
+        if (isAdmin && shareUpload) fd.append("shared", "true");
+        res = await apiFetch(`${API}/documents/upload-file`, { method: "POST", body: fd });
       } else {
         if (!textContent.trim()) { setUploadMsg({ type: "error", text: "Hãy nhập nội dung tài liệu" }); setUploading(false); return; }
-        res = await fetch(`${API}/documents/upload`, {
+        res = await apiFetch(`${API}/documents/upload`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, source_type: "text", raw_content: textContent })
+          body: JSON.stringify({ title, source_type: "text", raw_content: textContent, shared: isAdmin && shareUpload })
         });
       }
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setShowUpload(false); setShowLimit(true); refreshAccount();
+        setUploading(false);
+        return;
+      }
       if (res.ok) {
+        refreshAccount();
         // Đóng ngay popup modal để người dùng không phải chờ
         setShowUpload(false);
-        setBackgroundNotice(`🚀 Đã nhận tệp "${title}"! Toàn bộ tiến trình xử lý PDF, Embeddings và Knowledge Graph đang chạy 100% ngầm ở nền.`);
+        setBackgroundNotice(`Đã nhận tệp "${title}"! Hệ thống đang xử lý ở nền, bạn có thể tiếp tục dùng app.`);
         setTitle(""); setTextContent(""); setPdfFile(null); setUploadMsg(null);
         fetchBooks();
         setTimeout(() => setBackgroundNotice(null), 6000);
       } else {
-        setUploadMsg({ type: "error", text: data.detail || "Upload thất bại" });
+        setUploadMsg({ type: "error", text: typeof data.detail === "string" ? data.detail : "Upload thất bại" });
       }
     } catch (err) {
-      setUploadMsg({ type: "error", text: "Không kết nối được với backend. Hãy chắc chắn server đang chạy." });
+      setUploadMsg({ type: "error", text: "Không thể kết nối. Vui lòng thử lại sau." });
     }
     setUploading(false);
   };
@@ -95,222 +134,241 @@ export default function BooksPage() {
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files[0];
-    if (file?.name.endsWith(".pdf")) { setPdfFile(file); setUploadMode("pdf"); }
+    if (file && /\.(pdf|docx)$/i.test(file.name)) { setPdfFile(file); setUploadMode("pdf"); }
   };
 
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "ready" | "processing">("all");
+  const mine = books.filter((b: any) => !b.is_shared);
+  const sharedBooks = books.filter((b: any) => b.is_shared);
+  const activeTab = tab ?? (mine.length || !sharedBooks.length ? "mine" : "shared");
+  const list = activeTab === "mine" ? mine : sharedBooks;
+  const processingBook = mine.find((b: any) => b.processing_status === "processing" || b.processing_status === "pending");
+  const counts = {
+    all: list.length,
+    ready: list.filter((b: any) => b.processing_status === "completed").length,
+    processing: list.filter((b: any) => b.processing_status !== "completed").length,
+  };
+  const shown = list.filter((b: any) =>
+    (filter === "all" || (filter === "ready" ? b.processing_status === "completed" : b.processing_status !== "completed")) &&
+    (!query.trim() || (b.title || "").toLowerCase().includes(query.trim().toLowerCase())));
+  const covers = [
+    { background: "var(--navy)", color: "var(--on-navy)", sub: "var(--on-navy)" },
+    { background: "var(--brand-tint)", color: "var(--ink)", sub: "var(--ink-muted)" },
+    { background: "var(--accent-tint)", color: "var(--ink)", sub: "var(--ink-muted)" },
+  ];
+  const statusBadge = (s: string) => s === "completed" ? "st-badge st-badge-success" : s === "failed" ? "st-badge st-badge-danger" : "st-badge st-badge-brand";
+  const statusText = (s: string) => s === "completed" ? "Sẵn sàng" : s === "failed" ? "Lỗi xử lý" : s === "processing" ? "Đang xử lý" : "Chờ xử lý";
+  const q = account?.quota;
+  const noCredit = !!q && !q.unlimited && q.remaining <= 0;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "28px", maxWidth: "1000px" }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+    <div className="wrap stagger">
+      <header className="page-head">
         <div>
-          <span className="badge badge-indigo" style={{ marginBottom: "10px" }}>
-            <BookOpen size={13} /> Thư Viện
-          </span>
-          <h1 style={{ fontSize: "2.2rem", fontWeight: "800", fontFamily: "Outfit, sans-serif" }}>
-            Sách của tôi
-          </h1>
-          <p style={{ color: "var(--text-secondary)", marginTop: "6px" }}>
-            Upload sách/tài liệu để Studia phân tích và tạo lộ trình học
-          </p>
+          <h1 className="page-title">Thư viện sách</h1>
+          <p className="page-sub">Học từ Thư viện Studia, hoặc tải sách của riêng bạn để Studia tách thành bài học, flashcard và đề thi.</p>
         </div>
-        <button className="btn-primary" onClick={() => setShowUpload(true)} style={{ flexShrink: 0 }}>
-          <Plus size={18} /> Upload Tài Liệu
+        <button className="st-btn st-btn-primary" type="button" onClick={openUpload}>
+          <Plus size={18} strokeWidth={2} /> Tải sách lên
+        </button>
+      </header>
+
+      <div className="tabs" role="tablist" aria-label="Nguồn sách">
+        <button className="tab" type="button" role="tab" aria-selected={activeTab === "shared"} onClick={() => { setTab("shared"); setFilter("all"); }}>
+          Thư viện Studia <span className="meta num">· {sharedBooks.length}</span>
+        </button>
+        <button className="tab" type="button" role="tab" aria-selected={activeTab === "mine"} onClick={() => { setTab("mine"); setFilter("all"); }}>
+          Sách của tôi <span className="meta num">· {mine.length}</span>
         </button>
       </div>
 
-      {/* Background Processing Notification Banner */}
-      {backgroundNotice && (
-        <div className="glass-panel fade-in-up" style={{
-          padding: "16px 20px",
-          borderRadius: "14px",
-          background: "rgba(99, 102, 241, 0.1)",
-          border: "1px solid rgba(99, 102, 241, 0.3)",
-          color: "var(--text-primary)",
-          fontSize: "0.9rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          fontWeight: 600
-        }}>
-          <Loader2 size={18} className="spin" color="var(--accent-indigo)" />
-          <span style={{ flex: 1 }}>{backgroundNotice}</span>
-          <button onClick={() => setBackgroundNotice(null)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-            <X size={16} />
-          </button>
+      {activeTab === "mine" && q && !q.unlimited && (
+        <div className="quota-bar" role="status">
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <b style={{ fontWeight: 600 }}>{q.remaining > 0 ? `Còn ${q.remaining} lượt upload` : `Đã dùng hết lượt upload (${q.used}/${q.free + q.purchased + q.adjusted})`}</b>
+            <p className="meta">{q.purchased > 0 ? `Gồm ${q.free} lượt miễn phí và ${q.purchased} lượt đã mua. ` : `Tài khoản miễn phí được tải ${q.free} cuốn. `}Lượt đã mua không hết hạn.</p>
+          </div>
+          <Link className={`st-btn ${noCredit ? "st-btn-primary" : "st-btn-secondary"} st-btn-sm`} href="/billing">Mua thêm lượt</Link>
         </div>
       )}
-      {showUpload && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)",
-          zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px"
-        }}>
-          <div className="glass-panel" style={{ width: "100%", maxWidth: "600px", padding: "32px", position: "relative" }}>
-            <button onClick={() => { setShowUpload(false); setUploadMsg(null); }}
-              style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-              <X size={20} />
-            </button>
 
-            <h2 style={{ fontSize: "1.4rem", fontWeight: "800", marginBottom: "8px", fontFamily: "Outfit, sans-serif" }}>
-              Upload Tài Liệu Mới
-            </h2>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginBottom: "24px" }}>
-              AI sẽ tự động phân tích, tạo Knowledge Graph và flashcards
-            </p>
+      {activeTab === "mine" && (backgroundNotice || processingBook) && (
+        <div role="status" className="st-enter" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: "var(--radius-md)", background: "var(--brand-tint)", color: "var(--ink)" }}>
+          <span className="st-spinner" style={{ color: "var(--brand)" }} aria-hidden="true" />
+          <span style={{ flex: 1 }}>
+            {backgroundNotice || <><b style={{ fontWeight: 600 }}>{processingBook.title}</b> đang được phân tích — bạn vẫn có thể đọc ngay trong lúc chờ.</>}
+          </span>
+          {backgroundNotice && (
+            <button className="icon-btn" type="button" aria-label="Ẩn thông báo" onClick={() => setBackgroundNotice(null)} style={{ width: 32, height: 32 }}><X size={16} strokeWidth={2} /></button>
+          )}
+        </div>
+      )}
 
-            {/* Mode Toggle */}
-            <div style={{ display: "flex", gap: "8px", marginBottom: "20px" }}>
-              {(["text", "pdf"] as UploadMode[]).map(mode => (
-                <button key={mode} onClick={() => setUploadMode(mode)}
-                  style={{
-                    flex: 1, padding: "10px", borderRadius: "10px", border: "1px solid",
-                    borderColor: uploadMode === mode ? "rgba(99,102,241,0.5)" : "var(--border-subtle)",
-                    background: uploadMode === mode ? "rgba(99,102,241,0.12)" : "transparent",
-                    color: uploadMode === mode ? "#818cf8" : "var(--text-secondary)",
-                    cursor: "pointer", fontWeight: 600, fontSize: "0.85rem",
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
-                  }}>
-                  {mode === "text" ? <><FileText size={15} /> Dán Text</> : <><Upload size={15} /> Upload PDF</>}
-                </button>
-              ))}
-            </div>
+      {list.length > 0 && (
+        <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+          <div className="seg" role="tablist" aria-label="Lọc sách">
+            {([["all", "Tất cả"], ["ready", "Sẵn sàng"], ["processing", "Đang xử lý"]] as const).map(([k, label]) => (
+              <button key={k} className="seg-btn" type="button" role="tab" aria-selected={filter === k} onClick={() => setFilter(k)}>
+                {label} <span className="meta num">{counts[k]}</span>
+              </button>
+            ))}
+          </div>
+          <label className="input-icon" style={{ width: 280, maxWidth: "100%" }}>
+            <Search className="ico" size={18} strokeWidth={1.75} aria-hidden="true" />
+            <span className="st-sr">Tìm sách</span>
+            <input className="input" type="search" placeholder="Tìm theo tên sách" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </label>
+        </div>
+      )}
 
-            <form onSubmit={handleUpload} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div>
-                <label className="label-text">Tên tài liệu / Tiêu đề sách</label>
-                <input className="input-field" value={title} onChange={e => setTitle(e.target.value)}
-                  placeholder="Ví dụ: Designing Data-Intensive Applications" required />
-              </div>
-
-              {uploadMode === "text" ? (
-                <div>
-                  <label className="label-text">Nội dung (paste text từ sách)</label>
-                  <textarea className="input-field" rows={6} value={textContent}
-                    onChange={e => setTextContent(e.target.value)}
-                    placeholder="Dán nội dung chương sách, ghi chú, hoặc bài viết vào đây..."
-                    style={{ resize: "vertical" }} />
-                  <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                    {textContent.length} ký tự · ~{Math.ceil(textContent.length / 600)} chunks
-                  </p>
+      {loading ? (
+        <div className="grid-3">{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 300 }} />)}</div>
+      ) : list.length === 0 ? (
+        activeTab === "shared" ? (
+          <EmptyState
+            title="Thư viện Studia chưa có sách"
+            description="Quản lý sẽ sớm thêm đề thi và sách học vào đây. Trong lúc chờ, bạn có thể tải sách của riêng mình hoặc làm thử một đề IELTS."
+            primary={{ label: "Làm thử một đề IELTS", href: "/exam" }}
+          />
+        ) : (
+          <EmptyState
+            title="Bạn chưa tải sách nào"
+            description={noCredit ? "Bạn đã dùng hết lượt upload. Mua thêm lượt để tải sách của riêng mình." : "Tải một tài liệu để Studia tách chủ đề, tạo lịch học, flashcard và quiz từ chính nội dung đó."}
+            steps={[
+              { title: "Chọn tệp", desc: "PDF, DOCX hoặc văn bản dán trực tiếp" },
+              { title: "Chờ AI xử lý", desc: "Quá trình chạy nền, bạn vẫn dùng app bình thường" },
+              { title: "Đặt mục tiêu học", desc: "Studia xếp bài học theo hạn bạn chọn" },
+            ]}
+            primary={{ label: "Tải sách lên", onClick: openUpload }}
+            secondary={sharedBooks.length ? { label: "Xem Thư viện Studia", onClick: () => setTab("shared") } : undefined}
+          />
+        )
+      ) : (
+        <section className="grid-3" aria-label="Danh sách sách">
+          {shown.map((book: any, idx: number) => {
+            const isReady = book.processing_status === "completed";
+            const isReadable = isReady || book.processing_status === "processing" || book.processing_status === "pending" || book.processing_status === "failed";
+            const fileKind = (/\.docx$/i.test(book.file_path || "") ? "docx" : book.source_type || "").toUpperCase();
+            const cv = covers[idx % covers.length];
+            const href = isReady ? `/books/${book.id}` : isReadable ? `/books/${book.id}/read` : "#";
+            const canDelete = book.is_owner || isAdmin;
+            return (
+              <Link key={book.id} href={href} className="book-card" aria-disabled={!isReadable}
+                style={{ padding: 16, gap: 14, position: "relative", pointerEvents: isReadable || book.processing_status === "failed" ? "auto" : "none" }}>
+                <div style={{ height: 150, borderRadius: "var(--radius-md)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between", position: "relative", overflow: "hidden", background: cv.background, color: cv.color }}>
+                  <span className="eyebrow" style={{ color: cv.sub, opacity: 0.85 }}>{fileKind || "Tài liệu"}</span>
+                  <b style={{ font: "700 20px/1.15 var(--font-display)", letterSpacing: "-0.3px", maxWidth: "85%", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{book.title}</b>
+                  {idx % covers.length === 0 && <span aria-hidden="true" style={{ position: "absolute", right: -18, bottom: -18, width: 72, height: 72, borderRadius: 36, background: "var(--accent)" }} />}
                 </div>
-              ) : (
-                <div
-                  className={`drop-zone${dragOver ? " drag-over" : ""}`}
-                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={handleDrop}
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <input ref={fileRef} type="file" accept=".pdf" style={{ display: "none" }}
-                    onChange={e => { if (e.target.files?.[0]) setPdfFile(e.target.files[0]); }} />
-                  {pdfFile ? (
-                    <div>
-                      <div style={{ fontSize: "2rem", marginBottom: "8px" }}>📄</div>
-                      <p style={{ fontWeight: 600, color: "var(--text-primary)" }}>{pdfFile.name}</p>
-                      <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                        {(pdfFile.size / 1024 / 1024).toFixed(1)} MB
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <div style={{ fontSize: "2.5rem", marginBottom: "12px" }}>📁</div>
-                      <p style={{ fontWeight: 600, marginBottom: "4px" }}>Kéo thả file PDF vào đây</p>
-                      <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Hoặc click để chọn file</p>
-                    </div>
+                <div>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <span className="lrow-title" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{book.title}</span>
+                    {book.visibility === "shared_draft"
+                      ? <span className="st-badge st-badge-warning" style={{ flexShrink: 0 }}>Đang ẩn</span>
+                      : <span className={statusBadge(book.processing_status)} style={{ flexShrink: 0 }}>{statusText(book.processing_status)}</span>}
+                  </div>
+                  <div className="meta" style={{ marginTop: 4 }}>{book.topic_count > 0 ? `${book.topic_count} chủ đề` : "Đang tách chủ đề"}</div>
+                </div>
+                <div className="row" style={{ marginTop: "auto", justifyContent: "space-between", pointerEvents: "auto" }}>
+                  {book.processing_status === "failed" && (book.is_owner || isAdmin) ? (
+                    <button type="button" className="st-btn st-btn-secondary st-btn-sm"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); reprocess(book.id); }}>Xử lý lại</button>
+                  ) : isReadable ? (
+                    <span className="link">{isReady ? "Mở sách" : "Đọc ngay trong lúc chờ"} <ArrowRight size={16} strokeWidth={2} /></span>
+                  ) : <span />}
+                  {canDelete && (activeTab === "mine" || isAdmin) && (
+                    <button type="button" className="icon-btn" aria-label={`Xoá ${book.title}`} title="Xoá sách" style={{ width: 36, height: 36 }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteBook(book); }}>
+                      <Trash2 size={17} strokeWidth={1.75} />
+                    </button>
                   )}
                 </div>
-              )}
+              </Link>
+            );
+          })}
+          {activeTab === "mine" && (
+            <button type="button" className="book-card" onClick={openUpload}
+              style={{ borderStyle: "dashed", borderColor: "var(--border-control)", alignItems: "center", justifyContent: "center", textAlign: "center", minHeight: 280, font: "inherit", cursor: "pointer" }}>
+              <span className="tile" aria-hidden="true"><Upload size={22} strokeWidth={1.75} /></span>
+              <span className="title">Tải sách lên</span>
+              <span className="meta" style={{ maxWidth: 240 }}>{noCredit ? "Cần mua thêm lượt upload" : "PDF, DOCX hoặc văn bản dán trực tiếp"}</span>
+            </button>
+          )}
+        </section>
+      )}
 
-              {uploadMsg && (
-                <div style={{
-                  padding: "12px 16px", borderRadius: "12px",
-                  background: uploadMsg.type === "success" ? "rgba(16,185,129,0.1)" : "rgba(244,63,94,0.1)",
-                  border: `1px solid ${uploadMsg.type === "success" ? "rgba(16,185,129,0.3)" : "rgba(244,63,94,0.3)"}`,
-                  color: uploadMsg.type === "success" ? "#34d399" : "#fb7185",
-                  fontSize: "0.875rem",
-                }}>
-                  {uploadMsg.text}
-                </div>
-              )}
-
-              <button type="submit" className="btn-primary" disabled={uploading} style={{ width: "100%", justifyContent: "center", padding: "13px" }}>
-                {uploading ? <><Loader2 size={18} className="spin" /> Đang xử lý...</> : <><Upload size={18} /> Upload & Phân Tích AI</>}
-              </button>
-            </form>
+      {showLimit && (
+        <div className="exam-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="lim-h" onClick={() => setShowLimit(false)}>
+          <div className="exam-modal" style={{ maxWidth: 560, position: "relative" }} onClick={(e) => e.stopPropagation()}>
+            <button className="icon-btn" type="button" aria-label="Đóng" onClick={() => setShowLimit(false)} style={{ position: "absolute", top: 16, right: 16 }}><X size={20} strokeWidth={2} /></button>
+            <h2 id="lim-h" className="heading-2" style={{ paddingRight: 40 }}>Bạn đã dùng hết lượt upload</h2>
+            <p className="ink2" style={{ marginTop: 6, marginBottom: 18 }}>
+              Tài khoản miễn phí được tải {q?.free ?? 1} cuốn sách. Mua thêm lượt để tải sách khác — mỗi lượt là một cuốn, không hết hạn.
+            </p>
+            <BuyPacks compact />
+            <div className="row" style={{ gap: 8, marginTop: 16 }}>
+              <button className="st-btn st-btn-secondary" type="button" style={{ flex: 1 }} onClick={() => { setShowLimit(false); setTab("shared"); }}>Học Thư viện Studia trước</button>
+            </div>
+            <p className="meta" style={{ marginTop: 12 }}>Thanh toán bằng chuyển khoản ngân hàng. Lượt được cộng tự động khoảng 1 phút sau khi tiền về.</p>
           </div>
         </div>
       )}
 
-      {/* Books Grid */}
-      {loading ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px" }}>
-          {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 240, borderRadius: 20 }} />)}
-        </div>
-      ) : books.length === 0 ? (
-        <div className="glass-panel" style={{ padding: "64px", textAlign: "center" }}>
-          <div style={{ fontSize: "4rem", marginBottom: "16px" }}>📚</div>
-          <h2 style={{ fontSize: "1.4rem", fontWeight: "700", marginBottom: "8px" }}>Chưa có tài liệu nào</h2>
-          <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>Upload tài liệu đầu tiên để bắt đầu hành trình học tập</p>
-          <button className="btn-primary" onClick={() => setShowUpload(true)}>
-            <Plus size={18} /> Upload ngay
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px" }}>
-          {books.map((book: any, idx: number) => {
-            const statusColor = statusColors[book.processing_status] || "var(--text-muted)";
-            const emoji = bookEmojis[idx % bookEmojis.length];
-            const isReady = book.processing_status === "completed";
+      {showUpload && (
+        <div className="exam-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="up-h" onClick={() => { setShowUpload(false); setUploadMsg(null); }}>
+          <div className="exam-modal" style={{ maxWidth: 600, position: "relative" }} onClick={(e) => e.stopPropagation()}>
+            <button className="icon-btn" type="button" aria-label="Đóng" onClick={() => { setShowUpload(false); setUploadMsg(null); }} style={{ position: "absolute", top: 16, right: 16 }}><X size={20} strokeWidth={2} /></button>
+            <h2 id="up-h" className="heading-2">Tải sách lên</h2>
+            <p className="meta" style={{ marginTop: 4, marginBottom: 20 }}>
+              AI tự phân tích và tạo bài học, flashcard từ tài liệu.{q && !q.unlimited ? ` Dùng 1 lượt upload (còn ${q.remaining}).` : ""}
+            </p>
 
-            return (
-              <Link key={book.id} href={isReady ? `/books/${book.id}` : "#"} className="book-card"
-                style={{ textDecoration: "none", pointerEvents: isReady ? "auto" : "none" }}>
-                {/* Cover */}
-                <div className="book-cover" style={{
-                  background: `linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(139,92,246,0.1) 100%)`,
-                  border: "1px solid rgba(99,102,241,0.2)"
-                }}>
-                  <span style={{ fontSize: "3rem" }}>{emoji}</span>
+            <div className="seg" role="tablist" aria-label="Cách thêm" style={{ width: "100%", marginBottom: 20 }}>
+              <button className="seg-btn" type="button" role="tab" aria-selected={uploadMode === "pdf"} onClick={() => setUploadMode("pdf")} style={{ flex: 1, justifyContent: "center" }}>Tệp PDF / DOCX</button>
+              <button className="seg-btn" type="button" role="tab" aria-selected={uploadMode === "text"} onClick={() => setUploadMode("text")} style={{ flex: 1, justifyContent: "center" }}>Dán văn bản</button>
+            </div>
+
+            <form onSubmit={handleUpload} className="stack" style={{ gap: 16 }}>
+              <label className="field"><span className="field-label">Tên tài liệu</span>
+                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ví dụ: Cambridge IELTS 21 Academic" required />
+              </label>
+
+              {uploadMode === "text" ? (
+                <label className="field"><span className="field-label">Nội dung</span>
+                  <textarea className="input" rows={7} value={textContent} onChange={(e) => setTextContent(e.target.value)} placeholder="Dán nội dung chương sách, bài đọc hoặc ghi chú vào đây…" />
+                  <span className="meta num">{textContent.length.toLocaleString("vi-VN")} ký tự</span>
+                </label>
+              ) : (
+                <div className={`drop-zone${dragOver ? " drag-over" : ""}`} role="button" tabIndex={0}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
+                  onClick={() => fileRef.current?.click()} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileRef.current?.click(); }}>
+                  <input ref={fileRef} type="file" accept=".pdf,.docx" style={{ display: "none" }} onChange={(e) => { if (e.target.files?.[0]) setPdfFile(e.target.files[0]); }} />
+                  <span className="tile" style={{ margin: "0 auto 12px" }} aria-hidden="true"><Upload size={22} strokeWidth={1.75} /></span>
+                  {pdfFile ? (
+                    <><p className="title">{pdfFile.name}</p><p className="meta num">{(pdfFile.size / 1024 / 1024).toFixed(1)} MB · bấm để đổi tệp</p></>
+                  ) : (
+                    <><p className="title">Kéo thả PDF hoặc DOCX vào đây</p><p className="meta">hoặc bấm để chọn tệp</p></>
+                  )}
                 </div>
+              )}
 
-                {/* Info */}
-                <div>
-                  <h3 style={{ fontWeight: "700", fontSize: "0.95rem", marginBottom: "8px", lineHeight: 1.3 }}>
-                    {book.title}
-                  </h3>
+              {isAdmin && (
+                <label className="row" style={{ gap: 12, padding: 12, borderRadius: "var(--radius-md)", background: "var(--surface-sunken)", cursor: "pointer" }}>
+                  <button type="button" className="sw" role="switch" aria-checked={shareUpload} aria-label="Đưa vào thư viện chung" onClick={() => setShareUpload(v => !v)} />
+                  <span><b style={{ fontWeight: 600 }}>Đưa vào Thư viện Studia</b><span className="meta" style={{ display: "block" }}>Sách ở trạng thái ẩn; bật hiện cho học sinh trong Quản trị › Thư viện chung khi đã xử lý xong.</span></span>
+                </label>
+              )}
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
-                    {book.processing_status === "processing" ? (
-                      <Loader2 size={13} color={statusColor} className="spin" />
-                    ) : book.processing_status === "completed" ? (
-                      <CheckCircle2 size={13} color={statusColor} />
-                    ) : (
-                      <AlertCircle size={13} color={statusColor} />
-                    )}
-                    <span style={{ fontSize: "0.75rem", color: statusColor, fontWeight: 600 }}>
-                      {statusLabels[book.processing_status] || book.processing_status}
-                    </span>
-                  </div>
+              {uploadMsg && (
+                <div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: uploadMsg.type === "success" ? "var(--success-tint)" : "var(--danger-tint)", color: uploadMsg.type === "success" ? "var(--success)" : "var(--danger)", fontSize: 14 }}>{uploadMsg.text}</div>
+              )}
 
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    {book.topic_count > 0 && (
-                      <span className="badge badge-indigo" style={{ fontSize: "0.7rem" }}>
-                        {book.topic_count} topics
-                      </span>
-                    )}
-                    <span className="badge badge-cyan" style={{ fontSize: "0.7rem", textTransform: "lowercase" }}>
-                      {book.source_type}
-                    </span>
-                  </div>
-                </div>
-
-                {isReady && (
-                  <div style={{ marginTop: "auto", fontSize: "0.75rem", color: "var(--accent-indigo)", fontWeight: 600 }}>
-                    Xem chi tiết →
-                  </div>
-                )}
-              </Link>
-            );
-          })}
+              <button type="submit" className="st-btn st-btn-primary st-btn-lg st-btn-block" disabled={uploading} aria-busy={uploading || undefined}>
+                {uploading ? <><span className="st-spinner" /> Đang tải lên…</> : "Tải lên và phân tích"}
+              </button>
+            </form>
+          </div>
         </div>
       )}
     </div>

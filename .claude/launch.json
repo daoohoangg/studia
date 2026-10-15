@@ -1,0 +1,25 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "studia-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "studia-backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-c",
+        "import os, sys, uvicorn; os.chdir('backend'); sys.path.insert(0, '.'); uvicorn.run('main:app', host='127.0.0.1', port=8000)"
+      ],
+      "port": 8000
+    }
+  ]
+}

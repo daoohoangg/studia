@@ -1,11 +1,31 @@
+# Phụ thuộc & build
 node_modules/
 .next/
+.vercel/
 __pycache__/
 *.pyc
-.env
-.env.local
+.pytest_cache/
 .venv/
 venv/
 dist/
 build/
+tsconfig.tsbuildinfo
+
+# Bí mật
+.env
+.env.local
+.env.*.local
+
+# Dữ liệu chạy máy (không đưa lên git/deploy)
+backend/data/
+frontend/.preview/
+_ui_backup_*/
+
+# Tài liệu nguồn nặng (giữ ở máy, không commit)
+Cambridge IELTS 21.pdf
+Cambridge IELTS 21 Audio/
+frontend/public/audio/
+
+# Hệ điều hành
 .DS_Store
+Thumbs.db

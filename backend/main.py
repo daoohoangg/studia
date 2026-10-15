@@ -1,8 +1,10 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+from app.core.auth import require_user
 from app.api.v1.documents import router as documents_router
+from app.api.v1.ebook import router as ebook_router
 from app.api.v1.learning_paths import router as learning_paths_router
 from app.api.v1.quizzes import router as quizzes_router
 from app.api.v1.reviews import router as reviews_router
@@ -15,6 +17,11 @@ from app.api.v1.dual_coding import router as dual_coding_router
 from app.api.v1.vocabulary import router as vocabulary_router
 from app.api.v1.feedback import router as feedback_router
 from app.api.v1.exam import router as exam_router
+from app.api.v1.exam_sets import router as exam_sets_router
+from app.api.v1.profile import router as profile_router
+from app.api.v1.billing import account_router, router as billing_router, webhook_router as billing_webhook_router
+from app.api.v1.admin import router as admin_router
+from app.core.accounts import require_admin
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,17 +33,9 @@ app = FastAPI(
     description="Studia Personal Learning Intelligence Platform — RAG + Adaptive FSRS + Gemini AI + Speech Shadowing + TBLT Scenarios"
 )
 
-# CORS configuration supporting localhost frontend development
-origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8000",
-    "*"
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,35 +47,46 @@ async def global_exception_handler(request: Request, exc: Exception):
     error_msg = str(exc)
     logger.error(f"Unhandled exception on {request.url}: {error_msg}\n{traceback.format_exc()}")
     
-    origin = request.headers.get("origin") or "*"
-    headers = {
-        "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "*",
-        "Access-Control-Allow-Headers": "*",
-    }
+    origin = request.headers.get("origin")
+    headers = {}
+    if origin in settings.cors_origins:
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal Server Error", "error": error_msg},
+        content={"detail": "Internal Server Error"},
         headers=headers
     )
 
 
-# V1 Routers
-app.include_router(documents_router, prefix=settings.API_V1_STR)
-app.include_router(learning_paths_router, prefix=settings.API_V1_STR)
-app.include_router(quizzes_router, prefix=settings.API_V1_STR)
-app.include_router(reviews_router, prefix=settings.API_V1_STR)
-app.include_router(flashcards_router, prefix=settings.API_V1_STR)
-app.include_router(tutor_router, prefix=settings.API_V1_STR)
-app.include_router(speech_router, prefix=settings.API_V1_STR)
-app.include_router(scenarios_router, prefix=settings.API_V1_STR)
-app.include_router(export_router, prefix=settings.API_V1_STR)
-app.include_router(dual_coding_router, prefix=settings.API_V1_STR)
+# V1 Routers — mọi route đều yêu cầu access token Supabase hợp lệ
+authenticated = [Depends(require_user)]
+app.include_router(documents_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(ebook_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(learning_paths_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(quizzes_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(reviews_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(flashcards_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(tutor_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(speech_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(scenarios_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(export_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(dual_coding_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 # V3 — Learnova Language Learning Features
-app.include_router(vocabulary_router, prefix=settings.API_V1_STR)
-app.include_router(feedback_router, prefix=settings.API_V1_STR)
-app.include_router(exam_router, prefix=settings.API_V1_STR)
+app.include_router(vocabulary_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(feedback_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(exam_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(exam_sets_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(account_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(profile_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(billing_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+# Quản trị: phải đăng nhập VÀ có role admin
+app.include_router(admin_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_admin)])
+# Webhook ngân hàng: không có token người dùng — tự xác thực bằng API key / chữ ký HMAC của SePay
+app.include_router(billing_webhook_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():
@@ -101,6 +111,20 @@ async def root():
             "Dual Coding Diagram Generation"
         ]
     }
+
+@app.get("/local-storage/{token}")
+async def download_local_storage_file(token: str):
+    """Tải tệp ở local storage fallback; quyền truy cập nằm trong token ký ngắn hạn do /file-url cấp."""
+    import os
+    from app.core.local_db import resolve_local_storage_token
+    try:
+        path = resolve_local_storage_token(token)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Liên kết không hợp lệ hoặc đã hết hạn")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Không tìm thấy tệp")
+    return FileResponse(path)
+
 
 @app.get("/health")
 async def health_check():

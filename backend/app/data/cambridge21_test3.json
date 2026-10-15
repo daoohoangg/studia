@@ -6,554 +6,818 @@
       "number": 1,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q1"
+      "question": "Listening Q1",
+      "correct_answer": "Northern",
+      "accepted_answers": [
+        "Northern"
+      ]
     },
     {
       "number": 2,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q2"
+      "question": "Listening Q2",
+      "correct_answer": "week",
+      "accepted_answers": [
+        "week"
+      ]
     },
     {
       "number": 3,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q3"
+      "question": "Listening Q3",
+      "correct_answer": "250",
+      "accepted_answers": [
+        "250",
+        "two hundred and fifty"
+      ]
     },
     {
       "number": 4,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q4"
+      "question": "Listening Q4",
+      "correct_answer": "voucher",
+      "accepted_answers": [
+        "voucher"
+      ]
     },
     {
       "number": 5,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q5"
+      "question": "Listening Q5",
+      "correct_answer": "window",
+      "accepted_answers": [
+        "window"
+      ]
     },
     {
       "number": 6,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q6"
+      "question": "Listening Q6",
+      "correct_answer": "books",
+      "accepted_answers": [
+        "books"
+      ]
     },
     {
       "number": 7,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q7"
+      "question": "Listening Q7",
+      "correct_answer": "blanket",
+      "accepted_answers": [
+        "blanket"
+      ]
     },
     {
       "number": 8,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q8"
+      "question": "Listening Q8",
+      "correct_answer": "dolphins",
+      "accepted_answers": [
+        "dolphins"
+      ]
     },
     {
       "number": 9,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q9"
+      "question": "Listening Q9",
+      "correct_answer": "Drum",
+      "accepted_answers": [
+        "Drum"
+      ]
     },
     {
       "number": 10,
       "type": "note_completion",
       "section": "Part 1",
-      "question": "Listening Q10"
+      "question": "Listening Q10",
+      "correct_answer": "Italian",
+      "accepted_answers": [
+        "Italian"
+      ]
     },
     {
       "number": 11,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q11"
+      "question": "Listening Q11",
+      "correct_answer": "C",
+      "accepted_answers": [
+        "C"
+      ],
+      "either_order_with": 12
     },
     {
       "number": 12,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q12"
+      "question": "Listening Q12",
+      "correct_answer": "E",
+      "accepted_answers": [
+        "E"
+      ],
+      "either_order_with": 11
     },
     {
       "number": 13,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q13"
+      "question": "Listening Q13",
+      "correct_answer": "B",
+      "accepted_answers": [
+        "B"
+      ],
+      "either_order_with": 14
     },
     {
       "number": 14,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q14"
+      "question": "Listening Q14",
+      "correct_answer": "E",
+      "accepted_answers": [
+        "E"
+      ],
+      "either_order_with": 13
     },
     {
       "number": 15,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q15"
+      "question": "Listening Q15",
+      "correct_answer": "B",
+      "accepted_answers": [
+        "B"
+      ]
     },
     {
       "number": 16,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q16"
+      "question": "Listening Q16",
+      "correct_answer": "C",
+      "accepted_answers": [
+        "C"
+      ]
     },
     {
       "number": 17,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q17"
+      "question": "Listening Q17",
+      "correct_answer": "F",
+      "accepted_answers": [
+        "F"
+      ]
     },
     {
       "number": 18,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q18"
+      "question": "Listening Q18",
+      "correct_answer": "A",
+      "accepted_answers": [
+        "A"
+      ]
     },
     {
       "number": 19,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q19"
+      "question": "Listening Q19",
+      "correct_answer": "B",
+      "accepted_answers": [
+        "B"
+      ]
     },
     {
       "number": 20,
       "type": "note_completion",
       "section": "Part 2",
-      "question": "Listening Q20"
+      "question": "Listening Q20",
+      "correct_answer": "D",
+      "accepted_answers": [
+        "D"
+      ]
     },
     {
       "number": 21,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q21"
+      "question": "Listening Q21",
+      "correct_answer": "B",
+      "accepted_answers": [
+        "B"
+      ],
+      "either_order_with": 22
     },
     {
       "number": 22,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q22"
+      "question": "Listening Q22",
+      "correct_answer": "D",
+      "accepted_answers": [
+        "D"
+      ],
+      "either_order_with": 21
     },
     {
       "number": 23,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q23"
+      "question": "Listening Q23",
+      "correct_answer": "D",
+      "accepted_answers": [
+        "D"
+      ],
+      "either_order_with": 24
     },
     {
       "number": 24,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q24"
+      "question": "Listening Q24",
+      "correct_answer": "E",
+      "accepted_answers": [
+        "E"
+      ],
+      "either_order_with": 23
     },
     {
       "number": 25,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q25"
+      "question": "Listening Q25",
+      "correct_answer": "G",
+      "accepted_answers": [
+        "G"
+      ]
     },
     {
       "number": 26,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q26"
+      "question": "Listening Q26",
+      "correct_answer": "B",
+      "accepted_answers": [
+        "B"
+      ]
     },
     {
       "number": 27,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q27"
+      "question": "Listening Q27",
+      "correct_answer": "F",
+      "accepted_answers": [
+        "F"
+      ]
     },
     {
       "number": 28,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q28"
+      "question": "Listening Q28",
+      "correct_answer": "A",
+      "accepted_answers": [
+        "A"
+      ]
     },
     {
       "number": 29,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q29"
+      "question": "Listening Q29",
+      "correct_answer": "H",
+      "accepted_answers": [
+        "H"
+      ]
     },
     {
       "number": 30,
       "type": "note_completion",
       "section": "Part 3",
-      "question": "Listening Q30"
+      "question": "Listening Q30",
+      "correct_answer": "D",
+      "accepted_answers": [
+        "D"
+      ]
     },
     {
       "number": 31,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q31"
+      "question": "Listening Q31",
+      "correct_answer": "disease",
+      "accepted_answers": [
+        "disease"
+      ]
     },
     {
       "number": 32,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q32"
+      "question": "Listening Q32",
+      "correct_answer": "ecosystem",
+      "accepted_answers": [
+        "ecosystem"
+      ]
     },
     {
       "number": 33,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q33"
+      "question": "Listening Q33",
+      "correct_answer": "holiday",
+      "accepted_answers": [
+        "holiday",
+        "holidays"
+      ]
     },
     {
       "number": 34,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q34"
+      "question": "Listening Q34",
+      "correct_answer": "pets",
+      "accepted_answers": [
+        "pets"
+      ]
     },
     {
       "number": 35,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q35"
+      "question": "Listening Q35",
+      "correct_answer": "sugar",
+      "accepted_answers": [
+        "sugar"
+      ]
     },
     {
       "number": 36,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q36"
+      "question": "Listening Q36",
+      "correct_answer": "light",
+      "accepted_answers": [
+        "light"
+      ]
     },
     {
       "number": 37,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q37"
+      "question": "Listening Q37",
+      "correct_answer": "virus",
+      "accepted_answers": [
+        "virus"
+      ]
     },
     {
       "number": 38,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q38"
+      "question": "Listening Q38",
+      "correct_answer": "behaviour",
+      "accepted_answers": [
+        "behaviour",
+        "behavior"
+      ]
     },
     {
       "number": 39,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q39"
+      "question": "Listening Q39",
+      "correct_answer": "database",
+      "accepted_answers": [
+        "database"
+      ]
     },
     {
       "number": 40,
       "type": "note_completion",
       "section": "Part 4",
-      "question": "Listening Q40"
+      "question": "Listening Q40",
+      "correct_answer": "photograph",
+      "accepted_answers": [
+        "photograph"
+      ]
     }
   ],
   "reading": [
     {
       "number": 1,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q1",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "dust",
+      "accepted_answers": [
+        "dust"
       ]
     },
     {
       "number": 2,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q2",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "blood",
+      "accepted_answers": [
+        "blood"
       ]
     },
     {
       "number": 3,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q3",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "coat",
+      "accepted_answers": [
+        "coat"
       ]
     },
     {
       "number": 4,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q4",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "horns",
+      "accepted_answers": [
+        "horns"
       ]
     },
     {
       "number": 5,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q5",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "habitat",
+      "accepted_answers": [
+        "habitat"
       ]
     },
     {
       "number": 6,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q6",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "routes",
+      "accepted_answers": [
+        "routes"
       ]
     },
     {
       "number": 7,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q7",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "streams",
+      "accepted_answers": [
+        "streams"
       ]
     },
     {
       "number": 8,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q8",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "FALSE",
+      "accepted_answers": [
+        "FALSE"
       ]
     },
     {
       "number": 9,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q9",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "FALSE",
+      "accepted_answers": [
+        "FALSE"
       ]
     },
     {
       "number": 10,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q10",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "TRUE",
+      "accepted_answers": [
+        "TRUE"
       ]
     },
     {
       "number": 11,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q11",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "NOT GIVEN",
+      "accepted_answers": [
+        "NOT GIVEN"
       ]
     },
     {
       "number": 12,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q12",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "TRUE",
+      "accepted_answers": [
+        "TRUE"
       ]
     },
     {
       "number": 13,
       "passage": "Passage 1",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q13",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "NOT GIVEN",
+      "accepted_answers": [
+        "NOT GIVEN"
       ]
     },
     {
       "number": 14,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q14",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "NOT GIVEN",
+      "accepted_answers": [
+        "NOT GIVEN"
       ]
     },
     {
       "number": 15,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q15",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "FALSE",
+      "accepted_answers": [
+        "FALSE"
       ]
     },
     {
       "number": 16,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q16",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "NOT GIVEN",
+      "accepted_answers": [
+        "NOT GIVEN"
       ]
     },
     {
       "number": 17,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q17",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "TRUE",
+      "accepted_answers": [
+        "TRUE"
       ]
     },
     {
       "number": 18,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q18",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "FALSE",
+      "accepted_answers": [
+        "FALSE"
       ]
     },
     {
       "number": 19,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q19",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "lanes",
+      "accepted_answers": [
+        "lanes"
       ]
     },
     {
       "number": 20,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q20",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "boarding",
+      "accepted_answers": [
+        "boarding"
       ]
     },
     {
       "number": 21,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q21",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "wheelchairs",
+      "accepted_answers": [
+        "wheelchairs"
       ]
     },
     {
       "number": 22,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q22",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "fuel",
+      "accepted_answers": [
+        "fuel"
       ]
     },
     {
       "number": 23,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q23",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "flood",
+      "accepted_answers": [
+        "flood"
       ]
     },
     {
       "number": 24,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q24",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "smartcards",
+      "accepted_answers": [
+        "smartcards"
       ]
     },
     {
       "number": 25,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q25",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "gates",
+      "accepted_answers": [
+        "gates"
       ]
     },
     {
       "number": 26,
       "passage": "Passage 2",
-      "type": "multiple_choice",
+      "type": "note_completion",
       "question": "Reading Q26",
       "options": [
         "A",
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "queues",
+      "accepted_answers": [
+        "queues"
       ]
     },
     {
@@ -566,6 +830,10 @@
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "A",
+      "accepted_answers": [
+        "A"
       ]
     },
     {
@@ -578,6 +846,10 @@
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "A",
+      "accepted_answers": [
+        "A"
       ]
     },
     {
@@ -589,6 +861,10 @@
         "A",
         "B",
         "C",
+        "D"
+      ],
+      "correct_answer": "D",
+      "accepted_answers": [
         "D"
       ]
     },
@@ -602,6 +878,10 @@
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "A",
+      "accepted_answers": [
+        "A"
       ]
     },
     {
@@ -614,6 +894,10 @@
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "E",
+      "accepted_answers": [
+        "E"
       ]
     },
     {
@@ -626,6 +910,10 @@
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "F",
+      "accepted_answers": [
+        "F"
       ]
     },
     {
@@ -637,6 +925,10 @@
         "A",
         "B",
         "C",
+        "D"
+      ],
+      "correct_answer": "D",
+      "accepted_answers": [
         "D"
       ]
     },
@@ -650,78 +942,100 @@
         "B",
         "C",
         "D"
+      ],
+      "correct_answer": "B",
+      "accepted_answers": [
+        "B"
       ]
     },
     {
       "number": 35,
       "passage": "Passage 3",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q35",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "YES",
+        "NO",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "NO",
+      "accepted_answers": [
+        "NO"
       ]
     },
     {
       "number": 36,
       "passage": "Passage 3",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q36",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "NOT GIVEN",
+      "accepted_answers": [
+        "NOT GIVEN"
       ]
     },
     {
       "number": 37,
       "passage": "Passage 3",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q37",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "TRUE",
+        "FALSE",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "NOT GIVEN",
+      "accepted_answers": [
+        "NOT GIVEN"
       ]
     },
     {
       "number": 38,
       "passage": "Passage 3",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q38",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "YES",
+        "NO",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "YES",
+      "accepted_answers": [
+        "YES"
       ]
     },
     {
       "number": 39,
       "passage": "Passage 3",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q39",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "YES",
+        "NO",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "YES",
+      "accepted_answers": [
+        "YES"
       ]
     },
     {
       "number": 40,
       "passage": "Passage 4",
-      "type": "multiple_choice",
+      "type": "true_false_ng",
       "question": "Reading Q40",
       "options": [
-        "A",
-        "B",
-        "C",
-        "D"
+        "YES",
+        "NO",
+        "NOT GIVEN"
+      ],
+      "correct_answer": "NO",
+      "accepted_answers": [
+        "NO"
       ]
     }
   ],

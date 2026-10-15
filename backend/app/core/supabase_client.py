@@ -88,11 +88,25 @@ class SafeBucketWrapper:
             logger.warning(f"Supabase Storage upload failed: {e}. Fallback to Local Storage.")
             return self.local_bucket.upload(path, file, file_options)
 
+    def download(self, path: str) -> bytes:
+        try:
+            return self.real_bucket.download(path)
+        except Exception as e:
+            logger.warning(f"Supabase Storage download failed: {e}. Fallback to Local Storage.")
+            return self.local_bucket.download(path)
+
     def get_public_url(self, path: str) -> str:
         try:
             return self.real_bucket.get_public_url(path)
         except Exception:
             return self.local_bucket.get_public_url(path)
+
+    def create_signed_url(self, path: str, expires_in: int):
+        try:
+            return self.real_bucket.create_signed_url(path, expires_in)
+        except Exception as e:
+            logger.warning(f"Supabase Storage signed URL failed: {e}. Fallback to Local Storage.")
+            return self.local_bucket.create_signed_url(path, expires_in)
 
 
 class SafeStorageWrapper:
@@ -111,6 +125,12 @@ class SafeStorageWrapper:
             return self.real_storage.create_bucket(name, options)
         except Exception:
             return self.local_storage.create_bucket(name, options)
+
+    def update_bucket(self, name: str, options: dict = None):
+        try:
+            return self.real_storage.update_bucket(name, options)
+        except Exception:
+            return self.local_storage.update_bucket(name, options)
 
 
 class SafeSupabaseWrapper:

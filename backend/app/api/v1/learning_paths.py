@@ -11,6 +11,7 @@ from app.services.ai_engine import AIEngine
 from app.services.rag_engine import RAGEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id
 import uuid
 import logging
 
@@ -18,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/learning-paths", tags=["Learning Paths & Adaptive Plans"])
 
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 class SetGoalRequest(BaseModel):
@@ -43,7 +43,7 @@ async def set_goal(req: SetGoalRequest):
     User đặt mục tiêu học tập cho một tài liệu.
     → Hệ thống tự động tạo lịch học theo ngày (Study Plan).
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -149,7 +149,7 @@ async def get_today_plan(user_id: Optional[str] = None):
     Lấy kế hoạch học tập hôm nay cho user.
     Trả về daily tasks, streak, và knowledge summary.
     """
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -210,7 +210,7 @@ async def get_knowledge_graph(
     Lấy Knowledge Graph (Nodes + Edges) từ Supabase.
     Kèm theo Mastery Score của user cho từng topic.
     """
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -271,7 +271,7 @@ async def generate_lesson(req: GenerateLessonRequest):
     Sinh nội dung bài học cá nhân hóa cho một topic.
     Sử dụng RAG từ Supabase và Gemini LLM.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     # RAG: tìm kiếm context liên quan
@@ -315,7 +315,7 @@ async def generate_lesson(req: GenerateLessonRequest):
 @router.get("/plans")
 async def get_study_plans(user_id: Optional[str] = None, days: int = 14):
     """Lấy lịch học theo tuần/tháng."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -352,7 +352,7 @@ async def generate_lesson_v2(req: GenerateLessonV2Request):
     Tự động phân tích từ vựng khó và giải thích bằng tiếng Việt inline.
     Tùy chọn auto-save vocabulary vào vocabulary_items table.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     # RAG context
@@ -427,7 +427,7 @@ async def get_today_interleaved(user_id: Optional[str] = None):
     Gộp due flashcards + lesson + quiz + scenario vào một session thống nhất.
     Ưu tiên: due flashcards → weak topic lesson → quiz → scenario.
     """
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -604,3 +604,88 @@ async def get_today_interleaved(user_id: Optional[str] = None):
             "has_plan": False,
             "knowledge_profile": {"overall_mastery": 0, "topics": [], "weak_areas": [], "strong_areas": []}
         }
+
+
+# ===== Quản lý lịch học: mục tiêu, trạng thái nhiệm vụ =====
+
+class TaskStatusRequest(BaseModel):
+    status: str  # pending | in_progress | completed | skipped
+
+
+def _plan_status(tasks: List[Dict[str, Any]]) -> str:
+    states = [t.get("status", "pending") for t in tasks]
+    if states and all(s in ("completed", "skipped") for s in states):
+        return "completed" if any(s == "completed" for s in states) else "skipped"
+    if any(s in ("completed", "in_progress", "skipped") for s in states):
+        return "in_progress"
+    return "pending"
+
+
+@router.patch("/plans/{plan_date}/tasks/{task_index}")
+async def update_task_status(plan_date: str, task_index: int, req: TaskStatusRequest):
+    """Đánh dấu một nhiệm vụ trong lịch học (và tự cập nhật trạng thái cả ngày)."""
+    if req.status not in ("pending", "in_progress", "completed", "skipped"):
+        raise HTTPException(status_code=400, detail="Trạng thái không hợp lệ")
+    uid = current_user_id()
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+
+    resp = supabase.table("daily_learning_plans").select("*") \
+        .eq("user_id", uid).eq("plan_date", plan_date).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Không có lịch học cho ngày này")
+    plan = resp.data[0]
+    tasks = plan.get("tasks") or []
+    if task_index < 0 or task_index >= len(tasks):
+        raise HTTPException(status_code=404, detail="Không có nhiệm vụ này")
+
+    tasks[task_index] = {**tasks[task_index], "status": req.status}
+    new_status = _plan_status(tasks)
+    supabase.table("daily_learning_plans").update({"tasks": tasks, "status": new_status}) \
+        .eq("user_id", uid).eq("plan_date", plan_date).execute()
+    return {"plan_date": plan_date, "tasks": tasks, "status": new_status}
+
+
+@router.get("/goals")
+async def list_goals():
+    """Danh sách mục tiêu học đang hoạt động kèm tên tài liệu."""
+    uid = current_user_id()
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+    goals = supabase.table("study_goals").select("*").eq("user_id", uid).execute().data or []
+    goals = [g for g in goals if g.get("is_active", True)]
+    titles: Dict[str, str] = {}
+    for g in goals:
+        did = g.get("document_id")
+        if did and did not in titles:
+            d = supabase.table("documents").select("title").eq("id", did).execute().data or []
+            titles[did] = d[0].get("title", "Tài liệu") if d else "Tài liệu"
+    for g in goals:
+        g["document_title"] = titles.get(g.get("document_id"), "Tài liệu")
+    goals.sort(key=lambda g: g.get("created_at") or "", reverse=True)
+    return {"goals": goals}
+
+
+@router.delete("/goals/{goal_id}")
+async def delete_goal(goal_id: str):
+    """Huỷ mục tiêu và xoá các ngày học chưa hoàn thành của mục tiêu đó."""
+    uid = current_user_id()
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+    goal = supabase.table("study_goals").select("id").eq("id", goal_id).eq("user_id", uid).execute().data
+    if not goal:
+        raise HTTPException(status_code=404, detail="Không tìm thấy mục tiêu")
+
+    plans = supabase.table("daily_learning_plans").select("plan_date,status") \
+        .eq("user_id", uid).eq("study_goal_id", goal_id).execute().data or []
+    removed = 0
+    for p in plans:
+        if p.get("status") != "completed":
+            supabase.table("daily_learning_plans").delete() \
+                .eq("user_id", uid).eq("plan_date", p["plan_date"]).execute()
+            removed += 1
+    supabase.table("study_goals").update({"is_active": False}).eq("id", goal_id).execute()
+    return {"status": "success", "removed_days": removed}

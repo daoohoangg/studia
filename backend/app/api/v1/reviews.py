@@ -8,10 +8,10 @@ from datetime import datetime, timezone, timedelta
 from app.services.fsrs_engine import FSRSEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id
 
 router = APIRouter(prefix="/reviews", tags=["Spaced Repetition Review Queue"])
 
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 class CompleteReviewRequest(BaseModel):
@@ -26,7 +26,7 @@ async def get_review_queue(user_id: Optional[str] = None):
     """
     Lấy danh sách topics đến hạn ôn tập từ Supabase (FSRS schedule).
     """
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -97,7 +97,7 @@ async def complete_review(req: CompleteReviewRequest):
     """
     Đánh dấu review hoàn thành và cập nhật FSRS state.
     """
-    uid = req.user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -148,7 +148,7 @@ async def complete_review(req: CompleteReviewRequest):
 @router.get("/stats")
 async def get_review_stats(user_id: Optional[str] = None):
     """Thống kê tổng quan về tình trạng học tập của user."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:

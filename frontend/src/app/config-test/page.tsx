@@ -1,13 +1,8 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import {
-  FlaskConical, Search, GitFork, Calendar, RotateCcw,
-  Sparkles, Mic, Download, MessageSquare, Layers,
-  CheckCircle2, Play, RefreshCw, Loader2, ArrowRight
-} from "lucide-react";
 
-const API = "http://localhost:8000/api/v1";
+import { API, apiFetch } from "@/lib/api";
 
 export default function ConfigTestPage() {
   const [activeTab, setActiveTab] = useState<string>("rag");
@@ -51,7 +46,7 @@ export default function ConfigTestPage() {
 
   const fetchDocs = async () => {
     try {
-      const res = await fetch(`${API}/documents/`);
+      const res = await apiFetch(`${API}/documents/`);
       if (res.ok) {
         const data = await res.json();
         setDocuments(data.documents || []);
@@ -69,7 +64,7 @@ export default function ConfigTestPage() {
     if (!selectedDocId || !searchQuery.trim()) return;
     setSearching(true);
     try {
-      const res = await fetch(`${API}/documents/${selectedDocId}/search`, {
+      const res = await apiFetch(`${API}/documents/${selectedDocId}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: searchQuery, top_k: 4 })
@@ -88,7 +83,7 @@ export default function ConfigTestPage() {
   const loadChunks = async () => {
     if (!selectedDocId) return;
     try {
-      const res = await fetch(`${API}/documents/${selectedDocId}/chunks?limit=10`);
+      const res = await apiFetch(`${API}/documents/${selectedDocId}/chunks?limit=10`);
       if (res.ok) {
         const data = await res.json();
         setDocChunks(data.chunks || []);
@@ -103,7 +98,7 @@ export default function ConfigTestPage() {
     setGeneratingVisuals(true);
     try {
       // Mermaid
-      const resM = await fetch(`${API}/dual-coding/generate-mermaid`, {
+      const resM = await apiFetch(`${API}/dual-coding/generate-mermaid`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic_name: topicName, concept_description: topicDesc })
@@ -114,7 +109,7 @@ export default function ConfigTestPage() {
       }
 
       // D2
-      const resD = await fetch(`${API}/dual-coding/generate-d2`, {
+      const resD = await apiFetch(`${API}/dual-coding/generate-d2`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic_name: topicName, concept_description: topicDesc })
@@ -133,7 +128,7 @@ export default function ConfigTestPage() {
   const testSpeechGuide = async () => {
     setTestingSpeech(true);
     try {
-      const res = await fetch(`${API}/speech/guide`, {
+      const res = await apiFetch(`${API}/speech/guide`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: speechText, speed: speechSpeed })
@@ -150,7 +145,7 @@ export default function ConfigTestPage() {
   const evaluateSpeech = async () => {
     if (!userSpokenText.trim()) return;
     try {
-      const res = await fetch(`${API}/speech/evaluate`, {
+      const res = await apiFetch(`${API}/speech/evaluate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -194,11 +189,11 @@ export default function ConfigTestPage() {
   };
 
   const tabs = [
-    { id: "rag", label: "RAG & Vector Chunks", icon: Search },
-    { id: "fsrs", label: "FSRS & Export Console", icon: RotateCcw },
-    { id: "dual", label: "Dual Coding Visuals", icon: Layers },
-    { id: "speech", label: "Speech & Shadowing", icon: Mic },
-    { id: "matrix", label: "Master Config Matrix", icon: CheckCircle2 },
+    { id: "rag", label: "RAG & Vector Chunks" },
+    { id: "fsrs", label: "FSRS & Export Console" },
+    { id: "dual", label: "Dual Coding Visuals" },
+    { id: "speech", label: "Speech & Shadowing" },
+    { id: "matrix", label: "Master Config Matrix" },
   ];
 
   return (
@@ -207,9 +202,9 @@ export default function ConfigTestPage() {
       <div className="glass-panel" style={{ padding: "28px 32px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <span className="badge badge-indigo" style={{ marginBottom: "10px" }}>
-            <FlaskConical size={14} /> Senior Technical Business Analyst Test Suite
+             Senior Technical Business Analyst Test Suite
           </span>
-          <h1 style={{ fontSize: "2rem", fontWeight: "800", fontFamily: "Outfit, sans-serif" }}>
+          <h1 style={{ fontSize: "2rem", fontWeight: 700, fontFamily: "var(--font-display)" }}>
             Studia Config & Feature Test Console
           </h1>
           <p style={{ color: "var(--text-secondary)", marginTop: "4px", fontSize: "0.9rem" }}>
@@ -219,10 +214,10 @@ export default function ConfigTestPage() {
 
         <div style={{ display: "flex", gap: "10px" }}>
           <a href={`${API}/export/schedule/ical`} target="_blank" className="btn-secondary">
-            <Calendar size={15} /> Export iCal (.ics)
+             Export iCal (.ics)
           </a>
           <a href={`${API}/docs`} target="_blank" className="btn-primary">
-            Swagger API Docs <ArrowRight size={15} />
+            Swagger API Docs 
           </a>
         </div>
       </div>
@@ -230,7 +225,6 @@ export default function ConfigTestPage() {
       {/* Tabs */}
       <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "12px", overflowX: "auto" }}>
         {tabs.map(tab => {
-          const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
             <button
@@ -242,7 +236,7 @@ export default function ConfigTestPage() {
                 display: "flex", alignItems: "center", gap: "8px", flexShrink: 0
               }}
             >
-              <Icon size={16} /> {tab.label}
+              {tab.label}
             </button>
           );
         })}
@@ -251,9 +245,8 @@ export default function ConfigTestPage() {
       {/* TAB 1: RAG & Vector Chunks */}
       {activeTab === "rag" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div className="glass-panel" style={{ padding: 24, borderRadius: 16 }}>
+          <div className="glass-panel" style={{ padding: 24, borderRadius: 12 }}>
             <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-              <Search size={18} color="var(--accent-indigo)" />
               Thử nghiệm Semantic Vector Search (pgvector 768d + Gemini)
             </h2>
 
@@ -261,7 +254,7 @@ export default function ConfigTestPage() {
               <select
                 value={selectedDocId}
                 onChange={e => setSelectedDocId(e.target.value)}
-                style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
               >
                 <option value="">-- Chọn tài liệu PDF/Text --</option>
                 {documents.map(d => (
@@ -275,11 +268,11 @@ export default function ConfigTestPage() {
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && runRagSearch()}
                 placeholder="Nhập câu hỏi hoặc khái niệm cần tìm kiếm trong sách..."
-                style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
+                style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
               />
 
               <button className="btn-primary" onClick={runRagSearch} disabled={searching || !selectedDocId}>
-                {searching ? <Loader2 size={16} className="spin" /> : <Search size={16} />}
+                {searching ? <span className="spinner" /> : null}
                 Tìm Vector Search
               </button>
 
@@ -289,14 +282,14 @@ export default function ConfigTestPage() {
             </div>
 
             {searchResults && (
-              <div style={{ marginTop: 16, background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 12, padding: 16 }}>
+              <div style={{ marginTop: 16, background: "var(--bg-card-hover)", border: "1px solid var(--border-subtle)", borderRadius: 12, padding: 16 }}>
                 <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--accent-indigo)", marginBottom: 10 }}>
                   Kết quả Vector Search Cosine Distance ({searchResults.matches?.length || 0} chunks phù hợp nhất):
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {searchResults.matches?.map((m: any, idx: number) => (
-                    <div key={idx} style={{ background: "var(--bg-card)", padding: 12, borderRadius: 10, border: "1px solid var(--border-subtle)" }}>
+                    <div key={idx} style={{ background: "var(--bg-card)", padding: 12, borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 4 }}>
                         <span>Chunk #{m.chunk_index || idx + 1}</span>
                         <span className="badge badge-emerald">Similarity: {((1 - (m.similarity || 0.1)) * 100).toFixed(1)}%</span>
@@ -315,7 +308,7 @@ export default function ConfigTestPage() {
                 <h3 style={{ fontSize: "0.95rem", fontWeight: 700, marginBottom: 10 }}>10 Chunks đã tách (Kích thước ~600ch, Overlap 80ch):</h3>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10 }}>
                   {docChunks.map((c: any, i: number) => (
-                    <div key={i} style={{ padding: 12, borderRadius: 10, background: "var(--bg-card)", border: "1px solid var(--border-subtle)", fontSize: "0.8rem" }}>
+                    <div key={i} style={{ padding: 12, borderRadius: 8, background: "var(--bg-card)", border: "1px solid var(--border-subtle)", fontSize: "0.8rem" }}>
                       <div style={{ fontWeight: 700, color: "var(--accent-indigo)", marginBottom: 4 }}>Chunk #{c.chunk_index} ({c.content?.length || 0} ký tự)</div>
                       <div style={{ color: "var(--text-secondary)", lineHeight: 1.4, maxHeight: 90, overflow: "hidden", textOverflow: "ellipsis" }}>{c.content}</div>
                     </div>
@@ -330,9 +323,8 @@ export default function ConfigTestPage() {
       {/* TAB 2: FSRS & Export Console */}
       {activeTab === "fsrs" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div className="glass-panel" style={{ padding: 24, borderRadius: 16 }}>
+          <div className="glass-panel" style={{ padding: 24, borderRadius: 12 }}>
             <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-              <RotateCcw size={18} color="var(--accent-emerald)" />
               Mô phỏng Thuật toán FSRS toán học (Free Spaced Repetition Scheduler)
             </h2>
 
@@ -379,35 +371,34 @@ export default function ConfigTestPage() {
             </div>
 
             <button className="btn-primary" onClick={simulateFsrs} style={{ marginBottom: 16 }}>
-              <Play size={15} /> Tính toán FSRS Interval Tiếp theo
+               Tính toán FSRS Interval Tiếp theo
             </button>
 
             {fsrsCalculated && (
-              <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 12, padding: 16, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+              <div style={{ background: "var(--bg-card-hover)", border: "1px solid var(--border-subtle)", borderRadius: 12, padding: 16, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Stability Mới ($S$)</div>
-                  <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#10b981" }}>{fsrsCalculated.new_stability} ngày</div>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--success)" }}>{fsrsCalculated.new_stability} ngày</div>
                 </div>
                 <div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Difficulty Mới ($D$)</div>
-                  <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#f59e0b" }}>{fsrsCalculated.new_difficulty}</div>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--accent-strong)" }}>{fsrsCalculated.new_difficulty}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Khoảng thời gian lặp ($I$)</div>
-                  <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#6366f1" }}>{fsrsCalculated.interval_days} ngày</div>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--brand)" }}>{fsrsCalculated.interval_days} ngày</div>
                 </div>
                 <div>
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Retention kỳ vọng ($R$)</div>
-                  <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#38bdf8" }}>{fsrsCalculated.retention_pct}%</div>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--brand)" }}>{fsrsCalculated.retention_pct}%</div>
                 </div>
               </div>
             )}
           </div>
 
           {/* Export section */}
-          <div className="glass-panel" style={{ padding: 24, borderRadius: 16 }}>
+          <div className="glass-panel" style={{ padding: 24, borderRadius: 12 }}>
             <h2 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
-              <Download size={18} color="var(--accent-cyan)" />
               Xuất tệp tích hợp Anki CSV & iCalendar (.ics)
             </h2>
             <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 16 }}>
@@ -415,10 +406,10 @@ export default function ConfigTestPage() {
             </p>
             <div style={{ display: "flex", gap: 12 }}>
               <a href={`${API}/export/flashcards/anki/all`} target="_blank" className="btn-secondary">
-                📥 Export Anki CSV/TSV (.apkg)
+                Export Anki CSV/TSV (.apkg)
               </a>
               <a href={`${API}/export/schedule/ical`} target="_blank" className="btn-secondary">
-                📅 Export Lịch học iCalendar (.ics)
+                Export Lịch học iCalendar (.ics)
               </a>
             </div>
           </div>
@@ -428,9 +419,8 @@ export default function ConfigTestPage() {
       {/* TAB 3: Dual Coding Visuals */}
       {activeTab === "dual" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div className="glass-panel" style={{ padding: 24, borderRadius: 16 }}>
+          <div className="glass-panel" style={{ padding: 24, borderRadius: 12 }}>
             <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-              <Layers size={18} color="var(--accent-purple)" />
               Thử nghiệm Sinh Sơ đồ Trực quan (Dual Coding Theory)
             </h2>
 
@@ -440,17 +430,17 @@ export default function ConfigTestPage() {
                 value={topicName}
                 onChange={e => setTopicName(e.target.value)}
                 placeholder="Tên chủ đề..."
-                style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
               />
               <textarea
                 value={topicDesc}
                 onChange={e => setTopicDesc(e.target.value)}
                 rows={3}
                 placeholder="Mô tả khái niệm..."
-                style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
               />
               <button className="btn-primary" onClick={generateVisuals} disabled={generatingVisuals} style={{ alignSelf: "flex-start" }}>
-                {generatingVisuals ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+                {generatingVisuals ? <span className="spinner" /> : null}
                 Sinh Mermaid & D2 Diagram
               </button>
             </div>
@@ -479,9 +469,8 @@ export default function ConfigTestPage() {
       {/* TAB 4: Speech & Shadowing */}
       {activeTab === "speech" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div className="glass-panel" style={{ padding: 24, borderRadius: 16 }}>
+          <div className="glass-panel" style={{ padding: 24, borderRadius: 12 }}>
             <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-              <Mic size={18} color="var(--accent-amber)" />
               Kỹ thuật Speech Shadowing & Chấm điểm Levenshtein Distance
             </h2>
 
@@ -491,7 +480,7 @@ export default function ConfigTestPage() {
                 value={speechText}
                 onChange={e => setSpeechText(e.target.value)}
                 rows={2}
-                style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
+                style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
               />
 
               <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -508,15 +497,15 @@ export default function ConfigTestPage() {
                 ))}
 
                 <button className="btn-primary" onClick={testSpeechGuide} disabled={testingSpeech}>
-                  {testingSpeech ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
+                  {testingSpeech ? <span className="spinner" /> : null}
                   Phân tích Hướng dẫn Shadowing
                 </button>
               </div>
             </div>
 
             {shadowingGuide && (
-              <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                <div style={{ fontWeight: 700, color: "#fbbf24", marginBottom: 8 }}>Kết quả Phân tích Nhịp ngắt Shadowing:</div>
+              <div style={{ background: "var(--bg-card-hover)", border: "1px solid var(--border-subtle)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, color: "var(--accent-strong)", marginBottom: 8 }}>Kết quả Phân tích Nhịp ngắt Shadowing:</div>
                 <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10 }}>
                   Tổng từ: {shadowingGuide.total_words} từ | Thời gian ước tính: {shadowingGuide.estimated_duration_sec} giây ở {shadowingGuide.speed}x
                 </div>
@@ -540,7 +529,7 @@ export default function ConfigTestPage() {
                   value={userSpokenText}
                   onChange={e => setUserSpokenText(e.target.value)}
                   placeholder="Nhập hoặc dán transcript học viên đọc..."
-                  style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
+                  style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.88rem" }}
                 />
                 <button className="btn-primary" onClick={evaluateSpeech}>
                   Chấm điểm Levenshtein
@@ -548,8 +537,8 @@ export default function ConfigTestPage() {
               </div>
 
               {evalResult && (
-                <div style={{ background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 12, padding: 16 }}>
-                  <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--accent-indigo)", marginBottom: 4 }}>
+                <div style={{ background: "var(--bg-card-hover)", border: "1px solid var(--border-subtle)", borderRadius: 12, padding: 16 }}>
+                  <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--accent-indigo)", marginBottom: 4 }}>
                     Độ chính xác: {evalResult.accuracy_percent}% ({evalResult.score}/10)
                   </div>
                   <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: 10 }}>{evalResult.feedback}</div>
@@ -566,9 +555,8 @@ export default function ConfigTestPage() {
       {/* TAB 5: Master Config Matrix */}
       {activeTab === "matrix" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div className="glass-panel" style={{ padding: 24, borderRadius: 16 }}>
+          <div className="glass-panel" style={{ padding: 24, borderRadius: 12 }}>
             <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-              <CheckCircle2 size={18} color="var(--accent-emerald)" />
               Bảng Audit Tiến độ 10 Phân hệ & 21 Hàm Cốt lõi (config.md)
             </h2>
 

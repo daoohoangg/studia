@@ -11,6 +11,7 @@ from app.services.rag_engine import RAGEngine
 from app.services.fsrs_engine import FSRSEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id
 import uuid
 import logging
 
@@ -18,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/vocabulary", tags=["Vocabulary Learning"])
 
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 class ExtractVocabularyRequest(BaseModel):
@@ -65,7 +65,7 @@ async def extract_vocabulary_from_lesson(req: ExtractVocabularyRequest):
     Nhận vocabulary_highlights từ generate_lesson_with_vocabulary,
     hoặc tự trích xuất từ lesson_content nếu không có.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -128,7 +128,7 @@ async def get_vocabulary_card(req: VocabularyCardRequest):
     Sinh Vocabulary Card chi tiết cho một từ vựng.
     Trả về meaning_vi, examples, collocations, pronunciation.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     # Lấy RAG context nếu có document_id
@@ -163,7 +163,7 @@ async def save_vocabulary_item(req: SaveVocabularyRequest):
     Lưu một vocabulary item vào database.
     Tùy chọn tạo flashcard FSRS tương ứng.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -264,7 +264,7 @@ async def get_vocabulary_list(
     Lấy danh sách từ vựng đã học của user.
     Hỗ trợ filter theo topic, document, source.
     """
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -307,7 +307,7 @@ async def get_vocabulary_list(
 @router.get("/stats")
 async def get_vocabulary_stats(user_id: Optional[str] = None):
     """Thống kê từ vựng của user: tổng số, mastery trung bình, phân bổ theo nguồn."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -346,7 +346,7 @@ async def get_vocabulary_stats(user_id: Optional[str] = None):
 @router.delete("/{vocabulary_id}")
 async def delete_vocabulary_item(vocabulary_id: str, user_id: Optional[str] = None):
     """Xóa một vocabulary item của user."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:

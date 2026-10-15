@@ -1,0 +1,6 @@
+# Audio Cambridge nặng ~170 MB: không đưa lên Vercel. Đặt tệp trên storage và khai báo NEXT_PUBLIC_AUDIO_BASE_URL.
+public/audio
+.preview
+.next
+node_modules
+tsconfig.tsbuildinfo

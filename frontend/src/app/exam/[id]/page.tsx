@@ -1,16 +1,21 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { audioUrl as resolveAudioUrl } from "@/lib/assets";
+import { Fragment, useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Volume2, Mic, MicOff, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Eye, EyeOff, Send, AlertTriangle } from "lucide-react";
 import ExamTimer from "@/components/ExamTimer";
+import Logo from "@/components/Logo";
 import cambridge21Test1 from "@/data/cambridge21_test1.json";
 import cambridge21Test2 from "@/data/cambridge21_test2.json";
 import cambridge21Test3 from "@/data/cambridge21_test3.json";
 import cambridge21Test4 from "@/data/cambridge21_test4.json";
 
-const API = "http://localhost:8000/api/v1";
+import { API, apiFetch } from "@/lib/api";
+import { AnswerSaver, createAnswerSaver, postJson } from "@/lib/examSession";
+import GroupHeader from "@/components/exam/GroupHeader";
+import ServerResult from "@/components/exam/ServerResult";
+import { Mic, Square } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────
 type Section = "listening" | "reading" | "writing" | "speaking";
@@ -119,13 +124,56 @@ and explain why you would recommend this book to others.`,
 export default function ExamSessionPage() {
   return (
     <Suspense fallback={
-      <div style={{ minHeight: "100vh", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2e8f0" }}>
+      <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink)" }}>
         <div>Đang tải phòng thi...</div>
       </div>
     }>
       <ExamSessionContent />
     </Suspense>
   );
+}
+
+// ─── Chấm điểm (Listening / Reading) ─────────────────────────
+const canon = (s: any): string => {
+  const n = String(s ?? "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9.\s-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (n === "yes") return "true";
+  if (n === "no") return "false";
+  if (n === "notgiven") return "not given";
+  return n;
+};
+
+// Bảng quy đổi số câu đúng (40 câu) sang band, theo thang IELTS Academic
+const LISTENING_BANDS: [number, number][] = [[39, 9], [37, 8.5], [35, 8], [32, 7.5], [30, 7], [26, 6.5], [23, 6], [18, 5.5], [16, 5], [13, 4.5], [10, 4], [8, 3.5], [6, 3], [4, 2.5]];
+const READING_BANDS: [number, number][] = [[39, 9], [37, 8.5], [35, 8], [33, 7.5], [30, 7], [27, 6.5], [23, 6], [19, 5.5], [15, 5], [13, 4.5], [10, 4], [8, 3.5], [6, 3], [4, 2.5]];
+const toBand = (raw: number, table: [number, number][]) => (table.find(([min]) => raw >= min)?.[1] ?? 1);
+
+/** Trả về số câu đúng, hoặc null nếu đề chưa có đáp án. */
+function scoreQuestions(questions: any[] | undefined, prefix: string, answers: Record<string, any>): number | null {
+  if (!questions || questions.length === 0 || !questions.every(q => q.correct_answer)) return null;
+  const byNumber: Record<string, any> = {};
+  questions.forEach(q => { byNumber[String(q.number)] = q; });
+  let correct = 0;
+  for (const q of questions) {
+    const given = canon(answers[`${prefix}_${q.number}`]);
+    if (!given) continue;
+    if (q.either_order_with) {
+      // Hai câu có thể trả lời theo thứ tự bất kỳ, nhưng không được trùng nhau
+      const partner = byNumber[String(q.either_order_with)];
+      const pair = [canon(q.correct_answer), canon(partner?.correct_answer)];
+      const partnerGiven = canon(answers[`${prefix}_${partner?.number}`]);
+      const isFirst = Number(q.number) < Number(partner?.number);
+      if (pair.includes(given) && (isFirst || given !== partnerGiven)) correct++;
+    } else {
+      const accepted = (q.accepted_answers || [q.correct_answer]).map(canon);
+      if (accepted.includes(given)) correct++;
+    }
+  }
+  return correct;
 }
 
 function ExamSessionContent() {
@@ -165,6 +213,14 @@ function ExamSessionContent() {
   const autosaveRef = useRef<NodeJS.Timeout | null>(null);
   const sections = examData?.session?.section_order || [];
 
+  // Phiên thi thật (chấm điểm ở server): không phải chế độ demo
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [remainingOverride, setRemainingOverride] = useState<number | null>(null);
+  const [saveFailures, setSaveFailures] = useState(0);
+  const saveFailuresRef = useRef(0);
+  saveFailuresRef.current = saveFailures;
+  const saverRef = useRef<AnswerSaver | null>(null);
+
   // ─── Load Exam Data ──────────────────────────────────────────
   useEffect(() => {
     const loadExam = async () => {
@@ -200,7 +256,7 @@ function ExamSessionContent() {
             section_durations: {
               listening: 1800, reading: 3600, writing: 3600, speaking: 900
             },
-            audio_url: isCam21 ? srcData.listening_audio : undefined
+            audio_url: isCam21 ? resolveAudioUrl(srcData.listening_audio) : undefined
           },
           questions: srcData as any,
         });
@@ -212,131 +268,125 @@ function ExamSessionContent() {
       }
 
       try {
-        const res = await fetch(`${API}/exam/sessions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ exam_type: "full" }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setExamData(data);
-          setCurrentSection(data.session.section_order[0]);
+        const res = await apiFetch(`${API}/exam/sessions/${sessionId}`);
+        if (res.status === 404) {
+          setLoadError("Không tìm thấy phiên thi này. Hãy quay lại danh sách đề để bắt đầu một phiên mới.");
+          return;
         }
+        if (!res.ok) throw new Error(String(res.status));
+        const data = await res.json();
+        if (data.result) {  // phiên đã nộp: hiện luôn kết quả
+          setResult({ ...data.result, server: true });
+          setStatus(data.session.status);
+          return;
+        }
+        const session = data.session;
+        if (session.status === "NOT_STARTED") {
+          const started = await postJson(`/exam/sessions/${sessionId}/start`);
+          if (started.ok) {
+            const info = await started.json();
+            session.status = info.status;
+            session.current_section = info.current_section;
+            session.remaining_seconds = info.remaining_seconds ?? null;
+          }
+        }
+        setExamData({ session, questions: data.questions });
+        const saved = data.answers || {};
+        setAnswers(saved);
+        setWritingTask1(saved.writing_task1 || "");
+        setWritingTask2(saved.writing_task2 || "");
+        const order: Section[] = session.section_order;
+        const current: Section = order.includes(session.current_section) ? session.current_section : order[0];
+        setCurrentSection(current);
+        setSectionDone(order.slice(0, order.indexOf(current)));
+        if (typeof session.remaining_seconds === "number") setRemainingOverride(session.remaining_seconds);
+        saverRef.current = createAnswerSaver(sessionId, setSaveFailures);
+        postJson(`/exam/sessions/${sessionId}/section`, { section: current }).catch(() => {});
       } catch {
-        // Use demo data on error
-        setExamData({
-          session: {
-            session_id: sessionId,
-            exam_type: "full",
-            sections: ["listening", "reading", "writing", "speaking"],
-            section_order: ["listening", "reading", "writing", "speaking"],
-            section_durations: { listening: 1800, reading: 3600, writing: 3600, speaking: 900 },
-          },
-          questions: {
-            listening: DEMO_LISTENING,
-            reading: DEMO_READING,
-            reading_passage: DEMO_READING_PASSAGE,
-            writing_task1: "Summarise the graph information. Write at least 150 words.",
-            writing_task2: "Write about the given topic. Write at least 250 words.",
-            speaking: SPEAKING_FLOW,
-          },
-        });
-        setCurrentSection("listening");
+        setLoadError("Không tải được phiên thi. Kiểm tra kết nối rồi thử lại.");
       } finally {
         setLoading(false);
         document.body.classList.add("exam-mode");
       }
     };
     loadExam();
-    return () => { document.body.classList.remove("exam-mode"); };
+    return () => {
+      document.body.classList.remove("exam-mode");
+      saverRef.current?.dispose();
+    };
   }, [sessionId, isDemoMode, demoType]);
 
   // Autosave writing
   useEffect(() => {
     if (autosaveRef.current) clearTimeout(autosaveRef.current);
     autosaveRef.current = setTimeout(() => {
-      // Could POST to backend for real autosave
+      if (isDemoMode || !saverRef.current) return;
+      if (writingTask1) saverRef.current.saveWriting("task1", writingTask1);
+      if (writingTask2) saverRef.current.saveWriting("task2", writingTask2);
     }, 3000);
     return () => { if (autosaveRef.current) clearTimeout(autosaveRef.current); };
   }, [writingTask1, writingTask2]);
 
+  const submitRef = useRef<(auto?: boolean) => void>(() => {});
   const handleAutoSubmit = useCallback(() => {
     setStatus("AUTO_SUBMITTED");
-    handleSubmitExam(true);
+    submitRef.current(true);
   }, []);
 
   const handleSubmitExam = async (auto = false) => {
     setSubmitLoading(true);
-    const allAnswers = {
-      ...answers,
-      writing_task1: writingTask1,
-      writing_task1_words: writingTask1.split(/\s+/).filter(Boolean).length,
-      writing_task2: writingTask2,
-      writing_task2_words: writingTask2.split(/\s+/).filter(Boolean).length,
-    };
-
-    try {
-      const res = await fetch(`${API}/exam/sessions/${sessionId}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, auto_submitted: auto, answers: allAnswers }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setResult(data);
-      } else {
-        // Demo result
-        setResult(generateDemoResult(allAnswers, sections));
+    if (!isDemoMode) {
+      try {
+        const saver = saverRef.current;
+        if (saver) {
+          if (writingTask1) saver.saveWriting("task1", writingTask1);
+          if (writingTask2) saver.saveWriting("task2", writingTask2);
+          await saver.flush();
+        }
+        const res = await postJson(`/exam/sessions/${sessionId}/submit`, { auto_submitted: auto });
+        if (!res.ok) throw new Error(String(res.status));
+        setResult({ ...(await res.json()), server: true });
+        setStatus(auto ? "AUTO_SUBMITTED" : "SUBMITTED");
+        document.body.classList.remove("exam-mode");
+      } catch {
+        window.alert("Không nộp được bài (lỗi mạng hoặc máy chủ). Các câu trả lời đã nhập vẫn được giữ — hãy thử nộp lại.");
       }
-    } catch {
-      setResult(generateDemoResult(allAnswers, sections));
-    } finally {
       setSubmitLoading(false);
       setShowSubmitModal(false);
-      setStatus(auto ? "AUTO_SUBMITTED" : "SUBMITTED");
-      document.body.classList.remove("exam-mode");
+      return;
     }
-  };
+    const count = (prefix: string, total: number) =>
+      Array.from({ length: total }, (_, i) => i + 1)
+        .filter(n => String(answers[`${prefix}_${n}`] ?? "").trim() !== "").length;
+    const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
+    const listeningTotal = (examData?.questions as any)?.listening?.length || 40;
+    const readingTotal = (examData?.questions as any)?.reading?.length || 40;
 
-  const generateDemoResult = (ans: Record<string, any>, secs: string[]) => {
-    const lisRaw = Math.floor(Math.random() * 15) + 20;
-    const readRaw = Math.floor(Math.random() * 15) + 22;
-    const lisBand = lisRaw >= 35 ? 8.0 : lisRaw >= 30 ? 7.0 : lisRaw >= 23 ? 6.0 : 5.0;
-    const readBand = readRaw >= 35 ? 8.0 : readRaw >= 30 ? 7.0 : readRaw >= 23 ? 6.0 : 5.0;
-    const writBand = 6.5;
-    const speakBand = 6.5;
-    const scores = secs.map(s => s === "listening" ? lisBand : s === "reading" ? readBand : s === "writing" ? writBand : speakBand);
-    const overall = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 2) / 2;
-    return {
-      overall_band: overall,
-      section_results: {
-        listening: secs.includes("listening") ? { raw_score: lisRaw, band: lisBand } : null,
-        reading: secs.includes("reading") ? { raw_score: readRaw, band: readBand } : null,
-        writing: secs.includes("writing") ? { band: writBand, task1_band: 6.5, task2_band: 6.5 } : null,
-        speaking: secs.includes("speaking") ? { band: speakBand } : null,
-      },
-      ai_analysis: {
-        current_band: overall,
-        target_band: Math.min(9.0, overall + 1.0),
-        strengths: ["Hoàn thành bài thi đúng thời gian", "Trả lời đầy đủ các câu hỏi"],
-        weaknesses: ["Listening Part 3 — cần luyện nghe thêm", "Reading — Matching Headings cần cải thiện"],
-        priority_areas: [
-          { area: "Listening — Multiple Choice", action: "Luyện 20 câu mỗi ngày" },
-          { area: "Reading — Matching Headings", action: "Đọc 1 passage mỗi ngày" },
-          { area: "Writing — Task Response", action: "Viết 2 bài Task 2 mỗi tuần" },
-        ],
-        study_plan: {
-          week1: ["Ôn Listening Part 3 & 4", "Đọc 3 passages Reading", "Viết 1 Task 1"],
-          week2: ["Luyện Multiple Choice", "Matching Headings", "Viết 1 Task 2"],
-          week3: ["Full Mock Test", "Review lỗi sai", "Speaking Part 2"],
-        },
-      },
-      answered_count: Object.keys(ans).filter(k => ans[k]).length,
-    };
+    setResult({
+      auto_submitted: auto,
+      listening: sections.includes("listening") ? (() => {
+        const correct = scoreQuestions((examData?.questions as any)?.listening, "listening", answers);
+        return { answered: count("listening", listeningTotal), total: listeningTotal, correct, band: correct === null ? null : toBand(correct, LISTENING_BANDS) };
+      })() : null,
+      reading: sections.includes("reading") ? (() => {
+        const correct = scoreQuestions((examData?.questions as any)?.reading, "reading", answers);
+        return { answered: count("reading", readingTotal), total: readingTotal, correct, band: correct === null ? null : toBand(correct, READING_BANDS) };
+      })() : null,
+      writing: sections.includes("writing") ? { task1: words(writingTask1), task2: words(writingTask2) } : null,
+      speaking: sections.includes("speaking"),
+    });
+    setSubmitLoading(false);
+    setShowSubmitModal(false);
+    setStatus(auto ? "AUTO_SUBMITTED" : "SUBMITTED");
+    document.body.classList.remove("exam-mode");
   };
+  submitRef.current = handleSubmitExam;
 
   const setAnswer = (section: Section, num: number, val: any) => {
     setAnswers(prev => ({ ...prev, [`${section}_${num}`]: val }));
+    if (!isDemoMode && (section === "listening" || section === "reading")) {
+      saverRef.current?.save(section, num, val);
+    }
   };
 
   const getAnswer = (section: Section, num: number) => answers[`${section}_${num}`];
@@ -344,26 +394,110 @@ function ExamSessionContent() {
   const answeredCount = (section: Section, total: number) =>
     Array.from({ length: total }, (_, i) => i + 1).filter(n => answers[`${section}_${n}`]).length;
 
+  const [breakTo, setBreakTo] = useState<Section | null>(null);
+  const [breakLeft, setBreakLeft] = useState(45);
   const nextSection = () => {
     const idx = sections.indexOf(currentSection);
     if (idx < sections.length - 1) {
       setSectionDone(prev => [...prev, currentSection]);
+      setBreakTo(sections[idx + 1]);
+      setBreakLeft(45);
+    } else {
+      setShowSubmitModal(true);
+    }
+  };
+  const startSection = () => {
+    const idx = sections.indexOf(currentSection);
+    if (idx < sections.length - 1) {
+      setBreakTo(null);
       setCurrentSection(sections[idx + 1]);
       setCurrentQuestion(1);
+      setRemainingOverride(null);
+      if (!isDemoMode) postJson(`/exam/sessions/${sessionId}/section`, { section: sections[idx + 1] }).catch(() => {});
     } else {
       setShowSubmitModal(true);
     }
   };
 
+  // Hết giờ phần cuối: hiện hộp thoại tổng kết trước khi vào kết quả
+  const [timeUp, setTimeUp] = useState(false);
+  const [timeUpAck, setTimeUpAck] = useState(false);
+  // Mạng: báo mất kết nối / đã kết nối lại
+  const [online, setOnline] = useState(true);
+  const [backOnline, setBackOnline] = useState<number | null>(null);
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const off = () => setOnline(false);
+    const on = () => {
+      setOnline(true);
+      setBackOnline(saveFailuresRef.current);
+      t = setTimeout(() => setBackOnline(null), 5000);
+    };
+    window.addEventListener("offline", off);
+    window.addEventListener("online", on);
+    return () => { window.removeEventListener("offline", off); window.removeEventListener("online", on); if (t) clearTimeout(t); };
+  }, []);
+
+  const startSectionRef = useRef(startSection);
+  startSectionRef.current = startSection;
+  useEffect(() => {
+    if (!breakTo) return;
+    if (breakLeft <= 0) { startSectionRef.current(); return; }
+    const t = setTimeout(() => setBreakLeft((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [breakTo, breakLeft]);
+
   if (loading) return (
-    <div style={{ minHeight: "100vh", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", color: "#e2e8f0" }}>
-      <div style={{ width: 40, height: 40, border: "3px solid #334155", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-      <p style={{ fontSize: "0.9rem", color: "#64748b" }}>Đang tải phòng thi IELTS...</p>
+    <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", color: "var(--ink)" }}>
+      <div style={{ width: 40, height: 40, border: "3px solid var(--hairline)", borderTopColor: "var(--brand)", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+      <p style={{ fontSize: "0.9rem", color: "var(--ink-muted)" }}>Đang tải phòng thi IELTS...</p>
     </div>
   );
 
+  // ─── Hết giờ ─────────────────────────────────────────────────
+  if (timeUp && !timeUpAck) {
+    const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
+    const w1 = words(writingTask1), w2 = words(writingTask2);
+    const last = sections[sections.length - 1];
+    return (
+      <div style={{ minHeight: "100vh", background: "color-mix(in srgb, var(--navy) 55%, var(--canvas))", display: "grid", placeItems: "center", padding: 24 }}>
+        <section role="alertdialog" aria-modal="true" aria-labelledby="tu-h" aria-describedby="tu-d" className="st-enter"
+          style={{ width: "100%", maxWidth: 480, background: "var(--surface)", borderRadius: "var(--radius-xl)", boxShadow: "var(--shadow-lg)", padding: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 18, textAlign: "center" }}>
+          <span className="tile tile-warning" style={{ width: 56, height: 56 }} aria-hidden="true">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
+          </span>
+          <div>
+            <h2 id="tu-h" style={{ font: "700 24px/30px var(--font-display)", letterSpacing: -0.4 }}>Hết giờ phần {last === "listening" ? "Listening" : last === "reading" ? "Reading" : last === "writing" ? "Writing" : "Speaking"}</h2>
+            <p id="tu-d" className="ink2" style={{ marginTop: 6 }}>Bài làm đã được lưu và nộp tự động — bạn không mất chữ nào.</p>
+          </div>
+          {sections.includes("writing") && (
+            <div style={{ width: "100%", padding: "4px 16px", borderRadius: "var(--radius-md)", background: "var(--surface-sunken)", textAlign: "left" }}>
+              <div className="row" style={{ justifyContent: "space-between", padding: "10px 0" }}><span>Task 1</span><b className="num" style={{ color: w1 >= 150 ? "var(--success)" : "var(--warning)" }}>{w1} / 150 từ</b></div>
+              <div className="row" style={{ justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--hairline)" }}><span>Task 2</span><b className="num" style={{ color: w2 >= 250 ? "var(--success)" : "var(--warning)" }}>{w2} / 250 từ</b></div>
+            </div>
+          )}
+          {sections.includes("writing") && w2 < 250 && <p className="meta">Task 2 dưới 250 từ thường bị trừ điểm Task Response.</p>}
+          <button className="st-btn st-btn-primary" style={{ width: "100%" }} type="button" disabled={!result} onClick={() => setTimeUpAck(true)}>
+            {result ? "Xem kết quả" : "Đang chấm bài…"}
+          </button>
+        </section>
+      </div>
+    );
+  }
+
   // ─── Result Screen ───────────────────────────────────────────
-  if (result) return <ResultScreen result={result} sections={sections} onRetry={() => router.push("/exam")} />;
+  if (result?.server) return <ServerResult result={result} onRetry={() => router.push("/exam")} />;
+  if (result) return <ResultScreen result={result} onRetry={() => router.push("/exam")} />;
+
+  if (loadError) return (
+    <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", padding: "24px", textAlign: "center" }}>
+      <p style={{ fontSize: "1rem", color: "var(--ink)", maxWidth: 420 }}>{loadError}</p>
+      <button onClick={() => router.push("/exam")} style={{ padding: "10px 20px", borderRadius: "10px", border: "none", background: "var(--brand)", color: "var(--on-brand)", fontWeight: 700, cursor: "pointer" }}>
+        Về danh sách đề
+      </button>
+    </div>
+  );
 
   if (!examData) return null;
 
@@ -377,62 +511,109 @@ function ExamSessionContent() {
     speaking: "Speaking"
   };
 
+  const breakInfo: Record<Section, { time: string; tips: [string, string][] }> = {
+    listening: { time: "30 phút · 4 phần · 40 câu", tips: [["Đọc trước câu hỏi", "Bạn có vài giây trước mỗi phần để lướt câu hỏi."], ["Ghi đáp án ngay", "Bài nghe chỉ phát một lần."], ["Chú ý chính tả", "Sai chính tả bị tính sai."]] },
+    reading: { time: "60 phút · 3 bài đọc · 40 câu", tips: [["Chia giờ", "Khoảng 20 phút mỗi bài đọc. Bài 3 thường khó nhất."], ["Bôi đậm khi đọc", "Chọn chữ trong bài để tô — tiện khi dò lại."], ["Đánh dấu câu khó", "Bấm cờ để quay lại trước khi nộp."]] },
+    writing: { time: "60 phút · 2 bài viết", tips: [["Task 2 chiếm điểm nhiều hơn", "Dành khoảng 40 phút cho Task 2."], ["Đủ số từ", "Task 1 từ 150 từ, Task 2 từ 250 từ."], ["Dành 3 phút soát lỗi", "Kiểm tra chính tả và mạo từ."]] },
+    speaking: { time: "11–14 phút · 3 phần", tips: [["Nói tự nhiên", "Không cần từ quá khó, cần trôi chảy."], ["Mở rộng câu trả lời", "Thêm lý do và ví dụ."], ["Kiểm tra micro", "Cho phép trình duyệt dùng micro."]] },
+  };
+  if (breakTo) {
+    const order = sections;
+    const info = breakInfo[breakTo];
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", flexDirection: "column" }}>
+        <header className="exam-header"><span className="exam-header-brand row" style={{ gap: 10 }}><Logo variant="mark" height={22} />IELTS Mock Test · Chuyển phần</span></header>
+        <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 32 }}>
+          <div className="st-enter" style={{ width: "100%", maxWidth: 760, display: "flex", flexDirection: "column", alignItems: "center", gap: 28, textAlign: "center" }}>
+            <ol aria-label="Các phần thi" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gridTemplateColumns: `repeat(${order.length}, minmax(0, 1fr))`, gap: 8, width: "100%", textAlign: "left" }}>
+              {order.map((sec) => {
+                const state = sectionDone.includes(sec) ? "done" : sec === breakTo ? "next" : "todo";
+                return (
+                  <li key={sec} style={{ display: "flex", flexDirection: "column", gap: 6, padding: "14px 16px", borderRadius: "var(--radius-md)", border: state === "next" ? "2px solid var(--brand)" : "1px solid var(--hairline)", background: state === "done" ? "var(--success-tint)" : "var(--surface)" }}>
+                    <span className="meta" style={{ color: state === "done" ? "var(--success)" : state === "next" ? "var(--brand)" : undefined }}>{state === "done" ? "✓ Đã nộp" : state === "next" ? "Tiếp theo" : "Sau đó"}</span>
+                    <b style={{ font: "650 15px/20px var(--font-sans)" }}>{sectionLabel[sec]}</b>
+                  </li>
+                );
+              })}
+            </ol>
+            <div>
+              <div className="eyebrow" style={{ color: "var(--ink-muted)" }}>Phần {sectionDone.length + 1} / {order.length}</div>
+              <h1 style={{ font: "700 40px/48px var(--font-display)", letterSpacing: -1, marginTop: 6 }}>{sectionLabel[breakTo]}</h1>
+              <p className="ink2" style={{ marginTop: 6 }}>{info.time}.</p>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, width: "100%", textAlign: "left" }}>
+              {info.tips.map(([t, d]) => (
+                <div key={t} className="st-card" style={{ padding: 16 }}><b style={{ fontWeight: 600 }}>{t}</b><p className="meta" style={{ marginTop: 4 }}>{d}</p></div>
+              ))}
+            </div>
+            <div className="stack" style={{ alignItems: "center", gap: 14 }}>
+              <div role="timer" aria-label={`Tự bắt đầu sau ${breakLeft} giây`} style={{ font: "700 64px/1 var(--font-display)", letterSpacing: -2, fontVariantNumeric: "tabular-nums" }}>0:{String(Math.max(0, breakLeft)).padStart(2, "0")}</div>
+              <p className="meta">Phần {sectionLabel[breakTo]} tự bắt đầu khi hết giờ nghỉ</p>
+              <button className="st-btn st-btn-primary st-btn-lg" type="button" onClick={startSection}>Bắt đầu {sectionLabel[breakTo]} ngay</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const totalQs: Record<Section, number> = {
     listening: 40, reading: 40, writing: 2, speaking: 3
   };
 
   return (
-    <div style={{ background: "#f5f5f0", minHeight: "100vh" }}>
+    <div style={{ background: "var(--canvas)", minHeight: "100vh" }}>
       {/* ─── Exam Header ─────────────────────────────────────── */}
       <div className="exam-header">
-        <span className="exam-header-brand">IELTS Mock Test</span>
+        <span className="exam-header-brand row" style={{ gap: 10 }}><Logo variant="mark" height={22} />IELTS Mock Test</span>
 
         {/* Section tabs */}
-        <div style={{ display: "flex", gap: "4px" }}>
-          {sections.map(sec => (
-            <div key={sec} style={{
-              padding: "5px 12px",
-              borderRadius: "8px",
-              fontSize: "0.75rem",
-              fontWeight: 700,
-              background: sec === currentSection ? "#1e40af" : (sectionDone.includes(sec) ? "#065f46" : "transparent"),
-              color: sec === currentSection ? "#fff" : (sectionDone.includes(sec) ? "#34d399" : "#64748b"),
-              border: `1px solid ${sec === currentSection ? "#3b82f6" : "transparent"}`,
-              letterSpacing: "0.05em",
-              textTransform: "capitalize",
-              cursor: "default",
-            }}>
-              {sectionDone.includes(sec) && "✓ "}{sectionLabel[sec]}
-            </div>
-          ))}
+        <div className="row" style={{ gap: 6 }} aria-label="Các phần thi">
+          {sections.map(sec => {
+            const done = sectionDone.includes(sec);
+            return (
+              <span key={sec} className="part-pill" aria-current={sec === currentSection ? "true" : undefined}
+                style={done && sec !== currentSection ? { background: "var(--success-tint)", borderColor: "transparent", color: "var(--success)" } : undefined}>
+                {done && sec !== currentSection ? "✓ " : ""}{sectionLabel[sec]}
+              </span>
+            );
+          })}
         </div>
 
         {/* Timer + actions */}
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <ExamTimer
             key={currentSection}
-            initialSeconds={sectionDuration}
+            initialSeconds={remainingOverride ?? sectionDuration}
             onExpire={() => {
               if (sections.indexOf(currentSection) < sections.length - 1) {
                 nextSection();
               } else {
+                setTimeUp(true);
                 handleAutoSubmit();
               }
             }}
           />
-          <button
-            onClick={() => setShowSubmitModal(true)}
-            style={{
-              padding: "7px 16px", borderRadius: "8px",
-              background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
-              color: "#f87171", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer",
-              letterSpacing: "0.04em",
-            }}
-          >
-            Nộp Bài
+          <button className="st-btn st-btn-primary st-btn-sm" type="button" onClick={() => setShowSubmitModal(true)}>
+            Nộp bài
           </button>
         </div>
       </div>
+
+      {(!online || saveFailures > 0) && (
+        <div role="alert" style={{ background: "var(--warning-tint)", color: "var(--ink)", padding: "10px 20px", fontSize: "0.88rem", display: "flex", gap: 12, alignItems: "center", borderBottom: "1px solid var(--hairline)" }}>
+          <span style={{ flex: 1 }}>
+            <b style={{ fontWeight: 600 }}>{online ? "Chưa lưu được một số câu." : "Mất kết nối mạng."}</b>{" "}
+            {saveFailures > 0 ? `${saveFailures} câu trả lời chờ lưu. ` : ""}
+            Bạn cứ làm tiếp — câu trả lời được giữ trên máy và tự gửi khi có mạng. Đồng hồ vẫn chạy.
+          </span>
+        </div>
+      )}
+      {backOnline !== null && (
+        <div role="status" style={{ position: "fixed", left: "50%", bottom: 84, transform: "translateX(-50%)", zIndex: 80, display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", borderRadius: 999, background: "var(--navy)", color: "var(--on-navy)", font: "550 14px/1 var(--font-sans)", boxShadow: "var(--shadow-lg)" }}>
+          ✓ Đã kết nối lại{backOnline > 0 ? ` · ${backOnline} câu trả lời đang được lưu` : ""}
+        </div>
+      )}
 
       {/* ─── Section Content ─────────────────────────────────── */}
       <div className="exam-content" style={{ paddingBottom: showNav ? "60px" : "0px" }}>
@@ -467,6 +648,9 @@ function ExamSessionContent() {
           <WritingSection
             task1Prompt={questions.writing_task1}
             task2Prompt={questions.writing_task2}
+            task1Image={(questions as any).writing_task1_image}
+            task1MinWords={(questions as any).writing_task1_min_words}
+            task2MinWords={(questions as any).writing_task2_min_words}
             task1Text={writingTask1}
             task2Text={writingTask2}
             onTask1Change={setWritingTask1}
@@ -509,12 +693,12 @@ function ExamSessionContent() {
                 onClick={() => nextSection()}
                 style={{
                   padding: "6px 14px", borderRadius: "8px", marginRight: "8px",
-                  background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)",
-                  color: "#34d399", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
+                  background: "var(--success-tint)", border: "1px solid color-mix(in srgb, var(--success) 40%, transparent)",
+                  color: "var(--success)", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
                   whiteSpace: "nowrap", flexShrink: 0
                 }}
               >
-                {sections.indexOf(currentSection) < sections.length - 1 ? "Phần tiếp →" : "Nộp Bài"}
+                {sections.indexOf(currentSection) < sections.length - 1 ? "Phần tiếp" : "Nộp Bài"}
               </button>
               {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
                 <button
@@ -530,13 +714,13 @@ function ExamSessionContent() {
                 title="Ẩn thanh Navigation"
                 style={{
                   padding: "6px 12px", borderRadius: "8px", marginLeft: "auto",
-                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)",
-                  color: "#94a3b8", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
+                  background: "var(--surface-sunken)", border: "1px solid var(--border-control)",
+                  color: "var(--ink-muted)", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
                   display: "flex", alignItems: "center", gap: "4px", flexShrink: 0,
                   transition: "all 0.15s ease"
                 }}
               >
-                <ChevronDown size={14} /> Ẩn Navigator
+                 Ẩn Navigator
               </button>
             </div>
           )}
@@ -555,7 +739,7 @@ function ExamSessionContent() {
                   style={{ width: "auto", padding: "0 12px", borderRadius: "8px" }}
                 >Task 2</button>
               </div>
-              <div style={{ color: "#64748b", fontSize: "0.75rem" }}>
+              <div style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
                 Task 1: {writingTask1.split(/\s+/).filter(Boolean).length} từ | Task 2: {writingTask2.split(/\s+/).filter(Boolean).length} từ
               </div>
               <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -563,23 +747,23 @@ function ExamSessionContent() {
                   onClick={() => nextSection()}
                   style={{
                     padding: "6px 14px", borderRadius: "8px",
-                    background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)",
-                    color: "#34d399", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer"
+                    background: "var(--success-tint)", border: "1px solid color-mix(in srgb, var(--success) 40%, transparent)",
+                    color: "var(--success)", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer"
                   }}
                 >
-                  {sections.indexOf(currentSection) < sections.length - 1 ? "Phần tiếp →" : "Nộp Bài"}
+                  {sections.indexOf(currentSection) < sections.length - 1 ? "Phần tiếp" : "Nộp Bài"}
                 </button>
                 <button
                   onClick={() => setShowNav(false)}
                   title="Ẩn thanh Navigation"
                   style={{
                     padding: "6px 12px", borderRadius: "8px",
-                    background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)",
-                    color: "#94a3b8", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
+                    background: "var(--surface-sunken)", border: "1px solid var(--border-control)",
+                    color: "var(--ink-muted)", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
                     display: "flex", alignItems: "center", gap: "4px"
                   }}
                 >
-                  <ChevronDown size={14} /> Ẩn Navigator
+                   Ẩn Navigator
                 </button>
               </div>
             </div>
@@ -590,9 +774,9 @@ function ExamSessionContent() {
               {["part1", "part2", "part3"].map((p, i) => (
                 <div key={p} style={{
                   padding: "4px 12px", borderRadius: "8px", fontSize: "0.72rem", fontWeight: 700,
-                  background: speakingPart === p ? "rgba(99,102,241,0.3)" : "transparent",
-                  border: `1px solid ${speakingPart === p ? "rgba(99,102,241,0.6)" : "#374151"}`,
-                  color: speakingPart === p ? "#a5b4fc" : "#64748b",
+                  background: speakingPart === p ? "var(--brand-tint)" : "transparent",
+                  border: `1px solid ${speakingPart === p ? "var(--brand)" : "var(--ink-secondary)"}`,
+                  color: speakingPart === p ? "var(--brand)" : "var(--ink-muted)",
                 }}>
                   Part {i + 1}
                 </div>
@@ -601,23 +785,23 @@ function ExamSessionContent() {
                 onClick={() => nextSection()}
                 style={{
                   padding: "6px 14px", borderRadius: "8px", marginLeft: "16px",
-                  background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)",
-                  color: "#34d399", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer"
+                  background: "var(--success-tint)", border: "1px solid color-mix(in srgb, var(--success) 40%, transparent)",
+                  color: "var(--success)", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer"
                 }}
               >
-                {sections.indexOf(currentSection) < sections.length - 1 ? "Phần tiếp →" : "Nộp Bài"}
+                {sections.indexOf(currentSection) < sections.length - 1 ? "Phần tiếp" : "Nộp Bài"}
               </button>
               <button
                 onClick={() => setShowNav(false)}
                 title="Ẩn thanh Navigation"
                 style={{
                   padding: "6px 12px", borderRadius: "8px", marginLeft: "auto",
-                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)",
-                  color: "#94a3b8", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
+                  background: "var(--surface-sunken)", border: "1px solid var(--border-control)",
+                  color: "var(--ink-muted)", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
                   display: "flex", alignItems: "center", gap: "4px"
                 }}
               >
-                <ChevronDown size={14} /> Ẩn Navigator
+                 Ẩn Navigator
               </button>
             </div>
           )}
@@ -633,20 +817,20 @@ function ExamSessionContent() {
             zIndex: 9999,
             padding: "8px 18px",
             borderRadius: "99px",
-            background: "#1a1a2e",
-            border: "1.5px solid #3b82f6",
-            color: "#60a5fa",
+            background: "var(--surface)",
+            border: "1.5px solid var(--brand)",
+            color: "var(--brand)",
             fontSize: "0.78rem",
             fontWeight: 700,
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             gap: "6px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            boxShadow: "var(--shadow-2)",
             transition: "all 0.2s ease"
           }}
         >
-          <ChevronUp size={14} /> Hiện Question Navigator ({answeredCount(currentSection, totalQs[currentSection] || 40)}/{totalQs[currentSection] || 40})
+           Hiện Question Navigator ({answeredCount(currentSection, totalQs[currentSection] || 40)}/{totalQs[currentSection] || 40})
         </button>
       )}
 
@@ -655,39 +839,38 @@ function ExamSessionContent() {
         <div className="exam-modal-overlay">
           <div className="exam-modal">
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
-              <AlertTriangle size={22} color="#f59e0b" />
-              <h3 style={{ fontSize: "1.1rem", fontWeight: 800, fontFamily: "Outfit, sans-serif" }}>
-                Nộp Bài Thi?
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 700, fontFamily: "var(--font-display)" }}>
+                Nộp bài thi?
               </h3>
             </div>
-            <p style={{ color: "#94a3b8", fontSize: "0.88rem", marginBottom: "24px", lineHeight: 1.6 }}>
+            <p style={{ color: "var(--ink-muted)", fontSize: "0.88rem", marginBottom: "24px", lineHeight: 1.6 }}>
               Bạn có chắc muốn nộp bài thi không? Hành động này không thể hoàn tác.
             </p>
 
             {/* Stats */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "28px" }}>
               {sections.includes("listening") && (
-                <div style={{ background: "rgba(255,255,255,0.05)", padding: "14px", borderRadius: "12px", textAlign: "center" }}>
-                  <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#6366f1" }}>
+                <div style={{ background: "var(--surface-sunken)", padding: "14px", borderRadius: "12px", textAlign: "center" }}>
+                  <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--brand)" }}>
                     {answeredCount("listening", 40)}/40
                   </div>
-                  <div style={{ fontSize: "0.72rem", color: "#64748b" }}>Listening</div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--ink-muted)" }}>Listening</div>
                 </div>
               )}
               {sections.includes("reading") && (
-                <div style={{ background: "rgba(255,255,255,0.05)", padding: "14px", borderRadius: "12px", textAlign: "center" }}>
-                  <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#6366f1" }}>
+                <div style={{ background: "var(--surface-sunken)", padding: "14px", borderRadius: "12px", textAlign: "center" }}>
+                  <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--brand)" }}>
                     {answeredCount("reading", 40)}/40
                   </div>
-                  <div style={{ fontSize: "0.72rem", color: "#64748b" }}>Reading</div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--ink-muted)" }}>Reading</div>
                 </div>
               )}
               {sections.includes("writing") && (
-                <div style={{ background: "rgba(255,255,255,0.05)", padding: "14px", borderRadius: "12px", textAlign: "center" }}>
-                  <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#6366f1" }}>
+                <div style={{ background: "var(--surface-sunken)", padding: "14px", borderRadius: "12px", textAlign: "center" }}>
+                  <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--brand)" }}>
                     {(writingTask1 ? 1 : 0) + (writingTask2 ? 1 : 0)}/2
                   </div>
-                  <div style={{ fontSize: "0.72rem", color: "#64748b" }}>Writing Tasks</div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--ink-muted)" }}>Writing Tasks</div>
                 </div>
               )}
             </div>
@@ -697,8 +880,8 @@ function ExamSessionContent() {
                 onClick={() => setShowSubmitModal(false)}
                 style={{
                   flex: 1, padding: "13px", borderRadius: "12px",
-                  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)",
-                  color: "#94a3b8", cursor: "pointer", fontWeight: 600, fontSize: "0.88rem"
+                  background: "var(--surface-sunken)", border: "1px solid var(--hairline)",
+                  color: "var(--ink-muted)", cursor: "pointer", fontWeight: 600, fontSize: "0.88rem"
                 }}
               >Tiếp tục làm bài</button>
               <button
@@ -706,8 +889,8 @@ function ExamSessionContent() {
                 disabled={submitLoading}
                 style={{
                   flex: 1, padding: "13px", borderRadius: "12px",
-                  background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-                  border: "none", color: "#fff", cursor: "pointer",
+                  background: "var(--danger)",
+                  border: "none", color: "var(--on-brand)", cursor: "pointer",
                   fontWeight: 700, fontSize: "0.88rem",
                   opacity: submitLoading ? 0.7 : 1
                 }}
@@ -799,7 +982,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
 
     if (!isCompletion) {
       return (
-        <span style={{ fontSize: "0.95rem", color: "#1f2937", lineHeight: 1.7, fontWeight: 600 }}>
+        <span style={{ fontSize: "0.95rem", color: "var(--ink-secondary)", lineHeight: 1.7, fontWeight: 600 }}>
           {qText}
         </span>
       );
@@ -809,7 +992,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
     if (hasBlank) {
       const segments = qText.split(/(?:___|\.{3,})/);
       return (
-        <span style={{ fontSize: "0.95rem", color: "#1f2937", lineHeight: 1.8, fontWeight: 500 }}>
+        <span style={{ fontSize: "0.95rem", color: "var(--ink-secondary)", lineHeight: 1.8, fontWeight: 500 }}>
           {segments.map((segment: string, sIdx: number) => (
             <span key={sIdx}>
               {segment}
@@ -831,11 +1014,11 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-        <span style={{ fontSize: "0.95rem", color: "#1f2937", lineHeight: 1.7, fontWeight: 500 }}>
+        <span style={{ fontSize: "0.95rem", color: "var(--ink-secondary)", lineHeight: 1.7, fontWeight: 500 }}>
           {qText}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px" }}>
-          <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#2563eb", background: "#dbeafe", padding: "2px 8px", borderRadius: "4px" }}>
+          <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--brand)", background: "var(--brand-tint)", padding: "2px 8px", borderRadius: "4px" }}>
             Cầu {item.number}
           </span>
           <input
@@ -881,9 +1064,9 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                   style={{
                     padding: "6px 12px", borderRadius: "8px", fontSize: "0.75rem", fontWeight: 700,
                     border: "none", cursor: "pointer", transition: "all 0.15s ease",
-                    background: p === currentPart ? "#1e40af" : "#f1f5f9",
-                    color: p === currentPart ? "#fff" : "#64748b",
-                    boxShadow: p === currentPart ? "0 2px 8px rgba(30,64,175,0.3)" : "none"
+                    background: p === currentPart ? "var(--brand-hover)" : "var(--surface-sunken)",
+                    color: p === currentPart ? "var(--on-brand)" : "var(--ink-muted)",
+                    boxShadow: "none"
                   }}
                 >
                   {p}
@@ -895,23 +1078,23 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
               title="Ẩn khung Audio bên trái"
               style={{
                 padding: "5px 10px", borderRadius: "6px",
-                border: "1px solid #cbd5e1", background: "#fff",
-                color: "#475569", fontSize: "0.72rem", fontWeight: 700,
+                border: "1px solid var(--border-control)", background: "var(--surface)",
+                color: "var(--ink-muted)", fontSize: "0.72rem", fontWeight: 700,
                 cursor: "pointer", display: "flex", alignItems: "center", gap: "4px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+                boxShadow: "var(--shadow-sm, none)"
               }}
             >
-              <ChevronLeft size={14} /> Ẩn khung trái
+               Ẩn khung trái
             </button>
           </div>
 
           {/* Audio Player Card */}
           <div className="audio-player-exam">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
-              <span style={{ fontSize: "0.75rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.08em" }}>
+              <span style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 700, letterSpacing: "0.08em" }}>
                 IELTS LISTENING — {currentPart}
               </span>
-              <span style={{ fontSize: "0.7rem", color: "#64748b" }}>Computer-Delivered</span>
+              <span style={{ fontSize: "0.7rem", color: "var(--ink-muted)" }}>Computer-Delivered</span>
             </div>
 
             {/* Waveform Visual */}
@@ -920,7 +1103,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                 <div key={i} style={{
                   flex: 1, borderRadius: "2px",
                   height: `${16 + Math.sin(i * 0.5) * 16 + (i % 3) * 5}px`,
-                  background: audioPlaying ? "#3b82f6" : "#475569",
+                  background: audioPlaying ? "var(--brand)" : "var(--ink-muted)",
                   transition: "background 0.3s, height 0.3s",
                   opacity: (i / 45) < audioProgress ? 1 : 0.35,
                 }} />
@@ -928,8 +1111,8 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
             </div>
 
             {/* Progress Bar */}
-            <div style={{ height: 6, background: "#334155", borderRadius: "9999px", marginBottom: "14px", cursor: "pointer" }}>
-              <div style={{ width: `${audioProgress * 100}%`, height: "100%", background: "#3b82f6", borderRadius: "9999px", transition: "width 0.1s" }} />
+            <div style={{ height: 6, background: "var(--surface-sunken)", borderRadius: "9999px", marginBottom: "14px", cursor: "pointer" }}>
+              <div style={{ width: `${audioProgress * 100}%`, height: "100%", background: "var(--brand)", borderRadius: "9999px", transition: "width 0.1s" }} />
             </div>
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -937,27 +1120,27 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                 onClick={onToggleAudio}
                 style={{
                   padding: "10px 22px", borderRadius: "10px",
-                  background: audioPlaying ? "#dc2626" : "#1d4ed8",
-                  border: "none", color: "#fff", cursor: "pointer",
+                  background: audioPlaying ? "var(--danger)" : "var(--brand)",
+                  border: "none", color: "var(--on-brand)", cursor: "pointer",
                   fontWeight: 700, fontSize: "0.85rem",
                   display: "flex", alignItems: "center", gap: "8px",
-                  boxShadow: audioPlaying ? "0 4px 14px rgba(220,38,38,0.4)" : "0 4px 14px rgba(29,78,216,0.4)"
+                  boxShadow: "none"
                 }}
               >
-                {audioPlaying ? "⏸ Tạm Dừng Audio" : "▶ Phát Audio Đề Thi"}
+                {audioPlaying ? "Tạm Dừng Audio" : "Phát Audio Đề Thi"}
               </button>
-              <span style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
+              <span style={{ fontSize: "0.7rem", color: "var(--ink-muted)" }}>
                 Phần nghe phát 1 lần
               </span>
             </div>
           </div>
 
           {/* Exam Guide */}
-          <div style={{ background: "#f8fafc", borderRadius: "12px", padding: "16px", border: "1px solid #e2e8f0" }}>
-            <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#334155", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              💡 Hướng dẫn làm bài Listening
+          <div style={{ background: "var(--surface-sunken)", borderRadius: "12px", padding: "16px", border: "1px solid var(--hairline)" }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--ink-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Hướng dẫn làm bài Listening
             </div>
-            <ul style={{ paddingLeft: "16px", margin: 0, fontSize: "0.8rem", color: "#64748b", lineHeight: 1.6 }}>
+            <ul style={{ paddingLeft: "16px", margin: 0, fontSize: "0.8rem", color: "var(--ink-muted)", lineHeight: 1.6 }}>
               <li>Điền đáp án trực tiếp vào ô chỗ trống ở danh sách đề thi bên phải.</li>
               <li>Có thể di chuyển thanh kéo ngăn cách giữa 2 khung để mở rộng đề thi.</li>
               <li>Sử dụng thanh chuyển Part nhanh để xem 40 câu hỏi.</li>
@@ -970,25 +1153,25 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
               onClick={() => onNavigate(Math.max(1, currentQ - 1))}
               disabled={currentQ <= 1}
               style={{
-                flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1",
-                background: "#fff", color: "#334155", cursor: currentQ > 1 ? "pointer" : "not-allowed",
+                flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid var(--border-control)",
+                background: "var(--surface)", color: "var(--ink-secondary)", cursor: currentQ > 1 ? "pointer" : "not-allowed",
                 fontWeight: 600, fontSize: "0.82rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
                 opacity: currentQ <= 1 ? 0.4 : 1
               }}
             >
-              <ChevronLeft size={14} /> Câu trước
+               Câu trước
             </button>
             <button
               onClick={() => onNavigate(Math.min(40, currentQ + 1))}
               disabled={currentQ >= 40}
               style={{
-                flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1",
-                background: "#fff", color: "#334155", cursor: currentQ < 40 ? "pointer" : "not-allowed",
+                flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid var(--border-control)",
+                background: "var(--surface)", color: "var(--ink-secondary)", cursor: currentQ < 40 ? "pointer" : "not-allowed",
                 fontWeight: 600, fontSize: "0.82rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
                 opacity: currentQ >= 40 ? 0.4 : 1
               }}
             >
-              Câu sau <ChevronRight size={14} />
+              Câu sau 
             </button>
           </div>
         </div>
@@ -1014,14 +1197,14 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                 title="Hiện lại khung Audio bên trái"
                 style={{
                   padding: "6px 14px", borderRadius: "8px",
-                  border: "1.5px solid #2563eb", background: "#eff6ff",
-                  color: "#1d4ed8", fontSize: "0.75rem", fontWeight: 700,
+                  border: "1.5px solid var(--brand)", background: "var(--brand-tint)",
+                  color: "var(--brand)", fontSize: "0.75rem", fontWeight: 700,
                   cursor: "pointer", display: "flex", alignItems: "center", gap: "6px",
-                  transition: "all 0.15s ease", boxShadow: "0 2px 8px rgba(37,99,235,0.15)",
+                  transition: "all 0.15s ease", 
                   marginRight: "6px"
                 }}
               >
-                <ChevronRight size={14} /> Hiện Audio & Trình phát (Bên trái)
+                 Hiện Audio & Trình phát (Bên trái)
               </button>
             )}
             {parts.map(p => (
@@ -1030,9 +1213,9 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                 onClick={() => scrollToPart(p)}
                 style={{
                   padding: "6px 14px", borderRadius: "8px", fontSize: "0.75rem", fontWeight: 700,
-                  border: `1.5px solid ${p === currentPart ? "#2563eb" : "#cbd5e1"}`,
-                  background: p === currentPart ? "#dbeafe" : "#fff",
-                  color: p === currentPart ? "#1e40af" : "#475569",
+                  border: `1.5px solid ${p === currentPart ? "var(--brand)" : "var(--border-control)"}`,
+                  background: p === currentPart ? "var(--brand-tint)" : "var(--surface)",
+                  color: p === currentPart ? "var(--brand-hover)" : "var(--ink-muted)",
                   cursor: "pointer", transition: "all 0.15s ease"
                 }}
               >
@@ -1040,8 +1223,8 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
               </button>
             ))}
           </div>
-          <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>
-            Đang chọn: <span style={{ color: "#1e40af", fontWeight: 800 }}>Câu {currentQ} / 40</span>
+          <div style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 600 }}>
+            Đang chọn: <span style={{ color: "var(--brand-hover)", fontWeight: 700 }}>Câu {currentQ} / 40</span>
           </div>
         </div>
 
@@ -1059,19 +1242,19 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
               <div
                 id={"part-header-" + pName.toLowerCase().replace(/\s+/g, "-")}
                 style={{
-                  background: "linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)",
-                  color: "#fff",
+                  background: "var(--navy)",
+                  color: "var(--on-navy)",
                   padding: "12px 20px",
                   borderRadius: "12px",
                   marginBottom: "20px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  boxShadow: "0 4px 12px rgba(30,58,138,0.2)"
+                  boxShadow: "none"
                 }}
               >
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, fontFamily: "Outfit, sans-serif" }}>
+                  <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, fontFamily: "var(--font-display)" }}>
                     IELTS LISTENING — {pName.toUpperCase()}
                   </h3>
                   <div style={{ fontSize: "0.75rem", opacity: 0.85, marginTop: "2px" }}>
@@ -1085,22 +1268,23 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
 
               {/* Questions List */}
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                {partQuestions.map((item: any) => {
+                {partQuestions.map((item: any, itemIdx: number) => {
                   const isCurrent = currentQ === item.number;
                   const hasAnswer = Boolean(answers[`listening_${item.number}`]);
 
                   return (
+                    <Fragment key={item.number}>
+                    <GroupHeader item={item} prev={partQuestions[itemIdx - 1]} />
                     <div
-                      key={item.number}
                       id={`listening-q-${item.number}`}
                       onClick={() => onNavigate(item.number)}
                       style={{
-                        background: "#fff",
-                        border: `2px solid ${isCurrent ? "#2563eb" : (hasAnswer ? "#93c5fd" : "#e2e8f0")}`,
-                        borderRadius: "14px",
+                        background: "var(--surface)",
+                        border: `2px solid ${isCurrent ? "var(--brand)" : (hasAnswer ? "var(--brand)" : "var(--hairline)")}`,
+                        borderRadius: "12px",
                         padding: "18px 22px",
                         transition: "all 0.2s ease",
-                        boxShadow: isCurrent ? "0 4px 16px rgba(37,99,235,0.15)" : "0 1px 3px rgba(0,0,0,0.04)"
+                        boxShadow: "none"
                       }}
                     >
                       {/* Question Badge Header */}
@@ -1108,20 +1292,20 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                           <span style={{
                             width: 28, height: 28, borderRadius: "50%",
-                            background: isCurrent ? "#2563eb" : (hasAnswer ? "#1e40af" : "#f1f5f9"),
-                            color: isCurrent || hasAnswer ? "#fff" : "#475569",
-                            fontSize: "0.8rem", fontWeight: 800,
+                            background: isCurrent ? "var(--brand)" : (hasAnswer ? "var(--brand-hover)" : "var(--surface-sunken)"),
+                            color: isCurrent || hasAnswer ? "var(--on-brand)" : "var(--ink-muted)",
+                            fontSize: "0.8rem", fontWeight: 700,
                             display: "flex", alignItems: "center", justifyContent: "center"
                           }}>
                             {item.number}
                           </span>
-                          <span style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          <span style={{ fontSize: "0.72rem", color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                             {item.type === "multiple_choice" ? "Multiple Choice" : "Fill in the blank"}
                           </span>
                         </div>
                         {hasAnswer && (
-                          <span style={{ fontSize: "0.7rem", color: "#16a34a", fontWeight: 700, background: "#dcfce7", padding: "2px 8px", borderRadius: "99px" }}>
-                            ✓ Đã trả lời
+                          <span style={{ fontSize: "0.7rem", color: "var(--success)", fontWeight: 700, background: "var(--success-tint)", padding: "2px 8px", borderRadius: "99px" }}>
+                            Đã trả lời
                           </span>
                         )}
                       </div>
@@ -1133,7 +1317,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                       {item.type === "multiple_choice" && item.options && (
                         <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
                           {item.options.map((opt: string, optIdx: number) => {
-                            const key = opt[0];
+                            const key = item.option_keys?.[optIdx] ?? opt[0];
                             const isSelected = answers[`listening_${item.number}`] === key;
                             return (
                               <button
@@ -1146,13 +1330,14 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                                 }}
                               >
                                 <span className="exam-option-key">{key}</span>
-                                <span>{opt.substring(3)}</span>
+                                <span>{String(opt).replace(/^[A-Za-z0-9]+\.\s+/, "")}</span>
                               </button>
                             );
                           })}
                         </div>
                       )}
                     </div>
+                    </Fragment>
                   );
                 })}
               </div>
@@ -1170,7 +1355,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
   const [isDragging, setIsDragging] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [fontSize, setFontSize] = useState(15);
-  const [fontFamily, setFontFamily] = useState("Plus Jakarta Sans");
+  const [fontFamily, setFontFamily] = useState("Inter");
   const [activePassageTab, setActivePassageTab] = useState<"Passage 1" | "Passage 2" | "Passage 3" | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -1184,9 +1369,13 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
     "Passage 1": [1, 13], "Passage 2": [14, 26], "Passage 3": [27, 40]
   };
 
-  // Resolve passage text
+  // Resolve passage text (server gửi mảng [{index,title,body_markdown}], demo cũ gửi {passage1,...})
   let currentPassageText = passage || "";
-  if (readingPassages) {
+  if (Array.isArray(readingPassages)) {
+    const byIndex = Number(currentPassageName.replace(/\D/g, ""));
+    const found = readingPassages.find((p: any) => Number(p.index) === byIndex);
+    if (found) currentPassageText = (found.title ? `**${found.title}**\n\n` : "") + found.body_markdown;
+  } else if (readingPassages) {
     if (currentPassageName === "Passage 1" && readingPassages.passage1) currentPassageText = readingPassages.passage1;
     else if (currentPassageName === "Passage 2" && readingPassages.passage2) currentPassageText = readingPassages.passage2;
     else if (currentPassageName === "Passage 3" && readingPassages.passage3) currentPassageText = readingPassages.passage3;
@@ -1254,7 +1443,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
 
     if (!isCompletion) {
       return (
-        <span style={{ fontSize: `${fontSize}px`, fontFamily: fontFamily, color: "#1f2937", lineHeight: 1.7, fontWeight: 600 }}>
+        <span style={{ fontSize: `${fontSize}px`, fontFamily: fontFamily, color: "var(--ink-secondary)", lineHeight: 1.7, fontWeight: 600 }}>
           {qText}
         </span>
       );
@@ -1264,7 +1453,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
     if (hasBlank) {
       const segments = qText.split(/(?:___|\.{3,})/);
       return (
-        <span style={{ fontSize: `${fontSize}px`, fontFamily: fontFamily, color: "#1f2937", lineHeight: 1.8, fontWeight: 500 }}>
+        <span style={{ fontSize: `${fontSize}px`, fontFamily: fontFamily, color: "var(--ink-secondary)", lineHeight: 1.8, fontWeight: 500 }}>
           {segments.map((segment: string, sIdx: number) => (
             <span key={sIdx}>
               {segment}
@@ -1287,11 +1476,11 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-        <span style={{ fontSize: `${fontSize}px`, fontFamily: fontFamily, color: "#1f2937", lineHeight: 1.7, fontWeight: 500 }}>
+        <span style={{ fontSize: `${fontSize}px`, fontFamily: fontFamily, color: "var(--ink-secondary)", lineHeight: 1.7, fontWeight: 500 }}>
           {qText}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px" }}>
-          <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#2563eb", background: "#dbeafe", padding: "2px 8px", borderRadius: "4px" }}>
+          <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--brand)", background: "var(--brand-tint)", padding: "2px 8px", borderRadius: "4px" }}>
             Câu {item.number}
           </span>
           <input
@@ -1314,7 +1503,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
       {!leftCollapsed && (
         <div className="exam-passage-pane" style={{ width: `${splitPercent}%` }}>
           {/* Passage Switcher Tabs & Controls */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#f8fafc", padding: "10px 14px", borderRadius: "10px", marginBottom: "16px", border: "1px solid #e2e8f0", flexWrap: "wrap", gap: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken)", padding: "10px 14px", borderRadius: "10px", marginBottom: "16px", border: "1px solid var(--hairline)", flexWrap: "wrap", gap: "8px" }}>
             {/* Passage Selector Buttons */}
             <div style={{ display: "flex", gap: "6px" }}>
               {passageList.map(p => (
@@ -1323,11 +1512,11 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                   onClick={() => scrollToPassage(p)}
                   style={{
                     padding: "5px 12px", borderRadius: "8px", fontSize: "0.75rem", fontWeight: 700,
-                    border: `1.5px solid ${p === currentPassageName ? "#2563eb" : "#cbd5e1"}`,
-                    background: p === currentPassageName ? "#1e40af" : "#fff",
-                    color: p === currentPassageName ? "#fff" : "#475569",
+                    border: `1.5px solid ${p === currentPassageName ? "var(--brand)" : "var(--border-control)"}`,
+                    background: p === currentPassageName ? "var(--brand-hover)" : "var(--surface)",
+                    color: p === currentPassageName ? "var(--on-brand)" : "var(--ink-muted)",
                     cursor: "pointer", transition: "all 0.15s ease",
-                    boxShadow: p === currentPassageName ? "0 2px 8px rgba(30,64,175,0.3)" : "none"
+                    boxShadow: "none"
                   }}
                 >
                   {p}
@@ -1341,48 +1530,47 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                 <button
                   onClick={() => setFontSize(s => Math.max(12, s - 1))}
                   title="Giảm cỡ chữ"
-                  style={{ width: 26, height: 26, borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 800, fontSize: "0.75rem", color: "#334155" }}
+                  style={{ width: 26, height: 26, borderRadius: "6px", border: "1px solid var(--border-control)", background: "var(--surface)", cursor: "pointer", fontWeight: 700, fontSize: "0.75rem", color: "var(--ink-secondary)" }}
                 >A-</button>
-                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#1e40af", minWidth: "28px", textAlign: "center" }}>{fontSize}px</span>
+                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--brand-hover)", minWidth: "28px", textAlign: "center" }}>{fontSize}px</span>
                 <button
                   onClick={() => setFontSize(s => Math.min(24, s + 1))}
                   title="Tăng cỡ chữ"
-                  style={{ width: 26, height: 26, borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontWeight: 800, fontSize: "0.75rem", color: "#334155" }}
+                  style={{ width: 26, height: 26, borderRadius: "6px", border: "1px solid var(--border-control)", background: "var(--surface)", cursor: "pointer", fontWeight: 700, fontSize: "0.75rem", color: "var(--ink-secondary)" }}
                 >A+</button>
               </div>
 
               <select
                 value={fontFamily}
                 onChange={(e) => setFontFamily(e.target.value)}
-                style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.75rem", fontWeight: 600, color: "#334155", background: "#fff", outline: "none" }}
+                style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid var(--border-control)", fontSize: "0.75rem", fontWeight: 600, color: "var(--ink-secondary)", background: "var(--surface)", outline: "none" }}
               >
-                <option value="Plus Jakarta Sans">Sans-Serif</option>
+                <option value="Inter">Sans-Serif</option>
                 <option value="Georgia">Georgia (Serif)</option>
-                <option value="Outfit">Outfit (Mod)</option>
                 <option value="Times New Roman">Times New Roman</option>
               </select>
 
               <button
                 onClick={() => setLeftCollapsed(true)}
                 title="Ẩn khung bài đọc bên trái"
-                style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", color: "#475569", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}
+                style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid var(--border-control)", background: "var(--surface)", color: "var(--ink-muted)", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}
               >
-                <ChevronLeft size={14} /> Ẩn bài đọc
+                 Ẩn bài đọc
               </button>
             </div>
           </div>
 
-          <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#2563eb", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "8px" }}>
+          <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--brand)", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "8px" }}>
             IELTS Academic Reading — {currentPassageName.toUpperCase()}
           </div>
 
           {/* Render passage text formatted with font size & family */}
-          <div style={{ fontFamily: fontFamily, fontSize: `${fontSize}px`, lineHeight: 1.8, color: "#1f2937" }}>
+          <div style={{ fontFamily: fontFamily, fontSize: `${fontSize}px`, lineHeight: 1.8, color: "var(--ink-secondary)" }}>
             {currentPassageText.split("\n\n").map((para: string, i: number) => (
               <p key={i} style={{
                 marginBottom: "16px",
                 fontWeight: para.startsWith("**") || para.startsWith("#") ? 700 : 400,
-                color: para.startsWith("**") || para.startsWith("#") ? "#111827" : "#374151"
+                color: para.startsWith("**") || para.startsWith("#") ? "var(--ink)" : "var(--ink-secondary)"
               }}>
                 {para.replace(/[\*#]/g, "")}
               </p>
@@ -1411,14 +1599,14 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                 title="Hiện lại khung bài đọc bên trái"
                 style={{
                   padding: "6px 14px", borderRadius: "8px",
-                  border: "1.5px solid #2563eb", background: "#eff6ff",
-                  color: "#1d4ed8", fontSize: "0.75rem", fontWeight: 700,
+                  border: "1.5px solid var(--brand)", background: "var(--brand-tint)",
+                  color: "var(--brand)", fontSize: "0.75rem", fontWeight: 700,
                   cursor: "pointer", display: "flex", alignItems: "center", gap: "6px",
-                  transition: "all 0.15s ease", boxShadow: "0 2px 8px rgba(37,99,235,0.15)",
+                  transition: "all 0.15s ease", 
                   marginRight: "6px"
                 }}
               >
-                <ChevronRight size={14} /> Hiện khung bài đọc (Bên trái)
+                 Hiện khung bài đọc (Bên trái)
               </button>
             )}
             {passageList.map(p => (
@@ -1427,9 +1615,9 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                 onClick={() => scrollToPassage(p)}
                 style={{
                   padding: "6px 14px", borderRadius: "8px", fontSize: "0.75rem", fontWeight: 700,
-                  border: `1.5px solid ${p === currentPassageName ? "#2563eb" : "#cbd5e1"}`,
-                  background: p === currentPassageName ? "#dbeafe" : "#fff",
-                  color: p === currentPassageName ? "#1e40af" : "#475569",
+                  border: `1.5px solid ${p === currentPassageName ? "var(--brand)" : "var(--border-control)"}`,
+                  background: p === currentPassageName ? "var(--brand-tint)" : "var(--surface)",
+                  color: p === currentPassageName ? "var(--brand-hover)" : "var(--ink-muted)",
                   cursor: "pointer", transition: "all 0.15s ease"
                 }}
               >
@@ -1437,8 +1625,8 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
               </button>
             ))}
           </div>
-          <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>
-            Đang chọn: <span style={{ color: "#1e40af", fontWeight: 800 }}>Câu {currentQ} / 40</span>
+          <div style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 600 }}>
+            Đang chọn: <span style={{ color: "var(--brand-hover)", fontWeight: 700 }}>Câu {currentQ} / 40</span>
           </div>
         </div>
 
@@ -1456,19 +1644,19 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
               <div
                 id={"passage-header-" + pName.toLowerCase().replace(/\s+/g, "-")}
                 style={{
-                  background: "linear-gradient(135deg, #065f46 0%, #059669 100%)",
-                  color: "#fff",
+                  background: "var(--navy)",
+                  color: "var(--on-navy)",
                   padding: "12px 20px",
                   borderRadius: "12px",
                   marginBottom: "20px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  boxShadow: "0 4px 12px rgba(5,150,105,0.2)"
+                  boxShadow: "none"
                 }}
               >
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, fontFamily: "Outfit, sans-serif" }}>
+                  <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, fontFamily: "var(--font-display)" }}>
                     IELTS READING — {pName.toUpperCase()}
                   </h3>
                   <div style={{ fontSize: "0.75rem", opacity: 0.85, marginTop: "2px" }}>
@@ -1482,22 +1670,23 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
 
               {/* Questions List */}
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                {passageQuestions.map((item: any) => {
+                {passageQuestions.map((item: any, itemIdx: number) => {
                   const isCurrent = currentQ === item.number;
                   const hasAnswer = Boolean(answers[`reading_${item.number}`]);
 
                   return (
+                    <Fragment key={item.number}>
+                    <GroupHeader item={item} prev={passageQuestions[itemIdx - 1]} />
                     <div
-                      key={item.number}
                       id={`reading-q-${item.number}`}
                       onClick={() => onNavigate(item.number)}
                       style={{
-                        background: "#fff",
-                        border: `2px solid ${isCurrent ? "#2563eb" : (hasAnswer ? "#93c5fd" : "#e2e8f0")}`,
-                        borderRadius: "14px",
+                        background: "var(--surface)",
+                        border: `2px solid ${isCurrent ? "var(--brand)" : (hasAnswer ? "var(--brand)" : "var(--hairline)")}`,
+                        borderRadius: "12px",
                         padding: "18px 22px",
                         transition: "all 0.2s ease",
-                        boxShadow: isCurrent ? "0 4px 16px rgba(37,99,235,0.15)" : "0 1px 3px rgba(0,0,0,0.04)"
+                        boxShadow: "none"
                       }}
                     >
                       {/* Question Badge Header */}
@@ -1505,20 +1694,20 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                           <span style={{
                             width: 28, height: 28, borderRadius: "50%",
-                            background: isCurrent ? "#2563eb" : (hasAnswer ? "#059669" : "#f1f5f9"),
-                            color: isCurrent || hasAnswer ? "#fff" : "#475569",
-                            fontSize: "0.8rem", fontWeight: 800,
+                            background: isCurrent ? "var(--brand)" : (hasAnswer ? "var(--success)" : "var(--surface-sunken)"),
+                            color: isCurrent || hasAnswer ? "var(--on-brand)" : "var(--ink-muted)",
+                            fontSize: "0.8rem", fontWeight: 700,
                             display: "flex", alignItems: "center", justifyContent: "center"
                           }}>
                             {item.number}
                           </span>
-                          <span style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          <span style={{ fontSize: "0.72rem", color: "var(--ink-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                             {item.type === "multiple_choice" ? "Multiple Choice" : (item.type === "true_false_ng" ? "True / False / Not Given" : "Fill in the blank")}
                           </span>
                         </div>
                         {hasAnswer && (
-                          <span style={{ fontSize: "0.7rem", color: "#16a34a", fontWeight: 700, background: "#dcfce7", padding: "2px 8px", borderRadius: "99px" }}>
-                            ✓ Đã trả lời
+                          <span style={{ fontSize: "0.7rem", color: "var(--success)", fontWeight: 700, background: "var(--success-tint)", padding: "2px 8px", borderRadius: "99px" }}>
+                            Đã trả lời
                           </span>
                         )}
                       </div>
@@ -1530,7 +1719,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                       {item.type === "multiple_choice" && item.options && (
                         <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
                           {item.options.map((opt: string, optIdx: number) => {
-                            const key = opt[0];
+                            const key = item.option_keys?.[optIdx] ?? opt[0];
                             const isSelected = answers[`reading_${item.number}`] === key;
                             return (
                               <button
@@ -1543,7 +1732,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                                 }}
                               >
                                 <span className="exam-option-key">{key}</span>
-                                <span>{opt.substring(3)}</span>
+                                <span>{String(opt).replace(/^[A-Za-z0-9]+\.\s+/, "")}</span>
                               </button>
                             );
                           })}
@@ -1553,7 +1742,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                       {/* True / False / Not Given Options */}
                       {item.type === "true_false_ng" && (
                         <div style={{ marginTop: "14px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                          {["TRUE", "FALSE", "NOT GIVEN"].map((opt: string) => {
+                          {(Array.isArray(item.options) && item.options.length ? item.options : ["TRUE", "FALSE", "NOT GIVEN"]).map((opt: string) => {
                             const isSelected = answers[`reading_${item.number}`] === opt;
                             return (
                               <button
@@ -1574,6 +1763,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                         </div>
                       )}
                     </div>
+                    </Fragment>
                   );
                 })}
               </div>
@@ -1586,12 +1776,12 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
 }
 
 // ─── Writing Section ─────────────────────────────────────────
-function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask1Change, onTask2Change, activeTab, onTabChange }: any) {
+function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask1Change, onTask2Change, activeTab, onTabChange, task1Image, task1MinWords, task2MinWords }: any) {
   const isTask1 = activeTab === "task1";
   const prompt = isTask1 ? task1Prompt : task2Prompt;
   const text = isTask1 ? task1Text : task2Text;
   const onChange = isTask1 ? onTask1Change : onTask2Change;
-  const minWords = isTask1 ? 150 : 250;
+  const minWords = isTask1 ? (task1MinWords || 150) : (task2MinWords || 250);
   const wordCount = text.split(/\s+/).filter(Boolean).length;
   const wordStatus = wordCount < minWords * 0.6 ? "danger" : wordCount < minWords ? "warning" : "ok";
 
@@ -1604,27 +1794,31 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
             {["task1", "task2"].map(t => (
               <button key={t} onClick={() => onTabChange(t)} style={{
                 padding: "6px 14px", borderRadius: "8px", border: "1.5px solid",
-                borderColor: activeTab === t ? "#1d4ed8" : "#e5e7eb",
-                background: activeTab === t ? "#dbeafe" : "#fff",
-                color: activeTab === t ? "#1e40af" : "#6b7280",
+                borderColor: activeTab === t ? "var(--brand)" : "var(--hairline)",
+                background: activeTab === t ? "var(--brand-tint)" : "var(--surface)",
+                color: activeTab === t ? "var(--brand-hover)" : "var(--ink-muted)",
                 cursor: "pointer", fontWeight: 700, fontSize: "0.8rem"
               }}>
                 {t === "task1" ? "Task 1" : "Task 2"}
               </button>
             ))}
           </div>
-          <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "8px" }}>
+          <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--ink-muted)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "8px" }}>
             {isTask1 ? "Task 1 — Summarise the graph" : "Task 2 — Essay"}
           </div>
         </div>
+        {isTask1 && task1Image && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={task1Image} alt="Hình của đề Writing Task 1" style={{ maxWidth: "100%", borderRadius: "10px", marginBottom: "14px", border: "1px solid var(--hairline)" }} />
+        )}
         {prompt.split("\n\n").map((para: string, i: number) => (
-          <p key={i} style={{ marginBottom: "12px", fontSize: "0.88rem", color: "#374151", lineHeight: 1.7 }}>
+          <p key={i} style={{ marginBottom: "12px", fontSize: "0.88rem", color: "var(--ink-secondary)", lineHeight: 1.7 }}>
             {para}
           </p>
         ))}
-        <div style={{ marginTop: "20px", padding: "12px", borderRadius: "10px", background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
-          <div style={{ fontSize: "0.72rem", color: "#166534", fontWeight: 700 }}>
-            ✏️ Yêu cầu tối thiểu: {minWords} từ
+        <div style={{ marginTop: "20px", padding: "12px", borderRadius: "10px", background: "var(--success-tint)", border: "1px solid var(--success)" }}>
+          <div style={{ fontSize: "0.72rem", color: "var(--success)", fontWeight: 700 }}>
+            Yêu cầu tối thiểu: {minWords} từ
           </div>
         </div>
       </div>
@@ -1632,13 +1826,13 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
       {/* Right — Editor */}
       <div className="exam-editor-pane">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--ink-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
             {isTask1 ? "Task 1" : "Task 2"} — Bài viết
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{
               fontSize: "0.78rem", fontWeight: 700,
-              color: wordStatus === "ok" ? "#16a34a" : wordStatus === "warning" ? "#d97706" : "#dc2626"
+              color: wordStatus === "ok" ? "var(--success)" : wordStatus === "warning" ? "var(--warning)" : "var(--danger)"
             }}>
               {wordCount} từ {wordCount < minWords && `(cần thêm ${minWords - wordCount})`}
             </span>
@@ -1658,18 +1852,18 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
 
         {/* Word count bar */}
         <div style={{ marginTop: "8px" }}>
-          <div style={{ height: 4, background: "#e5e7eb", borderRadius: "9999px", overflow: "hidden" }}>
+          <div style={{ height: 4, background: "var(--hairline)", borderRadius: "9999px", overflow: "hidden" }}>
             <div style={{
               width: `${Math.min(100, (wordCount / (minWords * 1.5)) * 100)}%`,
               height: "100%", borderRadius: "9999px",
-              background: wordStatus === "ok" ? "#16a34a" : wordStatus === "warning" ? "#d97706" : "#dc2626",
+              background: wordStatus === "ok" ? "var(--success)" : wordStatus === "warning" ? "var(--warning)" : "var(--danger)",
               transition: "width 0.3s ease"
             }} />
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px" }}>
-            <span style={{ fontSize: "0.65rem", color: "#9ca3af" }}>0</span>
-            <span style={{ fontSize: "0.65rem", color: "#9ca3af" }}>{minWords} (min)</span>
-            <span style={{ fontSize: "0.65rem", color: "#9ca3af" }}>{Math.round(minWords * 1.5)}</span>
+            <span style={{ fontSize: "0.65rem", color: "var(--ink-muted)" }}>0</span>
+            <span style={{ fontSize: "0.65rem", color: "var(--ink-muted)" }}>{minWords} (min)</span>
+            <span style={{ fontSize: "0.65rem", color: "var(--ink-muted)" }}>{Math.round(minWords * 1.5)}</span>
           </div>
         </div>
       </div>
@@ -1686,10 +1880,9 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
     <div className="exam-speaking-layout">
       {/* Examiner */}
       <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-        <div className="speaking-examiner-avatar">🎓</div>
         <div>
-          <div style={{ fontWeight: 800, fontSize: "1rem", color: "#1f2937", fontFamily: "Outfit, sans-serif" }}>Alex — IELTS Examiner</div>
-          <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{partData?.title || "Speaking"}</div>
+          <div style={{ fontWeight: 700, fontSize: "1rem", color: "var(--ink-secondary)", fontFamily: "inherit" }}>Alex — IELTS Examiner</div>
+          <div style={{ fontSize: "0.75rem", color: "var(--ink-muted)" }}>{partData?.title || "Speaking"}</div>
         </div>
       </div>
 
@@ -1697,8 +1890,8 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
       <div className="speaking-question-bubble" style={{ maxWidth: "640px" }}>
         {phase === "prep" ? (
           <>
-            <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#1d4ed8", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              📋 Cue Card — 1 phút chuẩn bị
+            <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--brand)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Cue Card — 1 phút chuẩn bị
             </div>
             {currentQ.split("\n").map((line: string, i: number) => (
               <p key={i} style={{ marginBottom: "6px", fontWeight: line.startsWith("•") ? 400 : line.startsWith("**") ? 700 : 400 }}>
@@ -1707,7 +1900,7 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
             ))}
           </>
         ) : phase === "done" ? (
-          <p style={{ color: "#16a34a", fontWeight: 700 }}>✅ Bài Speaking đã hoàn thành. Cảm ơn bạn.</p>
+          <p style={{ color: "var(--success)", fontWeight: 700 }}>Bài Speaking đã hoàn thành. Cảm ơn bạn.</p>
         ) : (
           <p style={{ fontSize: "1rem", lineHeight: 1.65 }}>{currentQ}</p>
         )}
@@ -1719,53 +1912,51 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
           <div className="speaking-timer-ring" style={{ animation: "spin 60s linear" }}>
             1:00
           </div>
-          <p style={{ fontSize: "0.82rem", color: "#6b7280" }}>Chuẩn bị trong 1 phút</p>
+          <p style={{ fontSize: "0.82rem", color: "var(--ink-muted)" }}>Chuẩn bị trong 1 phút</p>
           <button
             onClick={() => onPhaseChange("speaking")}
             style={{
               padding: "12px 28px", borderRadius: "12px",
-              background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-              border: "none", color: "#fff", cursor: "pointer",
+              background: "var(--danger)",
+              border: "none", color: "var(--on-brand)", cursor: "pointer",
               fontWeight: 700, fontSize: "0.9rem",
               display: "flex", alignItems: "center", gap: "8px"
             }}
           >
-            <Mic size={16} /> Bắt Đầu Nói (2 phút)
+             Bắt Đầu Nói (2 phút)
           </button>
         </div>
       )}
 
       {phase === "question" && (
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <button
+          <button aria-label="Ghi âm"
             onClick={onRecord}
             className={isRecording ? "mic-recording" : ""}
             style={!isRecording ? {
               width: 72, height: 72, borderRadius: "50%",
-              background: "#6b7280", border: "none", color: "#fff",
+              background: "var(--ink-muted)", border: "none", color: "var(--on-brand)",
               cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
             } : {}}
-          >
-            {isRecording ? <MicOff size={28} color="#fff" /> : <Mic size={28} color="#fff" />}
-          </button>
+          >{isRecording ? <Square size={24} strokeWidth={2} fill="currentColor" /> : <Mic size={28} strokeWidth={1.75} />}</button>
           <div>
-            <div style={{ fontSize: "0.85rem", color: "#1f2937", fontWeight: 600 }}>
-              {isRecording ? "🔴 Đang ghi âm..." : "Nhấn để bắt đầu trả lời"}
+            <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", fontWeight: 600 }}>
+              {isRecording ? "Đang ghi âm..." : "Nhấn để bắt đầu trả lời"}
             </div>
-            <div style={{ fontSize: "0.72rem", color: "#6b7280", marginTop: "2px" }}>
-              Trả lời xong → nhấn Câu tiếp theo
+            <div style={{ fontSize: "0.72rem", color: "var(--ink-muted)", marginTop: "2px" }}>
+              Trả lời xong, nhấn Câu tiếp theo
             </div>
           </div>
           <button
             onClick={onNextQ}
             style={{
               padding: "10px 20px", borderRadius: "10px", marginLeft: "16px",
-              background: "#1d4ed8", border: "none", color: "#fff",
+              background: "var(--brand)", border: "none", color: "var(--on-brand)",
               cursor: "pointer", fontWeight: 700, fontSize: "0.82rem",
               display: "flex", alignItems: "center", gap: "6px"
             }}
           >
-            Câu tiếp <ChevronRight size={14} />
+            Câu tiếp 
           </button>
         </div>
       )}
@@ -1773,18 +1964,17 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
       {phase === "speaking" && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
           <div className="mic-recording" onClick={onRecord}>
-            <Mic size={28} color="#fff" />
           </div>
-          <div style={{ fontWeight: 700, color: "#dc2626", fontSize: "0.9rem" }}>🔴 Đang ghi âm — 2 phút</div>
+          <div style={{ fontWeight: 700, color: "var(--danger)", fontSize: "0.9rem" }}>Đang ghi âm — 2 phút</div>
           <button
             onClick={() => { onPhaseChange("question"); onNextQ(); }}
             style={{
               padding: "10px 24px", borderRadius: "10px",
-              background: "#1d4ed8", border: "none", color: "#fff",
+              background: "var(--brand)", border: "none", color: "var(--on-brand)",
               cursor: "pointer", fontWeight: 700, fontSize: "0.85rem"
             }}
           >
-            Hoàn thành Part 2 →
+            Hoàn thành Part 2
           </button>
         </div>
       )}
@@ -1793,196 +1983,109 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
 }
 
 // ─── Result Screen ───────────────────────────────────────────
-function ResultScreen({ result, sections, onRetry }: any) {
-  const overall = result?.overall_band || 0;
-  const sr = result?.section_results || {};
-  const analysis = result?.ai_analysis || {};
+function ResultScreen({ result, onRetry }: any) {
+  const MIN_T1 = 150;
+  const MIN_T2 = 250;
 
-  const sectionLabel: Record<string, string> = {
-    listening: "Listening", reading: "Reading", writing: "Writing", speaking: "Speaking"
-  };
-  const sectionColor: Record<string, string> = {
-    listening: "#0891b2", reading: "#059669", writing: "#d97706", speaking: "#7c3aed"
-  };
+  const scored = [result.listening, result.reading].filter((s: any) => s && typeof s.band === "number");
+  const missingKey = [result.listening, result.reading].some((s: any) => s && s.band === null);
+  const average = scored.length
+    ? Math.round((scored.reduce((a: number, s: any) => a + s.band, 0) / scored.length) * 2) / 2
+    : null;
 
-  const getBandColor = (band: number) =>
-    band >= 7.5 ? "#16a34a" : band >= 6.5 ? "#2563eb" : band >= 5.5 ? "#d97706" : "#dc2626";
+  const notes: string[] = [];
+  if (result.listening && result.listening.answered < result.listening.total) {
+    notes.push(`Listening còn ${result.listening.total - result.listening.answered} câu chưa trả lời.`);
+  }
+  if (result.reading && result.reading.answered < result.reading.total) {
+    notes.push(`Reading còn ${result.reading.total - result.reading.answered} câu chưa trả lời.`);
+  }
+  if (missingKey && scored.length > 0) {
+    notes.push("Một phần của đề này chưa có đáp án nên chưa được chấm.");
+  }
+  if (result.writing) {
+    if (result.writing.task1 < MIN_T1) notes.push(`Writing Task 1 mới được ${result.writing.task1} từ, yêu cầu tối thiểu ${MIN_T1} từ.`);
+    if (result.writing.task2 < MIN_T2) notes.push(`Writing Task 2 mới được ${result.writing.task2} từ, yêu cầu tối thiểu ${MIN_T2} từ.`);
+  }
+
+  const card: React.CSSProperties = {
+    background: "var(--bg-card)", border: "1px solid var(--border-subtle)",
+    borderRadius: "12px", padding: "20px",
+  };
+  const label: React.CSSProperties = { fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 600, marginBottom: "6px" };
+  const value: React.CSSProperties = { fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.25px" };
 
   return (
-    <div className="exam-result" style={{ background: "#f5f5f0", minHeight: "100vh" }}>
-      {/* Header */}
-      <div style={{
-        background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)",
-        padding: "40px", textAlign: "center", marginBottom: "0"
-      }}>
-        <div style={{ fontSize: "0.7rem", color: "#6366f1", fontWeight: 700, letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "12px" }}>
-          IELTS MOCK TEST RESULT
-        </div>
-        <h1 style={{ fontSize: "2.2rem", fontWeight: 800, color: "#fff", fontFamily: "Outfit, sans-serif", marginBottom: "32px" }}>
-          Kết Quả Bài Thi
-        </h1>
+    <div style={{ minHeight: "100vh", background: "var(--bg-primary)", padding: "48px 20px" }}>
+      <div style={{ maxWidth: "720px", margin: "0 auto" }}>
+        <h1 style={{ fontSize: "2rem", marginBottom: "8px" }}>Bạn đã hoàn thành bài thi</h1>
+        <p style={{ color: "var(--text-secondary)", marginBottom: "28px", lineHeight: 1.6 }}>
+          {result.auto_submitted ? "Hết giờ nên bài được nộp tự động. " : ""}
+          {scored.length > 0
+            ? "Listening và Reading đã được chấm theo đáp án trong sách. Band chỉ là ước tính theo bảng quy đổi chuẩn; Writing và Speaking chưa chấm tự động."
+            : "Bài thi này chưa có đáp án để chấm điểm tự động, nên chưa quy ra band. Dưới đây là thống kê bài làm của bạn."}
+        </p>
 
-        {/* Overall Band */}
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: "32px", gap: "24px", alignItems: "center" }}>
-          <div style={{ textAlign: "right", color: "#94a3b8" }}>
-            <div style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Time Used</div>
-            <div style={{ fontSize: "1.2rem", color: "#fff", fontWeight: 600 }}>2:45:00</div>
-          </div>
-          <div className="band-circle" style={{ width: 120, height: 120, borderRadius: "50%", background: "#4f46e5", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", border: "4px solid rgba(255,255,255,0.2)" }}>
-            <div className="band-circle-score" style={{ fontSize: "2.8rem", color: "#fff", fontWeight: 800, lineHeight: 1 }}>{overall}</div>
-            <div className="band-circle-label" style={{ color: "#a5b4fc", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase" }}>Overall</div>
-          </div>
-          <div style={{ textAlign: "left", color: "#94a3b8" }}>
-            <div style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Accuracy</div>
-            <div style={{ fontSize: "1.2rem", color: "#34d399", fontWeight: 600 }}>{Math.round((result?.answered_count || 0) / 80 * 100)}%</div>
-          </div>
-        </div>
-
-        {/* Section scores */}
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${sections.length}, 1fr)`, gap: "16px", maxWidth: "700px", margin: "0 auto" }}>
-          {sections.map((sec: string) => {
-            const secResult = sr[sec];
-            if (!secResult) return null;
-            return (
-              <div key={sec} style={{
-                background: "rgba(255,255,255,0.06)",
-                borderRadius: "16px", padding: "16px 12px", textAlign: "center",
-                border: "1px solid rgba(255,255,255,0.1)"
-              }}>
-                <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#fff", fontFamily: "Outfit, sans-serif" }}>
-                  {secResult.band}
-                </div>
-                <div style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", marginTop: "4px" }}>
-                  {sectionLabel[sec]}
-                </div>
-                {secResult.raw_score !== undefined && (
-                  <div style={{ fontSize: "0.7rem", color: "#64748b", marginTop: "2px" }}>
-                    {secResult.raw_score}/40
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Analysis */}
-      <div style={{ maxWidth: "900px", margin: "0 auto", padding: "40px 20px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginBottom: "24px" }}>
-          {/* Strengths */}
-          <div style={{ background: "#fff", borderRadius: "20px", padding: "24px", border: "1px solid #e5e7eb" }}>
-            <h3 style={{ fontWeight: 800, fontSize: "1rem", marginBottom: "14px", color: "#16a34a", display: "flex", alignItems: "center", gap: "8px" }}>
-              ✅ Điểm mạnh
-            </h3>
-            {(analysis.strengths || []).map((s: string, i: number) => (
-              <div key={i} style={{ padding: "8px 0", borderBottom: "1px solid #f3f4f6", fontSize: "0.85rem", color: "#374151" }}>
-                {s}
-              </div>
-            ))}
-          </div>
-
-          {/* Weaknesses */}
-          <div style={{ background: "#fff", borderRadius: "20px", padding: "24px", border: "1px solid #e5e7eb" }}>
-            <h3 style={{ fontWeight: 800, fontSize: "1rem", marginBottom: "14px", color: "#dc2626", display: "flex", alignItems: "center", gap: "8px" }}>
-              ⚠️ Điểm yếu
-            </h3>
-            {(analysis.weaknesses || []).map((s: string, i: number) => (
-              <div key={i} style={{ padding: "8px 0", borderBottom: "1px solid #f3f4f6", fontSize: "0.85rem", color: "#374151" }}>
-                {s}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Target & Priority */}
-        <div style={{ background: "#fff", borderRadius: "20px", padding: "28px", border: "1px solid #e5e7eb", marginBottom: "24px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
-            <h3 style={{ fontWeight: 800, fontSize: "1.1rem", fontFamily: "Outfit, sans-serif" }}>
-              🎯 Kế Hoạch Cải Thiện Cá Nhân
-            </h3>
-            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#6b7280" }}>{analysis.current_band}</div>
-                <div style={{ fontSize: "0.65rem", color: "#9ca3af" }}>Hiện tại</div>
-              </div>
-              <div style={{ color: "#9ca3af", fontSize: "1.2rem" }}>→</div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#1d4ed8" }}>{analysis.target_band}</div>
-                <div style={{ fontSize: "0.65rem", color: "#9ca3af" }}>Mục tiêu</div>
-              </div>
-            </div>
-          </div>
-
-          {(analysis.priority_areas || []).map((area: any, i: number) => (
-            <div key={i} style={{
-              display: "flex", alignItems: "flex-start", gap: "14px",
-              padding: "14px 0", borderTop: i > 0 ? "1px solid #f3f4f6" : "none"
-            }}>
-              <div style={{
-                width: 28, height: 28, borderRadius: "8px",
-                background: i === 0 ? "#fef2f2" : i === 1 ? "#fffbeb" : "#f0fdf4",
-                color: i === 0 ? "#dc2626" : i === 1 ? "#d97706" : "#16a34a",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontWeight: 800, fontSize: "0.75rem", flexShrink: 0
-              }}>
-                {i + 1}
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#1f2937" }}>{area.area}</div>
-                <div style={{ fontSize: "0.78rem", color: "#6b7280", marginTop: "2px" }}>{area.action}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Weekly Plan */}
-        {analysis.study_plan && (
-          <div style={{ background: "#fff", borderRadius: "20px", padding: "28px", border: "1px solid #e5e7eb", marginBottom: "32px" }}>
-            <h3 style={{ fontWeight: 800, fontSize: "1rem", marginBottom: "16px", fontFamily: "Outfit, sans-serif" }}>
-              📅 Lộ Trình 3 Tuần
-            </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-              {Object.entries(analysis.study_plan).map(([week, tasks]: [string, any], i) => (
-                <div key={week} style={{ background: "#f8fafc", borderRadius: "14px", padding: "16px" }}>
-                  <div style={{ fontWeight: 800, fontSize: "0.82rem", color: "#374151", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Tuần {i + 1}
-                  </div>
-                  {(tasks as string[]).map((t, j) => (
-                    <div key={j} style={{ fontSize: "0.78rem", color: "#6b7280", padding: "4px 0", borderBottom: "1px solid #f1f5f9" }}>
-                      • {t}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
+        {average !== null && (
+          <div style={{ ...card, marginBottom: "14px", display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "2.4rem", fontWeight: 700, letterSpacing: "-1px" }}>{average}</span>
+            <span style={{ color: "var(--text-secondary)" }}>
+              Band trung bình {scored.length === 2 ? "Listening và Reading" : "phần đã chấm"} (ước tính)
+            </span>
           </div>
         )}
 
-        {/* Actions */}
-        <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-          <button
-            onClick={onRetry}
-            style={{
-              padding: "14px 32px", borderRadius: "14px",
-              background: "linear-gradient(135deg, #1e40af, #7c3aed)",
-              border: "none", color: "#fff", cursor: "pointer",
-              fontWeight: 800, fontSize: "1rem", fontFamily: "Outfit, sans-serif"
-            }}
-          >
-            🎯 Thi Lại
-          </button>
-          <a
-            href="/"
-            style={{
-              padding: "14px 32px", borderRadius: "14px",
-              background: "#fff", border: "1.5px solid #e5e7eb",
-              color: "#374151", textDecoration: "none",
-              fontWeight: 700, fontSize: "0.95rem",
-              display: "inline-flex", alignItems: "center"
-            }}
-          >
-            ← Về Dashboard
-          </a>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px", marginBottom: "28px" }}>
+          {[["Listening", result.listening], ["Reading", result.reading]].map(([name, s]: any) => s && (
+            <div style={card} key={name}>
+              <div style={label}>{name}</div>
+              {typeof s.band === "number" ? (
+                <>
+                  <div style={value}>Band {s.band}</div>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>
+                    {s.correct}/{s.total} câu đúng
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={value}>{s.answered}/{s.total}</div>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>câu đã trả lời</div>
+                </>
+              )}
+            </div>
+          ))}
+          {result.writing && (
+            <div style={card}>
+              <div style={label}>Writing</div>
+              <div style={value}>{result.writing.task1 + result.writing.task2} từ</div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>
+                Task 1: {result.writing.task1} · Task 2: {result.writing.task2}
+              </div>
+            </div>
+          )}
+          {result.speaking && (
+            <div style={card}>
+              <div style={label}>Speaking</div>
+              <div style={value}>Đã thi</div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>chưa chấm tự động</div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ ...card, marginBottom: "28px" }}>
+          <h2 style={{ fontSize: "1.1rem", marginBottom: "12px" }}>Cần chú ý</h2>
+          {notes.length > 0 ? (
+            <ul style={{ paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              {notes.map((n, i) => <li key={i}>{n}</li>)}
+            </ul>
+          ) : (
+            <p style={{ color: "var(--text-secondary)" }}>Bạn đã trả lời đủ các câu và viết đủ số từ yêu cầu.</p>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          <button type="button" onClick={onRetry} className="btn-primary">Làm bài thi khác</button>
+          <a href="/" className="btn-secondary">Về trang chính</a>
         </div>
       </div>
     </div>

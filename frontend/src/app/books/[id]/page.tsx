@@ -1,14 +1,16 @@
 "use client";
 
+import ProcessingPipeline from "@/components/ProcessingPipeline";
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { BookOpen, Loader2, Target, Brain, ArrowRight, CheckCircle2, Lock, Play, Map, MessageSquare } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 
-const API = "http://localhost:8000/api/v1";
+import { API, apiFetch } from "@/lib/api";
+import { ChevronLeft, ArrowRight, Check, Layers, MessageCircle, Target } from "lucide-react";
 
 const difficultyColor = (d: number) =>
-  d <= 1 ? "#10b981" : d <= 2 ? "#38bdf8" : d <= 3 ? "#6366f1" : d <= 4 ? "#f59e0b" : "#f43f5e";
+  d <= 1 ? "var(--success)" : d <= 2 ? "var(--brand)" : d <= 3 ? "var(--brand)" : d <= 4 ? "var(--accent-strong)" : "var(--danger)";
 
 export default function BookDetailPage() {
   const params = useParams();
@@ -28,8 +30,8 @@ export default function BookDetailPage() {
   const fetchBookData = async () => {
     try {
       const [statusRes, topicsRes] = await Promise.all([
-        fetch(`${API}/documents/${bookId}/status`),
-        fetch(`${API}/documents/${bookId}/topics`)
+        apiFetch(`${API}/documents/${bookId}/status`),
+        apiFetch(`${API}/documents/${bookId}/topics`)
       ]);
       if (statusRes.ok) setBook(await statusRes.json());
       if (topicsRes.ok) {
@@ -40,11 +42,27 @@ export default function BookDetailPage() {
     setLoading(false);
   };
 
+  // Tệp gốc nằm trong bucket riêng tư: xin signed URL ngắn hạn rồi mới mở
+  const openOriginalPdf = async () => {
+    const tab = window.open("", "_blank");
+    try {
+      const res = await apiFetch(`${API}/documents/${bookId}/file-url`);
+      if (!res.ok) throw new Error(String(res.status));
+      const { url } = await res.json();
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+    } catch (e) {
+      tab?.close();
+      console.error(e);
+      alert("Không mở được tệp gốc.");
+    }
+  };
+
   const handleSetGoal = async (e: React.FormEvent) => {
     e.preventDefault();
     setGoalLoading(true);
     try {
-      const res = await fetch(`${API}/learning-paths/set-goal`, {
+      const res = await apiFetch(`${API}/learning-paths/set-goal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ document_id: bookId, ...goalData })
@@ -59,193 +77,123 @@ export default function BookDetailPage() {
   };
 
   if (loading) return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", maxWidth: "860px" }}>
-      <div className="skeleton" style={{ height: 120, borderRadius: 20 }} />
-      <div className="skeleton" style={{ height: 300, borderRadius: 20 }} />
+    <div className="wrap">
+      <div className="skeleton" style={{ height: 120 }} />
+      <div className="split"><div className="skeleton" style={{ height: 360 }} /><div className="skeleton" style={{ height: 360 }} /></div>
     </div>
   );
 
   if (!book) return (
-    <div className="glass-panel" style={{ padding: 40, textAlign: "center" }}>
-      <p style={{ color: "var(--text-secondary)" }}>Không tìm thấy tài liệu này.</p>
-      <Link href="/books" className="btn-secondary" style={{ marginTop: 16, display: "inline-flex" }}>← Quay lại</Link>
+    <div className="wrap-narrow">
+      <EmptyState title="Không tìm thấy tài liệu này" description="Tài liệu có thể đã bị xoá hoặc đường dẫn không đúng." primary={{ label: "Về thư viện", href: "/books" }} />
     </div>
   );
 
+  const ready = book.processing_status === "completed";
+  const days = Number(goalData.deadline_days) || 0;
+  const perTopic = topics.length ? Math.max(1, Math.floor(days / topics.length)) : 0;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "28px", maxWidth: "860px" }}>
-      {/* Book Header */}
-      <div className="glass-panel fade-in-up" style={{ padding: "28px 32px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "20px" }}>
-          <div style={{ flex: 1 }}>
-            <Link href="/books" className="btn-ghost" style={{ marginBottom: "12px", padding: "4px 0" }}>
-              ← Thư viện
-            </Link>
-            <h1 style={{ fontSize: "1.8rem", fontWeight: "800", fontFamily: "Outfit, sans-serif", marginBottom: "10px", lineHeight: 1.2 }}>
-              {book.title}
-            </h1>
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-              <span className="badge badge-emerald">
-                <CheckCircle2 size={12} /> {book.processing_status === "completed" ? "Đã xử lý" : "Đang xử lý"}
-              </span>
-              <span className="badge badge-indigo">{book.chunk_count} vector chunks</span>
-              <span className="badge badge-purple">{book.topic_count} topics</span>
-              {book.file_path && (
-                <a href={book.file_path} target="_blank" rel="noreferrer" className="badge badge-cyan" style={{ textDecoration: "none" }}>
-                  📄 PDF gốc (Supabase Storage) ↗
-                </a>
-              )}
+    <div className="wrap stagger">
+      <header>
+        <Link className="crumb" href="/books"><ChevronLeft size={16} strokeWidth={2} />Thư viện sách</Link>
+        <div className="page-head">
+          <div style={{ maxWidth: 640 }}>
+            <div className="row-wrap" style={{ marginBottom: 10 }}>
+              <span className={ready ? "st-badge st-badge-success" : "st-badge st-badge-brand"}>{ready ? "Sẵn sàng" : "Đang xử lý"}</span>
+              <span className="st-badge">{book.topic_count ?? topics.length} chủ đề</span>
             </div>
+            <h1 className="page-title">{book.title}</h1>
           </div>
-          <div style={{ fontSize: "4rem", flexShrink: 0 }}>📘</div>
+          <div className="row-wrap">
+            {book.file_path && <button className="st-btn st-btn-ghost" type="button" onClick={openOriginalPdf}>Mở tệp gốc</button>}
+            <Link className="st-btn st-btn-secondary" href={`/books/${bookId}/exam-builder`}>Dựng đề thi</Link>
+            <Link className="st-btn st-btn-primary" href={`/books/${bookId}/read`}>Đọc sách <ArrowRight className="st-btn-arrow" size={18} strokeWidth={2} /></Link>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Goal Result */}
       {goalResult && (
-        <div className="glass-panel fade-in-up" style={{ padding: "24px", background: "rgba(16,185,129,0.05)", borderColor: "rgba(16,185,129,0.2)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#34d399", fontWeight: 700, marginBottom: "8px" }}>
-            <CheckCircle2 size={20} /> Đã tạo lịch học thành công!
-          </div>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: "16px" }}>
-            {goalResult.plan_days} ngày học được lên kế hoạch • Deadline: {goalResult.deadline_date}
-          </p>
-          <div style={{ display: "flex", gap: "10px" }}>
-            <Link href="/" className="btn-primary">
-              <Map size={16} /> Xem lịch học hôm nay
-            </Link>
-            <Link href="/plan" className="btn-secondary">
-              Xem toàn bộ lịch học
-            </Link>
-          </div>
+        <div role="status" className="st-enter" style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", borderRadius: "var(--radius-md)", background: "var(--success-tint)", flexWrap: "wrap" }}>
+          <span className="tile tile-sm tile-success" aria-hidden="true" style={{ background: "var(--surface)" }}><Check size={16} strokeWidth={2.4} /></span>
+          <span style={{ flex: 1, color: "var(--ink)" }}><b style={{ fontWeight: 600 }}>Đã tạo lịch học.</b> {goalResult.plan_days} ngày học · hạn chót {goalResult.deadline_date}</span>
+          <Link className="st-btn st-btn-primary st-btn-sm" href="/">Học bài hôm nay</Link>
+          <Link className="st-btn st-btn-ghost st-btn-sm" href="/plan">Xem lịch</Link>
         </div>
       )}
 
-      {/* Set Goal CTA */}
-      {!goalResult && book.processing_status === "completed" && (
-        <div className="glass-panel fade-in-up" style={{ padding: "24px 28px", background: "rgba(99,102,241,0.05)", borderColor: "rgba(99,102,241,0.2)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <h3 style={{ fontSize: "1.1rem", fontWeight: "700", marginBottom: "4px" }}>
-                🎯 Đặt mục tiêu học tập
-              </h3>
-              <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-                AI sẽ tạo lịch học cá nhân hóa dựa trên mục tiêu của bạn
-              </p>
-            </div>
-            <button className="btn-primary" onClick={() => setSettingGoal(true)}>
-              Bắt đầu <ArrowRight size={16} />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Goal Setup Form */}
-      {settingGoal && (
-        <div className="glass-panel fade-in-up" style={{ padding: "28px" }}>
-          <h3 style={{ fontSize: "1.15rem", fontWeight: "700", marginBottom: "20px" }}>
-            🎯 Thiết lập mục tiêu học tập
-          </h3>
-          <form onSubmit={handleSetGoal} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div>
-              <label className="label-text">Mục tiêu của bạn là gì?</label>
-              <input className="input-field" value={goalData.goal_description}
-                onChange={e => setGoalData(p => ({ ...p, goal_description: e.target.value }))}
-                placeholder="Ví dụ: Chuẩn bị phỏng vấn Backend Developer" />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-              <div>
-                <label className="label-text">Thời gian học mỗi ngày (phút)</label>
-                <input className="input-field" type="number" min={15} max={180} value={goalData.daily_minutes}
-                  onChange={e => setGoalData(p => ({ ...p, daily_minutes: parseInt(e.target.value) }))} />
-              </div>
-              <div>
-                <label className="label-text">Hoàn thành trong (ngày)</label>
-                <input className="input-field" type="number" min={7} max={90} value={goalData.deadline_days}
-                  onChange={e => setGoalData(p => ({ ...p, deadline_days: parseInt(e.target.value) }))} />
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button type="submit" className="btn-primary" disabled={goalLoading}>
-                {goalLoading ? <><Loader2 size={16} className="spin" /> Đang tạo...</> : <>🤖 Tạo lịch học AI</>}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setSettingGoal(false)}>Hủy</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Topics Grid */}
-      <div className="glass-panel fade-in-up" style={{ padding: "24px 28px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-          <h2 style={{ fontSize: "1.15rem", fontWeight: "700", display: "flex", alignItems: "center", gap: "8px" }}>
-            <Brain size={18} color="var(--accent-purple)" />
-            Knowledge Graph — {topics.length} topics
-          </h2>
-          <Link href={`/knowledge-graph?document_id=${bookId}`} className="btn-ghost">
-            Xem đồ thị →
-          </Link>
-        </div>
-
-        {topics.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-            {book.processing_status === "processing"
-              ? <><Loader2 size={20} className="spin" style={{ marginBottom: 8 }} /><br />AI đang bóc tách topics...</>
-              : "Chưa có topics nào"}
-          </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px" }}>
-            {topics.map((topic: any, idx: number) => (
-              <div key={topic.id} style={{
-                padding: "16px", borderRadius: "14px",
-                border: `1px solid rgba(99,102,241,0.15)`,
-                background: "rgba(99,102,241,0.04)",
-                display: "flex", flexDirection: "column", gap: "8px"
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <h3 style={{ fontWeight: "600", fontSize: "0.9rem", lineHeight: 1.3 }}>{topic.name}</h3>
-                  <span style={{
-                    fontSize: "0.7rem", fontWeight: 700, padding: "3px 8px", borderRadius: "6px",
-                    background: `${difficultyColor(topic.difficulty_level)}20`,
-                    color: difficultyColor(topic.difficulty_level), flexShrink: 0
-                  }}>Lv.{topic.difficulty_level}</span>
+      <div className="split">
+        <section aria-labelledby="tp-h">
+          <div className="sec-head"><h2 id="tp-h" className="sec-title">Chủ đề trong sách</h2><span className="meta">Học theo thứ tự gợi ý</span></div>
+          {topics.length === 0 ? (
+            book.processing_status === "processing" || book.processing_status === "pending" || book.processing_status === "failed" ? (
+              <ProcessingPipeline bookId={bookId} initial={book} onDone={fetchBookData} onRetry={async () => { await apiFetch(`${API}/documents/${bookId}/reprocess`, { method: "POST" }); fetchBookData(); }} />
+            ) : (
+              <EmptyState compact title="Chưa tách được chủ đề nào" description="Tài liệu có thể quá ngắn hoặc là bản scan ảnh. Hãy thử bản có chữ chọn được." primary={{ label: "Về thư viện", href: "/books" }} />
+            )
+          ) : (
+            <div className="st-card" style={{ padding: 0, overflow: "hidden" }}>
+              {topics.map((topic: any, idx: number) => (
+                <div key={topic.id} style={{ display: "grid", gridTemplateColumns: "28px minmax(0,1fr) auto", gap: 14, alignItems: "center", padding: "14px 16px", borderTop: idx ? "1px solid var(--hairline)" : "none" }}>
+                  <span className="tile tile-sm" style={{ background: "var(--surface-sunken)", color: "var(--ink-muted)" }} aria-hidden="true"><span className="num" style={{ font: "650 12px/1 var(--font-sans)" }}>{idx + 1}</span></span>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="lrow-title">{topic.name}</div>
+                    <div className="meta row" style={{ gap: 8, marginTop: 2 }}>
+                      <span>Độ khó</span>
+                      <span style={{ display: "inline-flex", gap: 3 }} aria-label={`${topic.difficulty_level} trên 5`}>
+                        {[1, 2, 3, 4, 5].map((n) => <i key={n} style={{ width: 6, height: 14, borderRadius: 2, background: n <= topic.difficulty_level ? difficultyColor(topic.difficulty_level) : "var(--hairline)" }} />)}
+                      </span>
+                    </div>
+                    {topic.description && <p className="meta" style={{ marginTop: 4, color: "var(--ink-secondary)" }}>{topic.description}</p>}
+                  </div>
+                  <div className="row" style={{ gap: 6 }}>
+                    <Link className="st-btn st-btn-ghost st-btn-sm" href={`/tutor?topic=${topic.id}&doc=${bookId}`}>Hỏi AI</Link>
+                    <Link className="st-btn st-btn-secondary st-btn-sm" href={`/lesson/${topic.id}?doc=${bookId}`}>Học</Link>
+                  </div>
                 </div>
-                {topic.description && (
-                  <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.5 }}>{topic.description}</p>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <div className="stack" style={{ gap: 16 }}>
+          {!goalResult && ready && (
+            <section className="st-card" aria-labelledby="goal-h">
+              <h2 id="goal-h" className="heading-3">Lên lịch học từ sách này</h2>
+              <p className="meta" style={{ marginTop: 4 }}>Studia chia chủ đề vào từng ngày theo thời gian bạn có.</p>
+              <form onSubmit={handleSetGoal} className="stack" style={{ gap: 14, marginTop: 16 }}>
+                <label className="field"><span className="field-label">Mục tiêu của bạn</span>
+                  <input className="input" value={goalData.goal_description} onChange={(e) => setGoalData((p) => ({ ...p, goal_description: e.target.value }))} placeholder="Ví dụ: Đạt IELTS 6.5 trong 3 tháng" />
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                  <label className="field"><span className="field-label">Phút mỗi ngày</span>
+                    <input className="input num" type="number" min={15} max={180} value={goalData.daily_minutes} onChange={(e) => setGoalData((p) => ({ ...p, daily_minutes: parseInt(e.target.value) || 0 }))} />
+                  </label>
+                  <label className="field"><span className="field-label">Xong trong (ngày)</span>
+                    <input className="input num" type="number" min={7} max={90} value={goalData.deadline_days} onChange={(e) => setGoalData((p) => ({ ...p, deadline_days: parseInt(e.target.value) || 0 }))} />
+                  </label>
+                </div>
+                {topics.length > 0 && days > 0 && (
+                  <p className="meta" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--surface-sunken)" }}>
+                    Ước tính: {topics.length} chủ đề · khoảng {perTopic} ngày mỗi chủ đề · {goalData.daily_minutes} phút/ngày.
+                  </p>
                 )}
-                <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                  <Link href={`/lesson/${topic.id}?doc=${bookId}`} className="btn-ghost" style={{ fontSize: "0.75rem", padding: "4px 10px" }}>
-                    <BookOpen size={12} /> Học
-                  </Link>
-                  <Link href={`/tutor?topic=${topic.id}&doc=${bookId}`} className="btn-ghost" style={{ fontSize: "0.75rem", padding: "4px 10px" }}>
-                    <MessageSquare size={12} /> Hỏi AI
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                <button type="submit" className="st-btn st-btn-primary st-btn-block" disabled={goalLoading} aria-busy={goalLoading || undefined}>
+                  {goalLoading ? <><span className="st-spinner" /> Đang tạo lịch…</> : "Tạo lịch học"}
+                </button>
+              </form>
+            </section>
+          )}
 
-      {/* Quick Actions */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-        {[
-          { href: `/flashcards?doc=${bookId}`, icon: "🃏", label: "Tạo Flashcards", color: "rgba(139,92,246,0.1)", border: "rgba(139,92,246,0.25)" },
-          { href: `/tutor?doc=${bookId}`, icon: "🤖", label: "Hỏi AI Tutor", color: "rgba(56,189,248,0.1)", border: "rgba(56,189,248,0.25)" },
-          { href: `/knowledge-graph?document_id=${bookId}`, icon: "🕸️", label: "Knowledge Graph", color: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.25)" },
-        ].map(a => (
-          <Link key={a.href} href={a.href} style={{
-            background: a.color, border: `1px solid ${a.border}`, borderRadius: "14px",
-            padding: "18px", textDecoration: "none", color: "inherit",
-            display: "flex", flexDirection: "column", gap: "6px", transition: "all 0.2s ease"
-          }}
-            onMouseEnter={e => (e.currentTarget.style.transform = "translateY(-2px)")}
-            onMouseLeave={e => (e.currentTarget.style.transform = "none")}
-          >
-            <span style={{ fontSize: "1.6rem" }}>{a.icon}</span>
-            <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>{a.label}</span>
-          </Link>
-        ))}
+          <section className="st-card" aria-labelledby="qa-h">
+            <h2 id="qa-h" className="heading-3" style={{ marginBottom: 12 }}>Học thêm từ sách</h2>
+            <div className="stack" style={{ gap: 8 }}>
+              <Link className="lrow" href={`/flashcards?doc=${bookId}`}><span className="tile tile-sm" aria-hidden="true"><Layers size={16} strokeWidth={1.75} /></span><span style={{ flex: 1 }}><span className="lrow-title" style={{ display: "block", fontSize: 14.5 }}>Ôn flashcard</span><span className="meta">Tạo tự động từ sách</span></span></Link>
+              <Link className="lrow" href={`/tutor?doc=${bookId}`}><span className="tile tile-sm" aria-hidden="true"><MessageCircle size={16} strokeWidth={1.75} /></span><span style={{ flex: 1 }}><span className="lrow-title" style={{ display: "block", fontSize: 14.5 }}>Hỏi trợ lý AI về sách</span><span className="meta">Trả lời kèm trích dẫn</span></span></Link>
+              <Link className="lrow" href={`/books/${bookId}/exam-builder`}><span className="tile tile-sm" aria-hidden="true"><Target size={16} strokeWidth={1.75} /></span><span style={{ flex: 1 }}><span className="lrow-title" style={{ display: "block", fontSize: 14.5 }}>Dựng đề thi từ sách</span><span className="meta">Listening, Reading, Writing, Speaking</span></span></Link>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );

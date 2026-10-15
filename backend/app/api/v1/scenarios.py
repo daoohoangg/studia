@@ -10,13 +10,13 @@ from app.services.ai_engine import AIEngine
 from app.services.rag_engine import RAGEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/scenarios", tags=["Scenarios & Roleplay"])
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 class GenerateScenariosRequest(BaseModel):
@@ -116,7 +116,7 @@ async def interact_scenario_step(req: InteractStepRequest):
                 rag_context=rag_texts
             )
 
-            uid = req.user_id or DEFAULT_USER_ID
+            uid = current_user_id()
 
             # Lưu vocabulary items
             vocab_items = extracted.get("vocabulary_items", [])

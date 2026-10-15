@@ -9,6 +9,7 @@ from app.services.rag_engine import RAGEngine
 from app.services.fsrs_engine import FSRSEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id
 import uuid
 import logging
 
@@ -16,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/quizzes", tags=["Quizzes & Evaluation"])
 
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 class GenerateQuizRequest(BaseModel):
@@ -54,7 +54,7 @@ async def generate_quiz(req: GenerateQuizRequest):
     Tạo quiz adaptive từ RAG context.
     Sinh câu hỏi từ nội dung thực tế trong sách (không bịa).
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     # RAG: lấy context
@@ -75,6 +75,12 @@ async def generate_quiz(req: GenerateQuizRequest):
         rag_context=rag_texts,
         question_count=req.question_count
     )
+
+    if not questions or all(q.get("is_fallback") for q in questions):
+        raise HTTPException(
+            status_code=503,
+            detail="AI chưa tạo được câu hỏi từ nội dung sách (dịch vụ AI không khả dụng). Vui lòng thử lại sau."
+        )
 
     # Lưu quiz vào Supabase
     quiz_id = str(uuid.uuid4())
@@ -119,7 +125,7 @@ async def submit_answer(req: SubmitAnswerRequest):
     """
     Chấm điểm câu trả lời đơn lẻ & Cập nhật Knowledge State + FSRS.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     eval_result = AIEngine.evaluate_quiz_response(
@@ -167,7 +173,7 @@ async def submit_full_quiz(req: SubmitQuizRequest):
     """
     Submit toàn bộ quiz → phân tích điểm → cập nhật knowledge state → trigger adaptive plan.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     # Lấy questions từ Supabase
@@ -265,7 +271,7 @@ async def submit_full_quiz(req: SubmitQuizRequest):
 @router.get("/weak-topics")
 async def get_weak_topics(user_id: Optional[str] = None):
     """Phân tích và trả về danh sách weak topics của user."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -318,7 +324,7 @@ async def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
     Feature B: Sinh quiz đa dạng loại câu hỏi (fill_blank, recall, sentence_construction, multiple_choice).
     Tự động chọn exercise_types dựa trên mastery nếu không chỉ định.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     # RAG context
@@ -340,6 +346,12 @@ async def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
         question_count=req.question_count,
         exercise_types=req.exercise_types
     )
+
+    if not questions or all(q.get("is_fallback") for q in questions):
+        raise HTTPException(
+            status_code=503,
+            detail="AI chưa tạo được câu hỏi từ nội dung sách (dịch vụ AI không khả dụng). Vui lòng thử lại sau."
+        )
 
     # Lưu quiz vào Supabase
     quiz_id = str(uuid.uuid4())
@@ -391,7 +403,7 @@ async def grade_open_answer(req: GradeOpenAnswerRequest):
     Feature B: Gemini chấm điểm câu trả lời mở (recall, sentence_construction).
     Tự động ghi nhận lỗi vào error_logs.
     """
-    user_id = req.user_id or DEFAULT_USER_ID
+    user_id = current_user_id()
     supabase = get_supabase_client()
 
     # RAG context
@@ -462,7 +474,7 @@ async def get_recurring_mistakes(
     limit: int = 20
 ):
     """Lấy danh sách lỗi tái diễn từ question_attempts và error_logs."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:

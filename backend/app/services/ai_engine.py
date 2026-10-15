@@ -316,7 +316,8 @@ Requirements:
                 ],
                 "correct_answer": "A",
                 "explanation": f"Đáp án A đúng vì nó mô tả đúng bản chất của {topic_name}.",
-                "difficulty": difficulty
+                "difficulty": difficulty,
+                "is_fallback": True
             }
             for _ in range(count)
         ]

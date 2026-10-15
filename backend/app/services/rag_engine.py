@@ -5,6 +5,7 @@ RAG Engine — Studia v2
 - pgvector semantic search qua Supabase RPC
 """
 from typing import List, Dict, Any, Optional
+import hashlib
 import math
 import random
 import re
@@ -75,6 +76,82 @@ class RAGEngine:
         return [c for c in chunks if len(c) > 50]  # Filter chunks quá ngắn
 
     @staticmethod
+    def chunk_blocks(
+        blocks: List[Dict[str, Any]],
+        chunk_size: int = 600,
+        overlap: int = 80,
+        min_chars: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """
+        Chunk theo khối nội dung của ebook (đã sắp theo thứ tự đọc).
+
+        - Tiêu đề luôn mở một chunk mới (không bị cắt ngang giữa hai mục).
+        - Các đoạn liền nhau được gộp tới ~chunk_size ký tự; đoạn dài hơn thì cắt theo câu.
+        - Không chồng lấn giữa các khối: sửa một khối chỉ làm đổi chunk chứa khối đó
+          → lập chỉ mục lại tăng dần chỉ phải embedding vài chunk.
+        - Mỗi chunk mang vết nguồn: block_ids, trang, đường dẫn tiêu đề, content_hash.
+        """
+        chunks: List[Dict[str, Any]] = []
+        heading_path: List[tuple] = []  # (level, text)
+        current: Dict[str, Any] = {}
+
+        def flush() -> None:
+            nonlocal current
+            text = current.get("text", "").strip()
+            if text:
+                pages = [p for p in current["pages"] if p is not None]
+                chunks.append({
+                    "content": text,
+                    "block_ids": list(dict.fromkeys(current["block_ids"])),
+                    "page_start": min(pages) if pages else None,
+                    "page_end": max(pages) if pages else None,
+                    "heading_path": current["heading_path"],
+                })
+            current = {}
+
+        def add(text: str, block: Dict[str, Any], body: bool = True) -> None:
+            nonlocal current
+            if not current:
+                current = {"text": "", "block_ids": [], "pages": [], "has_body": False, "heading_path": []}
+            current["heading_path"] = [t for _, t in heading_path]
+            current["has_body"] = current["has_body"] or body
+            joined = current["text"] + "\n" + text if current["text"] else text
+            current["text"] = joined.strip()
+            current["block_ids"].append(block.get("id"))
+            current["pages"].append(block.get("page_number"))
+
+        for block in blocks:
+            text = (block.get("text") or "").replace("**", "").strip()
+            if not text:
+                continue
+            if block.get("block_type") == "heading":
+                if current.get("has_body"):
+                    flush()  # tiêu đề đứng liền nhau thì nằm chung một chunk với đoạn đầu của mục
+                level = block.get("level") or 1
+                while heading_path and heading_path[-1][0] >= level:
+                    heading_path.pop()
+                heading_path.append((level, text))
+                add(text, block, body=False)
+                continue
+            if len(text) > chunk_size:
+                flush()
+                for piece in RAGEngine.chunk_text(text, chunk_size=chunk_size, overlap=overlap):
+                    add(piece, block)
+                    flush()
+                continue
+            if current and len(current["text"]) + 1 + len(text) > chunk_size:
+                flush()
+            add(text, block)
+        flush()
+
+        if len(chunks) > 1:
+            chunks = [c for c in chunks if len(c["content"]) >= min_chars] or chunks
+        for index, chunk in enumerate(chunks):
+            chunk["chunk_index"] = index
+            chunk["content_hash"] = hashlib.sha1(chunk["content"].encode("utf-8")).hexdigest()
+        return chunks
+
+    @staticmethod
     def generate_embedding(text: str, vector_dim: int = 768) -> List[float]:
         """
         Tạo vector embedding:
@@ -98,6 +175,34 @@ class RAGEngine:
 
         # --- Fallback: deterministic pseudo-embedding ---
         return RAGEngine._pseudo_embedding(text, vector_dim)
+
+    @staticmethod
+    def generate_embeddings(texts: List[str], batch_size: int = 100, max_workers: int = 4) -> List[List[float]]:
+        """
+        Embedding cho nhiều đoạn: gửi theo lô (mỗi lô một lời gọi Gemini), các lô chạy song song.
+        Lô nào lỗi thì rơi về pseudo-embedding cho riêng lô đó.
+        """
+        if not texts:
+            return []
+        genai, model_name = _get_gemini_embedding_model()
+
+        def embed_batch(batch: List[str]) -> List[List[float]]:
+            if genai and model_name:
+                try:
+                    result = genai.embed_content(model=model_name, content=batch, task_type="retrieval_document")
+                    vectors = result["embedding"]
+                    if len(vectors) == len(batch):
+                        return [[round(x, 6) for x in vector] for vector in vectors]
+                except Exception as e:
+                    logger.debug(f"Gemini batch embedding failed, using pseudo-embedding fallback: {e}")
+            return [RAGEngine._pseudo_embedding(text) for text in batch]
+
+        batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
+        if len(batches) == 1:
+            return embed_batch(batches[0])
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            return [vector for vectors in pool.map(embed_batch, batches) for vector in vectors]
 
     @staticmethod
     def generate_query_embedding(query: str) -> List[float]:

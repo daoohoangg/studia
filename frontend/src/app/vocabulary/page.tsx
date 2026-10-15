@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { BookMarked, Loader2, Volume2, Trash2, BookOpen, RefreshCw, Search } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 
-const API = "http://localhost:8000/api/v1";
+import { API, apiFetch } from "@/lib/api";
+import { Volume2, Search, Trash2 } from "lucide-react";
+import Link from "next/link";
 
 const SOURCE_LABELS: Record<string, string> = {
   lesson: "Bài học",
@@ -13,11 +15,11 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  noun: "#818cf8",
-  verb: "#34d399",
-  adjective: "#fbbf24",
-  adverb: "#38bdf8",
-  phrase: "#f472b6",
+  noun: "var(--brand)",
+  verb: "var(--success)",
+  adjective: "var(--accent-strong)",
+  adverb: "var(--brand)",
+  phrase: "var(--plum)",
 };
 
 export default function VocabularyPage() {
@@ -40,8 +42,8 @@ export default function VocabularyPage() {
       if (filterSource) params.set("source", filterSource);
 
       const [vocabRes, statsRes] = await Promise.all([
-        fetch(`${API}/vocabulary/list?${params}`),
-        fetch(`${API}/vocabulary/stats`)
+        apiFetch(`${API}/vocabulary/list?${params}`),
+        apiFetch(`${API}/vocabulary/stats`)
       ]);
 
       if (vocabRes.ok) {
@@ -59,7 +61,7 @@ export default function VocabularyPage() {
   const handleDelete = async (id: string) => {
     setDeleting(id);
     try {
-      await fetch(`${API}/vocabulary/${id}`, { method: "DELETE" });
+      await apiFetch(`${API}/vocabulary/${id}`, { method: "DELETE" });
       setItems(prev => prev.filter(i => i.id !== id));
     } catch { /* ignore */ }
     setDeleting(null);
@@ -79,161 +81,118 @@ export default function VocabularyPage() {
   );
 
   return (
-    <div style={{ maxWidth: "900px", margin: "0 auto" }}>
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <span className="badge badge-indigo" style={{ marginBottom: 10 }}>
-          🔤 Feature C — Contextual Vocabulary Learning
-        </span>
-        <h1 style={{ fontSize: "2rem", fontWeight: 800, fontFamily: "Outfit, sans-serif" }}>
-          Từ Vựng Của Tôi
-        </h1>
-        <p style={{ color: "var(--text-secondary)", marginTop: 4 }}>
-          Từ vựng tích lũy từ bài học, roleplay và quiz — mỗi từ có thể lưu thành Flashcard FSRS
-        </p>
-      </div>
+    <div className="wrap stagger">
+      <header className="page-head">
+        <div>
+          <h1 className="page-title">Từ vựng của tôi</h1>
+          <p className="page-sub">Từ bạn gặp trong bài học, hội thoại và quiz được gom về đây, kèm ví dụ để ôn lại.</p>
+        </div>
+        <Link className="st-btn st-btn-primary" href="/flashcards">Ôn bằng flashcard</Link>
+      </header>
 
-      {/* Stats */}
       {stats && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+        <section className="grid-4" aria-label="Thống kê từ vựng">
           {[
-            { label: "Tổng từ", value: stats.total_words, color: "#818cf8" },
-            { label: "Mastery TB", value: `${stats.avg_mastery?.toFixed(0)}%`, color: "#34d399" },
-            { label: "Đã thành thạo", value: stats.mastered_count, color: "#fbbf24" },
-            { label: "Đang học", value: stats.learning_count, color: "#38bdf8" },
-          ].map((s, i) => (
-            <div key={i} className="glass-panel" style={{ padding: "16px", textAlign: "center" }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 4 }}>{s.label}</div>
+            { label: "Tổng số từ", value: stats.total_words ?? 0 },
+            { label: "Mức nhớ trung bình", value: `${Number(stats.avg_mastery || 0).toFixed(0)}%` },
+            { label: "Đã thành thạo", value: stats.mastered_count ?? 0, color: "var(--success)" },
+            { label: "Đang học", value: stats.learning_count ?? 0, color: "var(--brand)" },
+          ].map(s => (
+            <div key={s.label} className="st-stat">
+              <span className="meta">{s.label}</span>
+              <span className="st-stat-value num" style={{ color: s.color }}>{s.value}</span>
             </div>
           ))}
-        </div>
+        </section>
       )}
 
-      {/* Filters */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-        <div style={{ flex: 1, position: "relative" }}>
-          <Search size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
-          <input
-            className="input-field"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Tìm từ vựng..."
-            style={{ paddingLeft: 36 }}
-          />
+      <div className="row-wrap" style={{ justifyContent: "space-between", gap: 12 }}>
+        <div className="row-wrap" role="group" aria-label="Lọc theo nguồn" style={{ gap: 6 }}>
+          {[["", "Tất cả"], ...Object.entries(SOURCE_LABELS)].map(([k, label]) => (
+            <button key={k || "all"} type="button" className="st-chip" aria-pressed={filterSource === k} onClick={() => setFilterSource(k)}>{label}</button>
+          ))}
         </div>
-        <select
-          className="input-field"
-          style={{ width: 160 }}
-          value={filterSource}
-          onChange={e => setFilterSource(e.target.value)}
-        >
-          <option value="">Tất cả nguồn</option>
-          <option value="lesson">Bài học</option>
-          <option value="scenario">Roleplay</option>
-          <option value="quiz">Quiz</option>
-          <option value="manual">Tự thêm</option>
-        </select>
-        <button className="btn-secondary" onClick={fetchData}>
-          <RefreshCw size={16} /> Làm mới
-        </button>
+        <label className="field" style={{ position: "relative", width: "min(320px, 100%)" }}>
+          <span className="st-sr">Tìm từ vựng</span>
+          <Search size={16} aria-hidden="true" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--ink-muted)" }} />
+          <input className="input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm từ hoặc nghĩa…" style={{ paddingLeft: 36 }} />
+        </label>
       </div>
 
-      {/* Vocabulary Grid */}
       {loading ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
-          {[...Array(6)].map((_, i) => <div key={i} className="skeleton" style={{ height: 90, borderRadius: 12 }} />)}
-        </div>
+        <div className="grid-2">{[...Array(6)].map((_, i) => <div key={i} className="skeleton" style={{ height: 112 }} />)}</div>
       ) : filtered.length === 0 ? (
-        <div className="glass-panel" style={{ padding: 48, textAlign: "center" }}>
-          <BookMarked size={40} style={{ margin: "0 auto 12px", color: "var(--text-muted)" }} />
-          <h3>Chưa có từ vựng nào</h3>
-          <p style={{ color: "var(--text-muted)", marginTop: 8 }}>
-            Học một bài học hoặc tham gia Roleplay để tự động tích lũy từ vựng
-          </p>
-          <a href="/books" className="btn-primary" style={{ display: "inline-flex", marginTop: 16 }}>
-            <BookOpen size={16} /> Bắt đầu học
-          </a>
-        </div>
+        items.length > 0 ? (
+          <div className="st-card" style={{ textAlign: "center" }}>
+            <p className="ink2">Không có từ nào khớp với “{search}”.</p>
+            <button className="st-btn st-btn-ghost st-btn-sm" type="button" style={{ marginTop: 8 }} onClick={() => setSearch("")}>Xoá tìm kiếm</button>
+          </div>
+        ) : (
+          <EmptyState
+            title="Chưa có từ vựng nào"
+            description="Từ vựng được lưu từ bài học và hội thoại, mỗi từ có ví dụ và có thể thành flashcard."
+            steps={[
+              { title: "Học một bài học", desc: "Lưu từ mới ở cột bên phải bài học", href: "/books" },
+              { title: "Luyện một tình huống hội thoại", desc: "Từ mới trong hội thoại tự được lưu", href: "/scenarios" },
+            ]}
+            primary={{ label: "Bắt đầu học", href: "/books" }}
+          />
+        )
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
-          {filtered.map(item => (
-            <div
-              key={item.id}
-              className="glass-panel hover-card"
-              style={{ padding: "16px 18px", borderRadius: 14, cursor: "pointer" }}
-              onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
-            >
-              {/* Word row */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>{item.word}</span>
-                  {item.word_type && (
-                    <span style={{
-                      fontSize: "0.62rem", fontWeight: 700, padding: "1px 6px", borderRadius: 4,
-                      background: `${TYPE_COLORS[item.word_type] || "#6366f1"}22`,
-                      color: TYPE_COLORS[item.word_type] || "#818cf8"
-                    }}>
-                      {item.word_type}
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{
-                    fontSize: "0.62rem", padding: "1px 6px", borderRadius: 4,
-                    background: "rgba(255,255,255,0.06)", color: "var(--text-muted)"
-                  }}>
-                    {SOURCE_LABELS[item.source] || item.source}
-                  </span>
-                  <button
-                    onClick={e => { e.stopPropagation(); playTTS(item.word); }}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent-indigo)", padding: 2 }}
-                  >
-                    <Volume2 size={14} />
-                  </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
-                    disabled={deleting === item.id}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 2 }}
-                  >
-                    {deleting === item.id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ fontSize: "0.82rem", color: "#34d399", fontWeight: 600 }}>{item.meaning_vi}</div>
-
-              {/* Expanded */}
-              {expandedId === item.id && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border-subtle)" }}>
-                  {item.source_sentence && (
-                    <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", fontStyle: "italic", marginBottom: 8 }}>
-                      📖 "{item.source_sentence}"
+        <div className="grid-2">
+          {filtered.map(item => {
+            const open = expandedId === item.id;
+            const color = TYPE_COLORS[item.word_type] || "var(--brand)";
+            const ipa = item.ipa || item.pronunciation;
+            const mastery = item.mastery_score ?? item.mastery;
+            const ex = Array.isArray(item.example_sentences) ? item.example_sentences : [];
+            return (
+              <article key={item.id} className="st-card" style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="row-wrap" style={{ gap: 8 }}>
+                      <b style={{ font: "700 20px/26px var(--font-display)", letterSpacing: "-0.3px" }}>{item.word}</b>
+                      {item.word_type && <span className="st-badge" style={{ background: `color-mix(in srgb, ${color} 12%, transparent)`, color }}>{item.word_type}</span>}
                     </div>
-                  )}
-                  {Array.isArray(item.example_sentences) && item.example_sentences.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {item.example_sentences.slice(0, 2).map((ex: any, i: number) => (
-                        <div key={i} style={{ background: "rgba(99,102,241,0.06)", borderRadius: 6, padding: "6px 8px" }}>
-                          <div style={{ fontSize: "0.76rem", color: "var(--text-primary)" }}>{ex.en}</div>
-                          <div style={{ fontSize: "0.74rem", color: "#34d399", marginTop: 2 }}>→ {ex.vi}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {Array.isArray(item.collocations) && item.collocations.length > 0 && (
-                    <div style={{ marginTop: 8, fontSize: "0.73rem", color: "var(--text-secondary)" }}>
-                      🔗 {item.collocations.slice(0, 3).join(" · ")}
-                    </div>
-                  )}
-                  <div style={{ marginTop: 8, fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                    Đã thêm: {new Date(item.created_at).toLocaleDateString("vi-VN")}
-                    {item.flashcard_id && " · ✓ Đã tạo Flashcard FSRS"}
+                    {ipa && <div className="meta" style={{ fontFamily: "var(--font-reading)" }}>{ipa}</div>}
+                  </div>
+                  <div className="row" style={{ gap: 2 }}>
+                    <button className="icon-btn" type="button" aria-label={`Nghe phát âm ${item.word}`} onClick={() => playTTS(item.word)}><Volume2 size={18} strokeWidth={1.75} /></button>
+                    <button className="icon-btn" type="button" aria-label={`Xoá ${item.word}`} disabled={deleting === item.id} onClick={() => handleDelete(item.id)}>
+                      {deleting === item.id ? <span className="st-spinner" /> : <Trash2 size={17} strokeWidth={1.75} />}
+                    </button>
                   </div>
                 </div>
-              )}
-            </div>
-          ))}
+                <div className="ink2" style={{ fontWeight: 600, color: "var(--ink)" }}>{item.meaning_vi}</div>
+                {ex[0]?.en && <p className="passage-sm" style={{ color: "var(--ink-secondary)", fontStyle: "italic" }}>“{ex[0].en}”</p>}
+                {mastery != null && (
+                  <div className="row" style={{ gap: 10 }}>
+                    <div className="bar" style={{ flex: 1 }}><i style={{ width: `${Math.min(100, Number(mastery))}%`, background: Number(mastery) >= 80 ? "var(--success)" : undefined }} /></div>
+                    <span className="meta num">{Number(mastery).toFixed(0)}%</span>
+                  </div>
+                )}
+                <div className="row" style={{ justifyContent: "space-between", marginTop: 2 }}>
+                  <span className="meta">{SOURCE_LABELS[item.source] || item.source}{item.flashcard_id ? " · đã có flashcard" : ""}</span>
+                  <button className="link" type="button" aria-expanded={open} onClick={() => setExpandedId(open ? null : item.id)} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", font: "inherit", fontSize: 13.5 }}>{open ? "Thu gọn" : "Chi tiết"}</button>
+                </div>
+                {open && (
+                  <div className="st-enter stack" style={{ gap: 8, paddingTop: 10, borderTop: "1px solid var(--hairline)" }}>
+                    {item.source_sentence && <p className="meta" style={{ fontStyle: "italic" }}>Gặp trong: “{item.source_sentence}”</p>}
+                    {ex.slice(0, 2).map((e: any, i: number) => (
+                      <div key={i} style={{ padding: "8px 10px", borderRadius: "var(--radius-sm)", background: "var(--surface-sunken)" }}>
+                        <div style={{ fontSize: 14 }}>{e.en}</div>
+                        <div className="meta" style={{ marginTop: 2 }}>{e.vi}</div>
+                      </div>
+                    ))}
+                    {Array.isArray(item.collocations) && item.collocations.length > 0 && (
+                      <div className="row-wrap" style={{ gap: 6 }}>{item.collocations.slice(0, 4).map((c: string) => <span key={c} className="st-badge">{c}</span>)}</div>
+                    )}
+                    <span className="meta">Đã thêm {new Date(item.created_at).toLocaleDateString("vi-VN")}</span>
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
     </div>

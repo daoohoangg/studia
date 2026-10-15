@@ -7,9 +7,9 @@ from typing import Optional, List
 from app.services.export_engine import ExportEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id
 
 router = APIRouter(prefix="/export", tags=["Export & Integration"])
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 @router.get("/flashcards/anki/{topic_id}")
@@ -36,6 +36,27 @@ async def export_flashcards_anki(topic_id: str):
     )
 
 
+@router.get("/flashcards/anki-all")
+async def export_all_flashcards_anki():
+    """Tất cả flashcard của người dùng hiện tại ra TSV để nhập vào Anki."""
+    uid = current_user_id()
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+    states = supabase.table("flashcard_states").select("flashcard_id").eq("user_id", uid).execute().data or []
+    ids = [s["flashcard_id"] for s in states if s.get("flashcard_id")]
+    cards = []
+    for i in range(0, len(ids), 100):
+        cards += supabase.table("flashcards").select("*").in_("id", ids[i:i + 100]).execute().data or []
+    if not cards:
+        raise HTTPException(status_code=404, detail="Bạn chưa có flashcard nào")
+    return Response(
+        content=ExportEngine.export_flashcards_anki_csv(cards),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": "attachment; filename=studia_flashcards.tsv"},
+    )
+
+
 @router.get("/flashcards/json/{topic_id}")
 async def export_flashcards_json(topic_id: str):
     """Xuất Flashcards dạng JSON."""
@@ -54,7 +75,7 @@ async def export_schedule_ical(user_id: Optional[str] = None):
     """
     Xuất Lịch học Thích ứng ra tệp iCalendar (.ics) để đồng bộ Google Calendar / Outlook.
     """
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")

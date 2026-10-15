@@ -9,6 +9,7 @@ from app.services.ai_engine import AIEngine
 from app.services.rag_engine import RAGEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
+from app.core.auth import current_user_id
 import uuid
 import logging
 from datetime import datetime, timezone
@@ -17,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/feedback", tags=["Personalized Feedback"])
 
-DEFAULT_USER_ID = settings.DEFAULT_USER_ID
 
 
 class LogErrorRequest(BaseModel):
@@ -44,7 +44,7 @@ async def log_error(req: LogErrorRequest):
     Ghi nhận một lỗi học tập của user.
     Nếu lỗi đã tồn tại (same user + error_detail) → tăng occurrence_count.
     """
-    uid = req.user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -105,7 +105,7 @@ async def get_feedback_report(user_id: Optional[str] = None, min_occurrences: in
     Tổng hợp báo cáo lỗi tái diễn và đề xuất cải thiện.
     Sử dụng Gemini để phân tích pattern và sinh recommendations.
     """
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -171,7 +171,7 @@ async def get_remedial_exercises(req: RemedialRequest):
     """
     Sinh bài tập khắc phục dựa trên recurring errors của user cho một topic.
     """
-    uid = req.user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:
@@ -251,7 +251,7 @@ async def get_error_logs(
     limit: int = 30
 ):
     """Lấy danh sách error logs của user với filter."""
-    uid = user_id or DEFAULT_USER_ID
+    uid = current_user_id()
     supabase = get_supabase_client()
 
     if not supabase:

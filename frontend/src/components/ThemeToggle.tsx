@@ -1,111 +1,45 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sun, Moon } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 
+type Theme = "dark" | "light";
+
+function currentTheme(): Theme {
+  if (typeof document === "undefined") return "light";
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+}
+
+/** Nút đổi giao diện sáng/tối — mặt trời và mặt trăng xoay đổi chỗ. */
 export default function ThemeToggle({ compact = false }: { compact?: boolean }) {
-  const [theme, setTheme] = useState<"dark" | "light">("light");
-  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
-    setMounted(true);
-    const savedTheme = localStorage.getItem("studia-theme") as "dark" | "light" | null;
-    const initialTheme = savedTheme || "light";
-    setTheme(initialTheme);
-    document.documentElement.setAttribute("data-theme", initialTheme);
+    setTheme(currentTheme());
   }, []);
 
   const toggleTheme = () => {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    localStorage.setItem("studia-theme", nextTheme);
-    document.documentElement.setAttribute("data-theme", nextTheme);
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    try { localStorage.setItem("studia-theme", next); } catch {}
+    document.documentElement.setAttribute("data-theme", next);
   };
 
-  if (!mounted) {
-    return (
-      <div style={{ width: compact ? "42px" : "100%", height: "40px", borderRadius: "12px", background: "rgba(0,0,0,0.03)", margin: compact ? "0 auto" : 0 }} />
-    );
-  }
-
-  if (compact) {
-    return (
-      <button
-        onClick={toggleTheme}
-        title={theme === "dark" ? "Giao diện Tối (Bấm để chuyển sang Sáng)" : "Giao diện Sáng (Bấm để chuyển sang Tối)"}
-        style={{
-          width: "42px",
-          height: "42px",
-          margin: "0 auto",
-          borderRadius: "12px",
-          border: "1px solid var(--border-subtle)",
-          background: "var(--bg-card)",
-          color: "var(--text-primary)",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          transition: "all 0.2s ease",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "rgba(99, 102, 241, 0.12)";
-          e.currentTarget.style.borderColor = "rgba(99, 102, 241, 0.3)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "var(--bg-card)";
-          e.currentTarget.style.borderColor = "var(--border-subtle)";
-        }}
-      >
-        {theme === "dark" ? (
-          <Sun size={18} color="#fbbf24" />
-        ) : (
-          <Moon size={18} color="#818cf8" />
-        )}
-      </button>
-    );
-  }
+  const label = theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối";
 
   return (
     <button
+      type="button"
       onClick={toggleTheme}
-      title={theme === "dark" ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối"}
-      style={{
-        width: "100%",
-        padding: "10px 14px",
-        borderRadius: "12px",
-        border: "1px solid var(--border-subtle)",
-        background: "var(--bg-card)",
-        color: "var(--text-primary)",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        fontSize: "0.85rem",
-        fontWeight: "600",
-        fontFamily: "'Plus Jakarta Sans', sans-serif",
-        transition: "all 0.2s ease",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "rgba(99, 102, 241, 0.12)";
-        e.currentTarget.style.borderColor = "rgba(99, 102, 241, 0.3)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "var(--bg-card)";
-        e.currentTarget.style.borderColor = "var(--border-subtle)";
-      }}
+      title={label}
+      aria-label={label}
+      className={`theme-toggle${theme === "dark" ? " dark" : ""}`}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        {theme === "dark" ? (
-          <Sun size={17} color="#fbbf24" />
-        ) : (
-          <Moon size={17} color="#818cf8" />
-        )}
-        <span>{theme === "dark" ? "Giao diện Tối" : "Giao diện Sáng"}</span>
-      </div>
-      <span style={{ fontSize: "0.7rem", opacity: 0.7, padding: "2px 6px", borderRadius: "6px", background: "rgba(99,102,241,0.1)" }}>
-        {theme === "dark" ? "Dark" : "Light"}
+      <span className="ti" aria-hidden="true">
+        <Sun className="sun" size={20} strokeWidth={1.75} />
+        <Moon className="moon" size={20} strokeWidth={1.75} />
       </span>
+      {!compact && <span className="nav-label">{theme === "dark" ? "Giao diện tối" : "Giao diện sáng"}</span>}
     </button>
   );
 }
-

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Highlighter, CreditCard, Volume2, X, Check, Sparkles, Plus, Bookmark } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import { BookOpen, Layers, Check, X, Volume2 } from "lucide-react";
 
 interface DictionaryData {
   word: string;
@@ -15,12 +16,29 @@ interface DictionaryData {
   usage_note?: string;
 }
 
+/** Vị trí vùng chọn (tính theo ký tự hiển thị) trong khối ebook chứa nó; null nếu không nằm trọn trong một khối. */
+function locateEbookSelection(range: Range): { blockId: string; start: number; end: number } | null {
+  const closestBlock = (node: Node) =>
+    (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("[data-ebook-block]") ?? null;
+  const block = closestBlock(range.startContainer);
+  if (!block || block !== closestBlock(range.endContainer) || !block.dataset.ebookBlock) return null;
+
+  const before = document.createRange();
+  before.selectNodeContents(block);
+  before.setEnd(range.startContainer, range.startOffset);
+  const start = before.toString().length;
+  return { blockId: block.dataset.ebookBlock, start, end: start + range.toString().length };
+}
+
 export default function SelectionContextMenu() {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [selectedText, setSelectedText] = useState("");
   const [sourceSentence, setSourceSentence] = useState("");
   const [savedRange, setSavedRange] = useState<Range | null>(null);
+
+  // Vùng chọn nằm trọn trong một khối của trình đọc ebook (books/[id]/read)
+  const [ebookSelection, setEbookSelection] = useState<{ blockId: string; start: number; end: number } | null>(null);
 
   // Color picker popover state for highlighting
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -69,6 +87,7 @@ export default function SelectionContextMenu() {
         try {
           const range = selection.getRangeAt(0);
           setSavedRange(range.cloneRange());
+          setEbookSelection(locateEbookSelection(range));
           const rect = range.getBoundingClientRect();
 
           // Position menu above or below selected text
@@ -102,6 +121,7 @@ export default function SelectionContextMenu() {
         try {
           const range = selection.getRangeAt(0);
           setSavedRange(range.cloneRange());
+          setEbookSelection(locateEbookSelection(range));
         } catch {}
 
         let left = e.clientX;
@@ -174,7 +194,6 @@ export default function SelectionContextMenu() {
     setShowColorPicker(false);
     setDictModalOpen(true);
     setLoadingDict(true);
-    
     // Step 1: Render instant translation immediately (<50ms)
     const instantResult = await fetchQuickTranslation(selectedText, sourceSentence);
     setDictData(instantResult);
@@ -182,7 +201,7 @@ export default function SelectionContextMenu() {
 
     // Step 2: Fetch AI-enriched data from backend in background
     try {
-      const res = await fetch("http://localhost:8000/api/v1/vocabulary/card", {
+      const res = await apiFetch("/vocabulary/card", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -208,6 +227,15 @@ export default function SelectionContextMenu() {
 
   // 2. Highlight text color
   const handleApplyHighlight = (colorClass: string) => {
+    if (ebookSelection) {
+      window.dispatchEvent(new CustomEvent("studia:ebook-selection", {
+        detail: { action: "highlight", color: colorClass.replace("studia-hl-", ""), text: selectedText, ...ebookSelection },
+      }));
+      window.getSelection()?.removeAllRanges();
+      setVisible(false);
+      setShowColorPicker(false);
+      return;
+    }
     if (savedRange) {
       try {
         const mark = document.createElement("mark");
@@ -240,7 +268,7 @@ export default function SelectionContextMenu() {
   const handleSaveFlashcard = async () => {
     setFcSaving(true);
     try {
-      await fetch("http://localhost:8000/api/v1/vocabulary/save", {
+      await apiFetch("/vocabulary/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -270,6 +298,17 @@ export default function SelectionContextMenu() {
     }, 1200);
   };
 
+  // Ebook: giao việc in đậm / ghi chú cho trang đọc, nơi giữ nội dung khối và gọi API lưu
+  const dispatchEbookAction = (action: "bold" | "note" | "ask") => {
+    if (!ebookSelection) return;
+    window.dispatchEvent(new CustomEvent("studia:ebook-selection", {
+      detail: { action, text: selectedText, ...ebookSelection },
+    }));
+    window.getSelection()?.removeAllRanges();
+    setVisible(false);
+    setShowColorPicker(false);
+  };
+
   // 4. Pronounce text (TTS)
   const handlePronounce = () => {
     if (!selectedText) return;
@@ -295,21 +334,36 @@ export default function SelectionContextMenu() {
             onClick={handleLookupDictionary}
             title="Tra cứu từ điển & giải thích AI"
           >
-            <BookOpen size={15} color="#818cf8" />
             <span>Tra từ điển</span>
           </button>
 
           <div className="studia-selection-divider" />
 
-          {/* Highlight options */}
+          {ebookSelection && (
+            <>
+              <button className="studia-selection-btn" onClick={() => dispatchEbookAction("bold")} title="In đậm / bỏ in đậm phần đã chọn (lưu vào sách)">
+                <span style={{ fontWeight: 800 }}>In đậm</span>
+              </button>
+              <div className="studia-selection-divider" />
+              <button className="studia-selection-btn" onClick={() => dispatchEbookAction("note")} title="Thêm ghi chú vào sổ tay của sách">
+                <span>Ghi chú</span>
+              </button>
+              <div className="studia-selection-divider" />
+              <button className="studia-selection-btn" onClick={() => dispatchEbookAction("ask")} title="Hỏi AI Tutor về đoạn này (mở ở tab mới)">
+                <span>Hỏi AI</span>
+              </button>
+              <div className="studia-selection-divider" />
+            </>
+          )}
+
+          {/* Highlight options — trong trình đọc ebook, màu được lưu vào sách qua API */}
           <div style={{ position: "relative" }}>
             <button
               className="studia-selection-btn"
               onClick={() => setShowColorPicker(!showColorPicker)}
               title="Tô màu highlight văn bản"
             >
-              <Highlighter size={15} color="#fbbf24" />
-              <span>Highlight</span>
+              <span>Tô sáng</span>
             </button>
 
             {/* Color Palette Popover */}
@@ -320,13 +374,13 @@ export default function SelectionContextMenu() {
                   top: "100%",
                   left: 0,
                   marginTop: "6px",
-                  background: "#1e293b",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: "10px",
+                  background: "var(--bg-card)",
+                  border: "1px solid rgba(var(--overlay-rgb), 0.15)",
+                  borderRadius: "8px",
                   padding: "8px",
                   display: "flex",
                   gap: "6px",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                  boxShadow: "var(--shadow-2)",
                   zIndex: 100000
                 }}
               >
@@ -346,7 +400,7 @@ export default function SelectionContextMenu() {
                       height: "24px",
                       borderRadius: "50%",
                       background: c.bg,
-                      border: "2px solid rgba(255,255,255,0.3)",
+                      border: "2px solid rgba(var(--overlay-rgb), 0.3)",
                       cursor: "pointer",
                       transition: "transform 0.15s ease"
                     }}
@@ -364,9 +418,8 @@ export default function SelectionContextMenu() {
           <button
             className="studia-selection-btn"
             onClick={handleOpenFlashcardModal}
-            title="Tạo thẻ ghi nhớ Flashcard FSRS"
+            title="Tạo flashcard"
           >
-            <CreditCard size={15} color="#34d399" />
             <span>Thêm Flashcard</span>
           </button>
 
@@ -378,7 +431,6 @@ export default function SelectionContextMenu() {
             onClick={handlePronounce}
             title="Phát âm tiếng Anh"
           >
-            <Volume2 size={15} color="#38bdf8" />
             <span>Đọc từ</span>
           </button>
         </div>
@@ -402,15 +454,15 @@ export default function SelectionContextMenu() {
         >
           <div
             style={{
-              background: "#0f172a",
-              border: "1px solid rgba(99,102,241,0.35)",
-              borderRadius: "20px",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "12px",
               padding: "28px",
               maxWidth: "520px",
               width: "100%",
-              color: "#f8fafc",
-              boxShadow: "0 20px 50px rgba(0,0,0,0.6), 0 0 30px rgba(99,102,241,0.2)",
-              fontFamily: "'Plus Jakarta Sans', sans-serif"
+              color: "var(--text-primary)",
+              boxShadow: "var(--shadow-2)",
+              fontFamily: "inherit"
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -418,48 +470,44 @@ export default function SelectionContextMenu() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <div style={{
-                  width: "36px", height: "36px", borderRadius: "10px",
-                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  width: "36px", height: "36px", borderRadius: "8px",
+                  background: "var(--primary)",
                   display: "flex", alignItems: "center", justifyContent: "center"
-                }}>
-                  <BookOpen size={20} color="#fff" />
-                </div>
+                }}><BookOpen size={18} strokeWidth={1.75} color="var(--on-brand)" /></div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 800, fontFamily: "Outfit, sans-serif" }}>
-                    Từ Điển & Tra Cứu AI
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, fontFamily: "var(--font-display)" }}>
+                    Từ điển & tra cứu AI
                   </h3>
-                  <div style={{ fontSize: "0.7rem", color: "#38bdf8", fontWeight: 600 }}>Studia Learning Assistant</div>
+                  <div style={{ fontSize: "0.7rem", color: "var(--brand)", fontWeight: 600 }}>Trợ lý học tập Studia</div>
                 </div>
               </div>
-              <button
+              <button aria-label="Đóng"
                 onClick={() => setDictModalOpen(false)}
-                style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer" }}
-              >
-                <X size={20} />
-              </button>
+                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+              ><X size={20} strokeWidth={2} /></button>
             </div>
 
             {loadingDict ? (
               <div style={{ padding: "40px 0", textAlign: "center" }}>
-                <div style={{ width: 36, height: 36, border: "3px solid #334155", borderTopColor: "#6366f1", borderRadius: "50%", margin: "0 auto 16px", animation: "spin 1s linear infinite" }} />
-                <p style={{ color: "#94a3b8", fontSize: "0.85rem" }}>Đang phân tích ngữ cảnh bài đọc...</p>
+                <div style={{ width: 36, height: 36, border: "3px solid var(--ink-secondary)", borderTopColor: "var(--brand)", borderRadius: "50%", margin: "0 auto 16px", animation: "spin 1s linear infinite" }} />
+                <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Đang phân tích ngữ cảnh bài đọc...</p>
               </div>
             ) : dictData ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 {/* Word & Pronunciation */}
-                <div style={{ background: "rgba(255,255,255,0.04)", padding: "16px 20px", borderRadius: "14px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <div style={{ background: "rgba(var(--overlay-rgb), 0.04)", padding: "16px 20px", borderRadius: "12px", border: "1px solid rgba(var(--overlay-rgb), 0.08)" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-                    <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#818cf8", fontFamily: "Outfit, sans-serif" }}>
+                    <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--brand)", fontFamily: "var(--font-display)" }}>
                       {dictData.word}
                     </div>
                     {dictData.word_type && (
-                      <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 8px", borderRadius: "6px", background: "rgba(56,189,248,0.15)", color: "#38bdf8", textTransform: "uppercase" }}>
+                      <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 8px", borderRadius: "6px", background: "var(--bg-card-hover)", color: "var(--brand)", textTransform: "uppercase" }}>
                         {dictData.word_type}
                       </span>
                     )}
                   </div>
                   {dictData.pronunciation && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#94a3b8", fontSize: "0.88rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--text-muted)", fontSize: "0.88rem" }}>
                       <span>{dictData.pronunciation}</span>
                       <button
                         onClick={() => {
@@ -467,21 +515,19 @@ export default function SelectionContextMenu() {
                           u.lang = "en-US";
                           window.speechSynthesis.speak(u);
                         }}
-                        style={{ background: "transparent", border: "none", color: "#38bdf8", cursor: "pointer", display: "flex", alignItems: "center" }}
+                        style={{ background: "transparent", border: "none", color: "var(--brand)", cursor: "pointer", display: "flex", alignItems: "center" }}
                         title="Phát âm"
-                      >
-                        <Volume2 size={16} />
-                      </button>
+                      ><Volume2 size={18} strokeWidth={1.75} /></button>
                     </div>
                   )}
                 </div>
 
                 {/* Meaning */}
                 <div>
-                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
                     NGHĨA TIẾNG VIỆT
                   </div>
-                  <div style={{ fontSize: "1.05rem", color: "#f8fafc", fontWeight: 700, lineHeight: 1.6, background: "rgba(99,102,241,0.12)", padding: "14px 18px", borderRadius: "12px", border: "1px solid rgba(99,102,241,0.3)" }}>
+                  <div style={{ fontSize: "1.05rem", color: "var(--text-primary)", fontWeight: 700, lineHeight: 1.6, background: "var(--bg-card-hover)", padding: "14px 18px", borderRadius: "12px", border: "1px solid var(--border-subtle)" }}>
                     {dictData.meaning_vi}
                   </div>
                 </div>
@@ -492,39 +538,39 @@ export default function SelectionContextMenu() {
                     href={`https://dictionary.cambridge.org/dictionary/english/${encodeURIComponent(dictData.word)}`}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ fontSize: "0.72rem", color: "#38bdf8", background: "rgba(56,189,248,0.1)", padding: "4px 10px", borderRadius: "6px", border: "1px solid rgba(56,189,248,0.2)", textDecoration: "none", fontWeight: 600 }}
+                    style={{ fontSize: "0.72rem", color: "var(--brand)", background: "var(--bg-card-hover)", padding: "4px 10px", borderRadius: "6px", border: "1px solid var(--border-subtle)", textDecoration: "none", fontWeight: 600 }}
                   >
-                    ↗ Cambridge Dictionary
+                    Cambridge Dictionary
                   </a>
                   <a
                     href={`https://www.oxfordlearnersdictionaries.com/definition/english/${encodeURIComponent(dictData.word)}`}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ fontSize: "0.72rem", color: "#a78bfa", background: "rgba(167,139,250,0.1)", padding: "4px 10px", borderRadius: "6px", border: "1px solid rgba(167,139,250,0.2)", textDecoration: "none", fontWeight: 600 }}
+                    style={{ fontSize: "0.72rem", color: "var(--brand)", background: "var(--brand-tint)", padding: "4px 10px", borderRadius: "6px", border: "1px solid var(--brand-tint)", textDecoration: "none", fontWeight: 600 }}
                   >
-                    ↗ Oxford Learner's
+                    Oxford Learner's
                   </a>
                   <a
                     href={`https://translate.google.com/?sl=en&tl=vi&text=${encodeURIComponent(dictData.word)}`}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ fontSize: "0.72rem", color: "#34d399", background: "rgba(52,211,153,0.1)", padding: "4px 10px", borderRadius: "6px", border: "1px solid rgba(52,211,153,0.2)", textDecoration: "none", fontWeight: 600 }}
+                    style={{ fontSize: "0.72rem", color: "var(--success)", background: "var(--success-tint)", padding: "4px 10px", borderRadius: "6px", border: "1px solid color-mix(in srgb, var(--success) 20%, transparent)", textDecoration: "none", fontWeight: 600 }}
                   >
-                    ↗ Google Translate
+                    Google Translate
                   </a>
                 </div>
 
                 {/* Example Sentences */}
                 {dictData.example_sentences && dictData.example_sentences.length > 0 && (
                   <div>
-                    <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#94a3b8", letterSpacing: "0.08em", marginBottom: "6px" }}>
+                    <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: "6px" }}>
                       CÂU VÍ DỤ MINH HỌA
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                       {dictData.example_sentences.map((ex, idx) => (
-                        <div key={idx} style={{ background: "rgba(255,255,255,0.03)", padding: "10px 14px", borderRadius: "10px", fontSize: "0.85rem", lineHeight: 1.6 }}>
-                          <div style={{ color: "#e2e8f0" }}>• {ex.en}</div>
-                          <div style={{ color: "#94a3b8", fontSize: "0.8rem", marginTop: "2px" }}>→ {ex.vi}</div>
+                        <div key={idx} style={{ background: "rgba(var(--overlay-rgb), 0.03)", padding: "10px 14px", borderRadius: "8px", fontSize: "0.85rem", lineHeight: 1.6 }}>
+                          <div style={{ color: "var(--text-primary)" }}>• {ex.en}</div>
+                          <div style={{ color: "var(--text-muted)", fontSize: "0.8rem", marginTop: "2px" }}>{ex.vi}</div>
                         </div>
                       ))}
                     </div>
@@ -540,13 +586,13 @@ export default function SelectionContextMenu() {
                     }}
                     style={{
                       flex: 1, padding: "11px", borderRadius: "12px",
-                      background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                      border: "none", color: "#fff", cursor: "pointer",
+                      background: "var(--primary)",
+                      border: "none", color: "var(--on-brand)", cursor: "pointer",
                       fontWeight: 700, fontSize: "0.85rem",
                       display: "flex", alignItems: "center", justifyContent: "center", gap: "8px"
                     }}
                   >
-                    <Plus size={16} /> Tạo Flashcard Từ Từ Này
+                     Tạo flashcard từ từ này
                   </button>
                 </div>
               </div>
@@ -574,15 +620,15 @@ export default function SelectionContextMenu() {
         >
           <div
             style={{
-              background: "#0f172a",
-              border: "1px solid rgba(16,185,129,0.4)",
-              borderRadius: "20px",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "12px",
               padding: "28px",
               maxWidth: "480px",
               width: "100%",
-              color: "#f8fafc",
-              boxShadow: "0 20px 50px rgba(0,0,0,0.6), 0 0 30px rgba(16,185,129,0.2)",
-              fontFamily: "'Plus Jakarta Sans', sans-serif"
+              color: "var(--text-primary)",
+              boxShadow: "var(--shadow-2)",
+              fontFamily: "inherit"
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -590,34 +636,28 @@ export default function SelectionContextMenu() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <div style={{
-                  width: "36px", height: "36px", borderRadius: "10px",
-                  background: "linear-gradient(135deg, #10b981, #059669)",
+                  width: "36px", height: "36px", borderRadius: "8px",
+                  background: "var(--primary)",
                   display: "flex", alignItems: "center", justifyContent: "center"
-                }}>
-                  <CreditCard size={20} color="#fff" />
-                </div>
+                }}><Layers size={18} strokeWidth={1.75} color="var(--on-brand)" /></div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 800, fontFamily: "Outfit, sans-serif" }}>
-                    Thêm Vào Flashcard (FSRS)
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, fontFamily: "var(--font-display)" }}>
+                    Thêm vào flashcard
                   </h3>
-                  <div style={{ fontSize: "0.7rem", color: "#34d399", fontWeight: 600 }}>Thuật toán Spaced Repetition FSRS</div>
+                  <div style={{ fontSize: "0.7rem", color: "var(--success)", fontWeight: 600 }}>Tự động nhắc ôn đúng lúc</div>
                 </div>
               </div>
-              <button
+              <button aria-label="Đóng"
                 onClick={() => setFlashcardModalOpen(false)}
-                style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer" }}
-              >
-                <X size={20} />
-              </button>
+                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+              ><X size={20} strokeWidth={2} /></button>
             </div>
 
             {fcSaved ? (
               <div style={{ padding: "30px 0", textAlign: "center" }}>
-                <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(16,185,129,0.2)", color: "#34d399", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-                  <Check size={28} />
-                </div>
-                <h4 style={{ margin: 0, fontSize: "1.1rem", color: "#34d399", fontWeight: 700 }}>Đã Thêm Vào Bộ Flashcard!</h4>
-                <p style={{ color: "#94a3b8", fontSize: "0.82rem", marginTop: "6px" }}>Từ vựng đã sẵn sàng cho các phiên ôn tập FSRS tiếp theo.</p>
+                <div style={{ width: 48, height: 48, borderRadius: "50%", background: "color-mix(in srgb, var(--success) 20%, transparent)", color: "var(--success)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}><Check size={24} strokeWidth={2.4} /></div>
+                <h4 style={{ margin: 0, fontSize: "1.1rem", color: "var(--success)", fontWeight: 700 }}>Đã thêm vào bộ flashcard!</h4>
+                <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginTop: "6px" }}>Từ vựng đã sẵn sàng cho các phiên ôn tập tiếp theo.</p>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -628,7 +668,7 @@ export default function SelectionContextMenu() {
                     value={fcDeck}
                     onChange={(e) => setFcDeck(e.target.value)}
                     className="input-field"
-                    style={{ background: "#1e293b" }}
+                    style={{ background: "var(--bg-card)" }}
                   >
                     <option value="IELTS Vocabulary">IELTS Vocabulary</option>
                     <option value="Cambridge IELTS 21">Cambridge IELTS 21</option>
@@ -645,7 +685,7 @@ export default function SelectionContextMenu() {
                     value={fcFront}
                     onChange={(e) => setFcFront(e.target.value)}
                     className="input-field"
-                    style={{ background: "#1e293b" }}
+                    style={{ background: "var(--bg-card)" }}
                   />
                 </div>
 
@@ -657,7 +697,7 @@ export default function SelectionContextMenu() {
                     value={fcBack}
                     onChange={(e) => setFcBack(e.target.value)}
                     className="input-field"
-                    style={{ background: "#1e293b", resize: "vertical" }}
+                    style={{ background: "var(--bg-card)", resize: "vertical" }}
                   />
                 </div>
 
@@ -667,8 +707,8 @@ export default function SelectionContextMenu() {
                   disabled={fcSaving}
                   style={{
                     padding: "12px", borderRadius: "12px", marginTop: "6px",
-                    background: "linear-gradient(135deg, #10b981, #059669)",
-                    border: "none", color: "#fff", cursor: "pointer",
+                    background: "var(--primary)",
+                    border: "none", color: "var(--on-brand)", cursor: "pointer",
                     fontWeight: 700, fontSize: "0.9rem",
                     opacity: fcSaving ? 0.7 : 1
                   }}

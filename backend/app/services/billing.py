@@ -104,6 +104,43 @@ def bank_configured() -> bool:
     return bool(b["bank_id"] and b["account_no"])
 
 
+def gateway_configured() -> bool:
+    return bool(settings.SEPAY_MERCHANT_ID and settings.SEPAY_SECRET_KEY)
+
+
+def payments_configured() -> bool:
+    """Có ít nhất một cách nhận tiền: cổng SePay hoặc chuyển khoản thẳng vào tài khoản ngân hàng."""
+    return gateway_configured() or bank_configured()
+
+
+# Thứ tự trường dùng để ký: đúng thứ tự danh sách tham số của SePay (ký lệch thứ tự thì SePay từ chối)
+_SEPAY_SIGNED_ORDER = ("merchant", "operation", "payment_method", "order_amount", "currency", "order_invoice_number",
+                       "order_description", "customer_id", "success_url", "error_url", "cancel_url")
+
+
+def sepay_checkout(order: dict) -> dict:
+    """Biểu mẫu POST sang trang thanh toán SePay (mã QR chuyển khoản). Mã đơn của Studia là số hoá đơn duy nhất."""
+    import base64
+    host = "pay-sandbox.sepay.vn" if settings.SEPAY_ENV.lower() == "sandbox" else "pay.sepay.vn"
+    back = f"{settings.FRONTEND_URL.rstrip('/')}/billing/{order['id']}"
+    fields = {
+        "merchant": settings.SEPAY_MERCHANT_ID,
+        "operation": "PURCHASE",
+        "payment_method": "BANK_TRANSFER",
+        "order_amount": str(_int(order.get("amount_vnd"))),
+        "currency": "VND",
+        "order_invoice_number": order.get("code") or "",
+        "order_description": f"Studia {order.get('pack_name') or ''} {order.get('code') or ''}".strip()[:200],
+        "success_url": f"{back}?payment=success",
+        "error_url": f"{back}?payment=error",
+        "cancel_url": f"{back}?payment=cancel",
+    }
+    signing = ",".join(f"{k}={fields[k]}" for k in _SEPAY_SIGNED_ORDER if k in fields)
+    digest = hmac.new(settings.SEPAY_SECRET_KEY.encode(), signing.encode(), hashlib.sha256).digest()
+    fields["signature"] = base64.b64encode(digest).decode()
+    return {"action_url": f"https://{host}/v1/checkout/init", "fields": fields}
+
+
 # ---------------------------------------------------------------- quota
 def ledger_rows(uid: str) -> list[dict]:
     return _db().table("credit_ledger").select("*").eq("user_id", uid).order("created_at", desc=True).execute().data or []
@@ -262,13 +299,14 @@ def order_view(order: dict, with_payment: bool = True) -> dict:
         "paid_amount_vnd", "paid_at", "note", "expires_at", "created_at", "updated_at", "approved_by")}
     if with_payment and order.get("status") == "pending":
         b = bank_info()
-        view["payment"] = {**b, "amount_vnd": order.get("amount_vnd"), "content": order.get("code"), "qr_url": qr_url(order)}
+        view["payment"] = {**b, "amount_vnd": order.get("amount_vnd"), "content": order.get("code"), "qr_url": qr_url(order),
+                           "gateway": sepay_checkout(order) if gateway_configured() else None}
     return view
 
 
 def create_order(uid: str, pack_id: str) -> dict:
-    if not bank_configured():
-        raise HTTPException(status_code=503, detail="Quản lý chưa cấu hình tài khoản nhận tiền. Vui lòng quay lại sau.")
+    if not payments_configured():
+        raise HTTPException(status_code=503, detail="Quản lý chưa cấu hình cách nhận tiền. Vui lòng quay lại sau.")
     pack = get_pack(pack_id)
     if not pack.get("active") or _int(pack.get("price_vnd")) <= 0:
         raise HTTPException(status_code=400, detail="Gói này hiện không mở bán")
@@ -389,6 +427,53 @@ def verify_sepay(headers: dict, raw_body: bytes) -> None:
             raise HTTPException(status_code=401, detail="API key không hợp lệ")
         return
     raise HTTPException(status_code=503, detail="Webhook thanh toán chưa được cấu hình")
+
+
+def verify_sepay_ipn(headers: dict) -> None:
+    """IPN của cổng thanh toán: header X-Secret-Key phải bằng SECRET KEY của merchant."""
+    if not settings.SEPAY_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Cổng thanh toán chưa được cấu hình")
+    got = {k.lower(): v for k, v in headers.items()}.get("x-secret-key", "")
+    if not hmac.compare_digest(got.strip(), settings.SEPAY_SECRET_KEY):
+        raise HTTPException(status_code=401, detail="Secret key không hợp lệ")
+
+
+def handle_sepay_ipn(payload: dict) -> dict:
+    """Xử lý IPN của cổng thanh toán SePay (ORDER_PAID: duyệt đơn theo order_invoice_number = mã đơn)."""
+    if str(payload.get("notification_type") or "").upper() != "ORDER_PAID":
+        return {"result": "ignored_type"}
+    order_info = payload.get("order") or {}
+    txn = payload.get("transaction") or {}
+    if str(txn.get("transaction_status") or "APPROVED").upper() != "APPROVED":
+        return {"result": "ignored_status"}
+    code = str(order_info.get("order_invoice_number") or "").strip().upper()
+    txn_id = str(txn.get("transaction_id") or txn.get("id") or order_info.get("order_id") or "").strip()
+    if not code or not txn_id:
+        return {"result": "ignored_no_id"}
+    try:
+        amount = int(float(order_info.get("order_amount") or txn.get("transaction_amount") or 0))
+    except (TypeError, ValueError):
+        amount = 0
+    db = _db()
+    if db.table("payment_transactions").select("id").eq("provider", "sepay_pg").eq("provider_txn_id", txn_id).limit(1).execute().data:
+        return {"result": "duplicate"}
+    rows = db.table("payment_orders").select("*").eq("code", code).limit(1).execute().data or []
+    order = rows[0] if rows else None
+    status = "unmatched"
+    if order:
+        status = "duplicate_order" if order.get("status") == "paid" else "matched" if amount >= _int(order.get("amount_vnd")) else "underpaid"
+    db.table("payment_transactions").insert({
+        "provider": "sepay_pg", "provider_txn_id": txn_id, "amount_vnd": amount, "content": f"Cổng SePay · {code}",
+        "code": code, "match_status": status, "order_id": order["id"] if order else None, "raw": payload, "received_at": _iso(),
+    }).execute()
+    if order and status == "matched":
+        mark_paid(order, "webhook", paid_amount=amount)
+    elif order and status == "underpaid":
+        db.table("payment_orders").update({
+            "status": "review", "paid_amount_vnd": amount, "updated_at": _iso(),
+            "note": f"Thiếu tiền: nhận {amount}đ / cần {_int(order.get('amount_vnd'))}đ",
+        }).eq("id", order["id"]).execute()
+    return {"result": status, "code": code}
 
 
 def extract_code(code_field: Any, content: str) -> Optional[str]:

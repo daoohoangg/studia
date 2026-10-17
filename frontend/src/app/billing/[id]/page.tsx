@@ -89,7 +89,26 @@ export default function CheckoutPage() {
         <p className="page-sub">Đơn {order.code} · tạo lúc {new Date(order.created_at).toLocaleString("vi-VN")}</p>
       </header>
 
-      {order.status === "pending" && pay ? (
+      {order.status === "pending" && pay?.gateway ? (
+        <div className="st-card stack" style={{ gap: 18, maxWidth: 560 }}>
+          <div className="kv-row"><span className="k">Gói</span><span className="v">+{order.books} sách</span><span /></div>
+          <div className="kv-row"><span className="k">Số tiền</span><span className="v">{formatVnd(order.amount_vnd)}</span><span /></div>
+          <div className="kv-row"><span className="k">Mã đơn</span><span className="pay-code">{order.code}</span><CopyBtn value={order.code} /></div>
+          <p className="meta">Bạn sẽ được chuyển sang trang thanh toán của SePay để quét mã QR bằng app ngân hàng. Lượt upload được cộng tự động ngay khi thanh toán xong.</p>
+          <form action={pay.gateway.action_url} method="POST">
+            {Object.entries(pay.gateway.fields as Record<string, string>).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+            <button type="submit" className="st-btn st-btn-primary st-btn-block">Thanh toán bằng mã QR</button>
+          </form>
+          <div role="status" aria-live="polite" className="row" style={{ gap: 12, padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--brand-tint)", fontSize: 14 }}>
+            <span className="st-spinner" aria-hidden="true" />
+            <span>Đang chờ thanh toán. Quay lại trang này sau khi trả tiền, trạng thái tự cập nhật. Mã hết hạn sau <b className="num">{mm}:{ss}</b>.</span>
+          </div>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <button className="st-btn st-btn-ghost" type="button" onClick={cancel} disabled={busy}>Huỷ đơn</button>
+            <button className="st-btn st-btn-secondary" type="button" onClick={load}>Kiểm tra lại</button>
+          </div>
+        </div>
+      ) : order.status === "pending" && pay ? (
         <div className="st-card" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 32, alignItems: "start" }}>
           <div className="stack" style={{ alignItems: "center", gap: 12 }}>
             <div className="qr-box">

@@ -7,6 +7,7 @@ import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 
 import { API, apiFetch } from "@/lib/api";
+import type { TocData } from "@/lib/ebook";
 import { ChevronLeft, ArrowRight, Check, Layers, MessageCircle, Target } from "lucide-react";
 
 const difficultyColor = (d: number) =>
@@ -22,6 +23,7 @@ export default function BookDetailPage() {
   const [goalData, setGoalData] = useState({ goal_description: "Học hiểu toàn bộ nội dung sách", daily_minutes: 45, deadline_days: 30 });
   const [goalResult, setGoalResult] = useState<any>(null);
   const [goalLoading, setGoalLoading] = useState(false);
+  const [toc, setToc] = useState<TocData | null>(null);
 
   useEffect(() => {
     if (bookId) fetchBookData();
@@ -39,6 +41,8 @@ export default function BookDetailPage() {
         setTopics(data.topics || []);
       }
     } catch (e) { console.error(e); }
+    // Mục lục của chính cuốn sách + tiến độ từng chương (không chặn trang nếu chưa có nội dung)
+    apiFetch(`${API}/documents/${bookId}/toc`).then(async (r) => { if (r.ok) setToc(await r.json()); }).catch(() => {});
     setLoading(false);
   };
 
@@ -157,6 +161,33 @@ export default function BookDetailPage() {
         </section>
 
         <div className="stack" style={{ gap: 16 }}>
+          {toc && toc.entries.length > 0 && (
+            <section className="st-card" aria-labelledby="toc-h">
+              <div className="sec-head" style={{ marginBottom: 8 }}>
+                <h2 id="toc-h" className="heading-3">Mục lục và tiến độ đọc</h2>
+                <span className="meta num">{Math.round(toc.overall_percent)}%</span>
+              </div>
+              <div className="progress-bar" role="progressbar" aria-valuenow={Math.round(toc.overall_percent)} aria-valuemin={0} aria-valuemax={100} aria-label="Tiến độ đọc cả sách">
+                <div className="progress-bar-fill" style={{ width: `${toc.overall_percent}%` }} />
+              </div>
+              <p className="meta" style={{ margin: "8px 0 12px" }}>
+                {toc.chapters_done}/{toc.entries.length} phần đã đọc xong · {toc.source === "headings" ? "theo các tiêu đề trong sách" : "theo mục lục của sách"}
+              </p>
+              <div className="stack" style={{ gap: 2 }}>
+                {toc.entries.map((entry) => (
+                  <Link key={entry.block_id} href={`/books/${bookId}/read?chapter=${entry.block_id}`} className="lrow"
+                    style={{ paddingLeft: (entry.level - 1) * 14 + 8, alignItems: "center" }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span className="lrow-title" style={{ display: "block", fontSize: 14, fontWeight: toc.current_chapter === entry.block_id ? 650 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{entry.title.replace(/\*\*/g, "")}</span>
+                      <span className="progress-bar" style={{ height: 4, marginTop: 6 }} aria-hidden="true"><span className="progress-bar-fill" style={{ display: "block", width: `${entry.percent}%` }} /></span>
+                    </span>
+                    <span className="meta num" style={{ minWidth: 44, textAlign: "right" }}>{entry.percent >= 99.9 ? "Xong" : entry.percent > 0 ? `${Math.round(entry.percent)}%` : entry.page ? `tr. ${entry.page}` : ""}</span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
           {!goalResult && ready && (
             <section className="st-card" aria-labelledby="goal-h">
               <h2 id="goal-h" className="heading-3">Lên lịch học từ sách này</h2>

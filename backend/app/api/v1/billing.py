@@ -37,7 +37,7 @@ def get_packs():
     packs = billing.list_packs()
     return {
         "packs": [{k: p.get(k) for k in ("id", "name", "books", "price_vnd", "description", "highlight")} for p in packs],
-        "bank_configured": billing.bank_configured(),
+        "bank_configured": billing.payments_configured(),
     }
 
 
@@ -109,4 +109,25 @@ async def sepay_webhook(request: Request):
         logger.exception(f"SePay webhook error: {e}")
         raise HTTPException(status_code=500, detail="Lỗi xử lý giao dịch")
     # SePay chỉ coi là thành công khi body đúng {"success": true}
+    return {"success": True}
+
+
+@webhook_router.post("/sepay-ipn")
+async def sepay_gateway_ipn(request: Request):
+    """IPN của Cổng thanh toán SePay (khác webhook biến động số dư ở trên)."""
+    billing.verify_sepay_ipn(dict(request.headers))
+    try:
+        payload = json.loads((await request.body()).decode("utf-8") or "{}")
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Body không phải JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Body không hợp lệ")
+    try:
+        result = await run_in_threadpool(billing.handle_sepay_ipn, payload)
+        logger.info(f"SePay IPN: {result}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"SePay IPN error: {e}")
+        raise HTTPException(status_code=500, detail="Lỗi xử lý giao dịch")
     return {"success": True}

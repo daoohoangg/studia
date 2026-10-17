@@ -47,6 +47,15 @@ export default function ReaderStyles() {
       .reader-toc-item { display: flex; justify-content: space-between; gap: 12px; width: 100%; text-align: left; background: transparent; border: none;
         color: var(--text-primary); padding: 7px 8px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-family: inherit; }
       .reader-toc-item:hover { background: var(--bg-card-hover); }
+      .toc-chapter { align-items: flex-start; }
+      .toc-chapter.current { background: var(--bg-card-hover); box-shadow: inset 3px 0 0 var(--primary); }
+      .toc-chapter-title { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+      .toc-chapter-bar { display: block; height: 4px; border-radius: 4px; background: var(--border-subtle); overflow: hidden; }
+      .toc-chapter-bar i { display: block; height: 100%; background: var(--primary); border-radius: 4px; }
+      .reader-original { margin: 18px 0; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-card, transparent); }
+      .reader-original-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.8rem; font-weight: 600; margin-bottom: 8px; font-family: var(--font-sans, inherit); }
+      .reader-original img { display: block; width: 100%; height: auto; border-radius: 6px; background: #fff; }
+      .reader-original-skeleton { height: 360px; border-radius: 6px; background: var(--border-subtle); opacity: .5; }
       .reader-hit { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: transparent; border: 1px solid var(--border-subtle);
         color: var(--text-primary); padding: 8px 10px; margin-bottom: 8px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-family: inherit; }
       .reader-hit:hover { background: var(--bg-card-hover); }

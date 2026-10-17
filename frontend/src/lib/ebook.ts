@@ -26,6 +26,44 @@ export interface OutlineItem {
   page_number: number | null;
 }
 
+/** Mục lục của chính cuốn sách (GET /documents/{id}/toc): mỗi mục là một chương có khoảng khối [order_index, end_order_index). */
+export interface TocEntry {
+  title: string;
+  level: number;
+  page: number | null;
+  block_id: string;
+  order_index: number;
+  end_order_index: number;
+  percent: number;
+}
+
+export interface TocData {
+  title: string;
+  source: "bookmarks" | "contents" | "headings" | "none";
+  entries: TocEntry[];
+  chapters_done: number;
+  current_chapter: string | null;
+  overall_percent: number;
+}
+
+/** Trang có chữ tách ra kém tin cậy (GET /documents/{id}/page-quality): nên đối chiếu ảnh trang gốc. */
+export type PageIssue = "noisy" | "sparse" | "table" | "blanks";
+
+export const PAGE_ISSUE_LABEL: Record<PageIssue, string> = {
+  noisy: "chữ nhận dạng chưa chính xác",
+  sparse: "trang chủ yếu là hình/sơ đồ",
+  table: "bảng hoặc lưới câu hỏi",
+  blanks: "có chỗ điền từ / ô trống",
+};
+
+/** Phần trăm đã đọc của một chương theo vị trí đang đọc (đọc tuần tự: chương nằm trước vị trí hiện tại = 100%). */
+export function chapterPercent(entry: Pick<TocEntry, "order_index" | "end_order_index">, currentOrder: number | null): number {
+  if (currentOrder === null) return 0;
+  if (currentOrder >= entry.end_order_index) return 100;
+  if (currentOrder <= entry.order_index) return 0;
+  return Math.round((1000 * (currentOrder - entry.order_index)) / Math.max(entry.end_order_index - entry.order_index, 1e-9)) / 10;
+}
+
 const MARK = "**";
 
 /** Tách `text` thành các đoạn thường / đậm xen kẽ. Dấu `**` lẻ cuối cùng (không có cặp) được coi là chữ thường. */
@@ -103,6 +141,8 @@ export interface ReaderPrefs {
   theme: keyof typeof READER_THEMES;
   lineHeight: number;
   width: keyof typeof READER_WIDTHS;
+  /** Kèm ảnh trang gốc xen vào bài đọc: chỉ trang rủi ro (auto), mọi trang (all) hoặc không (off). */
+  originals: "auto" | "all" | "off";
 }
 
 export const READER_FONTS = {
@@ -128,7 +168,7 @@ export const READER_WIDTHS = {
   wide: { label: "Rộng", css: "940px" },
 } as const;
 
-export const DEFAULT_PREFS: ReaderPrefs = { fontSize: 18, fontFamily: "serif", theme: "app", lineHeight: 1.7, width: "medium" };
+export const DEFAULT_PREFS: ReaderPrefs = { fontSize: 18, fontFamily: "serif", theme: "app", lineHeight: 1.7, width: "medium", originals: "auto" };
 export const FONT_SIZE_RANGE = { min: 13, max: 32 };
 
 const PREFS_KEY = "studia_reader_prefs";
@@ -140,6 +180,7 @@ export function loadPrefs(): ReaderPrefs {
     if (!(prefs.fontFamily in READER_FONTS)) prefs.fontFamily = DEFAULT_PREFS.fontFamily;
     if (!(prefs.theme in READER_THEMES)) prefs.theme = DEFAULT_PREFS.theme;
     if (!(prefs.width in READER_WIDTHS)) prefs.width = DEFAULT_PREFS.width;
+    if (!["auto", "all", "off"].includes(prefs.originals)) prefs.originals = DEFAULT_PREFS.originals;
     prefs.fontSize = Math.min(FONT_SIZE_RANGE.max, Math.max(FONT_SIZE_RANGE.min, Number(prefs.fontSize) || DEFAULT_PREFS.fontSize));
     return prefs;
   } catch {

@@ -1106,6 +1106,7 @@ mark.studia-hl-purple { background-color: #e9d5ff !important; color: #6b21a8 !im
 
 /* ===================== APP SHELL (MainLayout) ===================== */
 .app-sidebar {
+  --nav-h: clamp(28px, 4.3vh, 40px);
   position: fixed;
   top: 0; left: 0;
   height: 100vh;
@@ -1113,25 +1114,39 @@ mark.studia-hl-purple { background-color: #e9d5ff !important; color: #6b21a8 !im
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 20px 12px 16px;
+  padding: clamp(10px, 2vh, 20px) 12px clamp(8px, 1.6vh, 16px);
   background: var(--surface);
   border-right: 1px solid var(--hairline);
   overflow-x: hidden;
   overflow-y: auto;
   z-index: 50;
-  transition: width var(--dur-base) var(--ease-in-out), padding var(--dur-base) var(--ease-in-out), background-color var(--dur-base);
+  transition: width var(--dur-base) var(--ease-in-out), box-shadow var(--dur-base), background-color var(--dur-base);
 }
-.app-sidebar.collapsed { width: var(--sidebar-collapsed); padding: 20px 12px 16px; }
-.app-sidebar.collapsed .nav-item { justify-content: center; padding: 0; height: 38px; }
+.app-sidebar.collapsed { width: var(--sidebar-collapsed); }
+.app-sidebar.collapsed .nav-item, .app-sidebar.collapsed .theme-toggle { justify-content: center; padding: 0; }
 .app-sidebar.collapsed .nav-label { display: none; }
-.app-sidebar.collapsed .nav-section-label { height: 1px; margin: 8px 8px; padding: 0; background: var(--hairline); color: transparent; overflow: hidden; }
-/* Các khối trong sidebar không được co lại khi màn hình thấp: nếu co, nút thu gọn bị menu đè lên và không bấm được. */
+/* Thanh thu gọn được trỏ chuột vào: mở rộng đè lên nội dung, không đẩy nội dung */
+.app-sidebar.peek { z-index: 70; box-shadow: var(--shadow-lg, 0 12px 40px rgba(0,0,0,.18)); }
 .app-sidebar.no-anim, .app-main.no-anim { transition: none; }
+/* Các khối trong sidebar không được co lại khi màn hình thấp. */
 .app-sidebar > * { flex-shrink: 0; }
 .app-sidebar { scrollbar-width: none; -ms-overflow-style: none; }
 .app-sidebar::-webkit-scrollbar { display: none; }
-.sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 6px 12px; min-height: 40px; }
-.app-sidebar.collapsed .sidebar-head { flex-direction: column; align-items: center; justify-content: flex-start; padding: 0 0 8px; gap: 8px; }
+.app-sidebar .nav-item, .app-sidebar .theme-toggle { height: var(--nav-h); }
+.sidebar-head { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 0 6px clamp(4px, 1.2vh, 12px); min-height: 36px; }
+.app-sidebar.collapsed .sidebar-head { justify-content: center; padding: 0 0 6px; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group + .nav-group { margin-top: clamp(2px, 0.8vh, 6px); padding-top: clamp(2px, 0.8vh, 6px); border-top: 1px solid var(--hairline); }
+.sidebar-foot { margin-top: auto; padding-top: clamp(4px, 1vh, 10px); display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--hairline); }
+.nav-button { background: none; border: none; cursor: pointer; width: 100%; font-family: inherit; }
+.nav-collapse { color: var(--ink-muted); }
+.sidebar-user { display: flex; align-items: center; gap: 10px; padding: 4px 8px; min-height: var(--nav-h); overflow: hidden; }
+.sidebar-avatar { flex-shrink: 0; width: 24px; height: 24px; margin: 0 2px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-tint); color: var(--brand); font: 650 12px/1 var(--font-sans); }
+.sidebar-user-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.2; }
+.sidebar-user-text b { font-size: 13.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-sidebar.collapsed .sidebar-user { justify-content: center; padding: 4px 0; }
+.app-sidebar.collapsed .sidebar-avatar { margin: 0; }
 .icon-btn {
   display: grid; place-items: center;
   width: 36px; height: 36px; flex-shrink: 0;
@@ -1177,7 +1192,6 @@ mark.studia-hl-purple { background-color: #e9d5ff !important; color: #6b21a8 !im
 .theme-toggle .ti .moon { transform: translateY(120%) rotate(-90deg); opacity: 0; }
 .theme-toggle.dark .ti .sun { transform: translateY(-120%) rotate(90deg); opacity: 0; }
 .theme-toggle.dark .ti .moon { transform: none; opacity: 1; }
-.app-sidebar.collapsed .theme-toggle { justify-content: center; padding: 0; }
 
 /* Mobile shell */
 .mobile-topbar, .mobile-tabbar { display: none; }

@@ -7,6 +7,7 @@ Các endpoint khai báo `def` (đồng bộ) để FastAPI chạy trong threadpo
 import logging
 import re
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -17,7 +18,9 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import current_user_id, require_owned
 from app.core.supabase_client import get_supabase_client
-from app.core.uploads import safe_filename
+from app.core.uploads import DOCUMENTS_BUCKET, safe_filename, storage_path_from
+from app.services.doc_ingest.quality import page_quality
+from app.services.doc_ingest.toc import build_toc, chapter_progress, detect_book_title, toc_from_pdf_bookmarks
 from app.services.document_pipeline import ensure_blocks, index_status, load_all_blocks, reindex_document
 
 logger = logging.getLogger(__name__)
@@ -138,6 +141,89 @@ def get_outline(document_id: str):
         {"block_id": r["id"], "order_index": r["order_index"], "page_number": r.get("page_number"),
          "level": r.get("level") or 1, "text": r["text"]} for r in rows
     ]}
+
+
+_BOOKMARK_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+_TOC_CACHE: Dict[str, Any] = {}
+TOC_CACHE_SECONDS = 15
+
+
+def _pdf_bookmarks(supabase, document_id: str, file_path: Optional[str]) -> List[Dict[str, Any]]:
+    """Bookmark có sẵn trong PDF gốc (tải tệp một lần rồi nhớ kết quả)."""
+    if document_id in _BOOKMARK_CACHE:
+        return _BOOKMARK_CACHE[document_id]
+    path = storage_path_from(file_path)
+    marks: List[Dict[str, Any]] = []
+    if path and path.lower().endswith(".pdf"):
+        try:
+            marks = toc_from_pdf_bookmarks(supabase.storage.from_(DOCUMENTS_BUCKET).download(path))
+        except Exception as e:
+            logger.info(f"[{document_id}] Cannot read PDF bookmarks: {e}")
+            return []  # không nhớ lỗi tạm thời
+    _BOOKMARK_CACHE[document_id] = marks
+    return marks
+
+
+@router.get("/{document_id}/toc")
+def get_toc(document_id: str):
+    """
+    Mục lục của chính cuốn sách (bookmark PDF → trang Contents → tiêu đề đã nhận diện) kèm tiến độ đọc từng chương.
+    Mỗi mục có `percent` (0–100) tính theo vị trí đang đọc; `overall_percent` là tiến độ cả sách.
+    """
+    require_owned("documents", document_id)
+    supabase = _db()
+    uid = current_user_id()
+    cached = _TOC_CACHE.get(document_id)
+    if cached and time.time() - cached[0] < TOC_CACHE_SECONDS:
+        base = cached[1]
+    else:
+        blocks = load_all_blocks(supabase, document_id)
+        doc = (supabase.table("documents").select("title, file_path").eq("id", document_id).execute().data or [{}])[0]
+        toc = build_toc(blocks, _pdf_bookmarks(supabase, document_id, doc.get("file_path")))
+        base = {
+            "title": detect_book_title(blocks, fallback=re.sub(r"\.(pdf|docx)$", "", doc.get("title") or "", flags=re.I)),
+            "source": toc["source"],
+            "entries": toc["entries"],
+            "block_count": len(blocks),
+            "last_order_index": blocks[-1]["order_index"] if blocks else 0,
+            "first_order_index": blocks[0]["order_index"] if blocks else 0,
+        }
+        _TOC_CACHE[document_id] = (time.time(), base)
+
+    rows = supabase.table("reading_progress").select("block_id, percent") \
+        .eq("document_id", document_id).eq("user_id", uid).limit(1).execute().data or []
+    current_order: Optional[float] = None
+    percent = 0.0
+    if rows:
+        percent = float(rows[0].get("percent") or 0)
+        block = supabase.table("document_blocks").select("order_index") \
+            .eq("id", rows[0].get("block_id")).eq("document_id", document_id).execute().data if rows[0].get("block_id") else None
+        current_order = block[0]["order_index"] if block else None
+
+    entries = [{**e, "percent": chapter_progress(e, current_order)} for e in base["entries"]]
+    done = sum(1 for e in entries if e["percent"] >= 99.9)
+    current = next((e for e in entries if 0 < e["percent"] < 99.9), None)
+    return {
+        "document_id": document_id,
+        "title": base["title"],
+        "source": base["source"],
+        "entries": entries,
+        "chapters_done": done,
+        "current_block_id": rows[0].get("block_id") if rows else None,
+        "current_chapter": current["block_id"] if current else None,
+        "overall_percent": percent,
+    }
+
+
+@router.get("/{document_id}/page-quality")
+def get_page_quality(document_id: str):
+    """
+    Các trang nên đối chiếu với ảnh trang gốc vì chữ tách ra có thể thiếu hoặc sai: chữ nhiễu (OCR hỏng),
+    trang gần như không có chữ (hình, sơ đồ), trang toàn mục ngắn/số (bảng biểu, lưới câu hỏi).
+    """
+    require_owned("documents", document_id)
+    blocks = load_all_blocks(_db(), document_id)
+    return {"document_id": document_id, "pages": page_quality(blocks)}
 
 
 @router.get("/{document_id}/search")

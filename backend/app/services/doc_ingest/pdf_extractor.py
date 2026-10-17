@@ -27,11 +27,22 @@ _PAGE_NUMBER = re.compile(r"^(?:page\s+|trang\s+)?[\divxlc]{1,5}(?:\s*(?:/|of)\s
 _SENTENCE_END = re.compile(r"[.!?:;…\"”’)\]]$")
 _NUMBERED_START = re.compile(r"^\d{1,3}\s+[A-ZÀ-Ỹ]")
 _BOLD_NAME = re.compile(r"bold|black|heavy|semibold|demi", re.IGNORECASE)
+# PDFium trả ô tô đen/ký tự biểu tượng (Symbol, Wingdings) thành U+FFFD hoặc vùng private-use: đầu dòng là dấu đầu dòng,
+# còn cả chuỗi dài là ô/gạch chân điền từ của đề thi.
+_GLYPH = "\uFFFD\uF000-\uF8FF"
+_GLYPH_RUN = re.compile(f"[{_GLYPH}]{{3,}}[-\u2013\u2014~]*[{_GLYPH}]*")
+_GLYPH_BULLET = re.compile(f"^[{_GLYPH}\u25CF\u25AA\u25E6\u25A0\u25A1\u25C6\u27A2\u27A4\u25BA]+\\s*")
 
 MIN_TEXT_CHARS_PER_PAGE = 20
 EDGE_ZONE = 0.09          # 9% trên/dưới trang là vùng header/footer
 HEADING_SIZE_RATIO = 1.15
 MAX_HEADING_CHARS = 120
+
+
+def _clean_glyphs(text: str) -> str:
+    text = _GLYPH_RUN.sub(" ........ ", text)
+    text = _GLYPH_BULLET.sub("• ", text)
+    return text.strip()
 
 
 def _font_info(textpage, index: int) -> Tuple[float, bool]:
@@ -53,8 +64,9 @@ def _page_lines(page, page_number: int) -> List[Dict[str, Any]]:
         lines: List[Dict[str, Any]] = []
         offset = 0
         for raw in text.split("\r\n"):
-            stripped = raw.strip()
-            if stripped:
+            stripped = raw.strip()  # vị trí ký tự tính trên bản gốc; chữ hiển thị là bản đã làm sạch ký hiệu
+            cleaned = _clean_glyphs(stripped) if stripped else ""
+            if cleaned:
                 first = offset + (len(raw) - len(raw.lstrip()))
                 last = first + len(stripped) - 1
                 middle = (first + last) // 2
@@ -63,7 +75,7 @@ def _page_lines(page, page_number: int) -> List[Dict[str, Any]]:
                 left, bottom, _, top = textpage.get_charbox(first, loose=True)
                 right = textpage.get_charbox(last, loose=True)[2]
                 lines.append({
-                    "text": re.sub(r"\s+", " ", stripped),
+                    "text": re.sub(r"\s+", " ", cleaned),
                     "size": max(size, mid_size),
                     "bold": bold and mid_bold,
                     "top": 1 - top / height,

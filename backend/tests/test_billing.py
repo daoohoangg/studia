@@ -149,6 +149,40 @@ class OrderAndWebhookTests(BillingTestCase):
         self.assertEqual(self.webhook({"id": 2, "transferType": "out", "transferAmount": 5}).status_code, 200)
         self.assertEqual(self.store.table("payment_transactions").select("*").execute().data, [])
 
+    def ipn(self, order_code, amount, txn="T1", key="gw-secret", kind="ORDER_PAID"):
+        payload = {"timestamp": 1, "notification_type": kind,
+                   "order": {"order_invoice_number": order_code, "order_amount": f"{amount}.00"},
+                   "transaction": {"transaction_id": txn, "transaction_status": "APPROVED", "transaction_amount": str(amount)}}
+        return self.client.post("/api/v1/billing/webhook/sepay-ipn", json=payload, headers={"X-Secret-Key": key})
+
+    def test_gateway_checkout_is_signed_and_ipn_pays_order_once(self):
+        import base64
+        with patch.object(settings, "SEPAY_MERCHANT_ID", "SP-TEST"), patch.object(settings, "SEPAY_SECRET_KEY", "gw-secret"):
+            order = self.create_order()
+            gw = order["payment"]["gateway"]
+            self.assertEqual(gw["action_url"], "https://pay.sepay.vn/v1/checkout/init")
+            f = gw["fields"]
+            self.assertEqual((f["merchant"], f["order_invoice_number"], f["order_amount"]), ("SP-TEST", order["code"], "99000"))
+            signed = ",".join(f"{k}={f[k]}" for k in ("merchant", "operation", "payment_method", "order_amount", "currency",
+                                                       "order_invoice_number", "order_description", "success_url", "error_url", "cancel_url"))
+            expected = base64.b64encode(hmac.new(b"gw-secret", signed.encode(), hashlib.sha256).digest()).decode()
+            self.assertEqual(f["signature"], expected)
+
+            self.assertEqual(self.ipn(order["code"], 99000, key="wrong").status_code, 401)
+            self.assertEqual(self.ipn(order["code"], 99000).json(), {"success": True})
+            self.assertEqual(billing.get_order(order["id"])["status"], "paid")
+            self.assertEqual(self.client.get("/api/v1/account/me").json()["quota"]["remaining"], 11)
+            self.ipn(order["code"], 99000)  # gửi lại cùng giao dịch
+            self.assertEqual(self.client.get("/api/v1/account/me").json()["quota"]["remaining"], 11)
+
+    def test_gateway_ipn_underpaid_and_ignored_types(self):
+        with patch.object(settings, "SEPAY_MERCHANT_ID", "SP-TEST"), patch.object(settings, "SEPAY_SECRET_KEY", "gw-secret"):
+            order = self.create_order()
+            self.ipn(order["code"], 1000, txn="T2")
+            self.assertEqual(billing.get_order(order["id"])["status"], "review")
+            self.ipn(order["code"], 99000, txn="T3", kind="TRANSACTION_VOID")
+            self.assertEqual(billing.get_order(order["id"])["status"], "review")
+
     def test_hmac_signature(self):
         body = json.dumps({"id": 3, "transferType": "in", "transferAmount": 1000, "content": "no code"}).encode()
         ts = str(int(time.time()))

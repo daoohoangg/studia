@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import {
   DEFAULT_PREFS, EbookHighlight, EbookNote, FONT_SIZE_RANGE, HIGHLIGHT_COLORS, HIGHLIGHT_SWATCH, OutlineItem,
-  READER_FONTS, READER_THEMES, READER_WIDTHS, ReaderPrefs, SearchHit, plainText,
+  PAGE_ISSUE_LABEL, PageIssue, READER_FONTS, READER_THEMES, READER_WIDTHS, ReaderPrefs, SearchHit, TocData, chapterPercent, plainText,
 } from "@/lib/ebook";
 
 export function DrawerHeader({ title, onClose }: { title: string; onClose: () => void }) {
@@ -19,24 +19,108 @@ export function DrawerHeader({ title, onClose }: { title: string; onClose: () =>
 
 // ─── Mục lục ─────────────────────────────────────────────────
 
-export function TocPanel({ outline, onJump, onClose }: {
-  outline: OutlineItem[]; onJump: (blockId: string) => void; onClose: () => void;
+const TOC_SOURCE_NOTE: Record<string, string> = {
+  bookmarks: "Theo bookmark có sẵn trong file PDF",
+  contents: "Theo trang Mục lục của sách",
+  headings: "Sách không có trang mục lục: dùng các tiêu đề nhận diện được",
+};
+
+export function TocPanel({ toc, outline, currentOrder, onJump, onClose }: {
+  toc: TocData | null; outline: OutlineItem[]; currentOrder: number | null; onJump: (blockId: string) => void; onClose: () => void;
 }) {
+  const entries = toc?.entries || [];
+  const withProgress = entries.map((entry) => ({ entry, percent: chapterPercent(entry, currentOrder) }));
+  const done = withProgress.filter((x) => x.percent >= 99.9).length;
+  const currentId = withProgress.find((x) => x.percent > 0 && x.percent < 99.9)?.entry.block_id;
+
+  if (entries.length === 0) {
+    return (
+      <aside className="reader-drawer left">
+        <DrawerHeader title="Mục lục" onClose={onClose} />
+        {outline.length === 0 && (
+          <p className="reader-muted">Tài liệu này chưa có tiêu đề nào. Trong chế độ chỉnh sửa, bạn có thể đổi một đoạn thành tiêu đề.</p>
+        )}
+        {outline.map((item) => (
+          <button key={item.block_id} className="reader-toc-item"
+            style={{ paddingLeft: `${(item.level - 1) * 14 + 8}px`, fontWeight: item.level === 1 ? 700 : 500 }}
+            onClick={() => onJump(item.block_id)}>
+            <span>{plainText(item.text)}</span>
+            {item.page_number && <span className="reader-muted">{item.page_number}</span>}
+          </button>
+        ))}
+      </aside>
+    );
+  }
+
   return (
     <aside className="reader-drawer left">
       <DrawerHeader title="Mục lục" onClose={onClose} />
-      {outline.length === 0 && (
-        <p className="reader-muted">Tài liệu này chưa có tiêu đề nào. Trong chế độ chỉnh sửa, bạn có thể đổi một đoạn thành tiêu đề.</p>
-      )}
-      {outline.map((item) => (
-        <button key={item.block_id} className="reader-toc-item"
-          style={{ paddingLeft: `${(item.level - 1) * 14 + 8}px`, fontWeight: item.level === 1 ? 700 : 500 }}
-          onClick={() => onJump(item.block_id)}>
-          <span>{plainText(item.text)}</span>
-          {item.page_number && <span className="reader-muted">{item.page_number}</span>}
+      <div className="reader-muted" style={{ margin: "0 0 8px" }}>
+        {toc?.title ? <b>{toc.title}</b> : null}
+        <div>{done}/{entries.length} phần đã đọc xong · {TOC_SOURCE_NOTE[toc?.source || ""] || ""}</div>
+      </div>
+      {withProgress.map(({ entry, percent }) => (
+        <button key={entry.block_id} className={`reader-toc-item toc-chapter ${currentId === entry.block_id ? "current" : ""}`}
+          style={{ paddingLeft: `${(entry.level - 1) * 14 + 8}px` }}
+          onClick={() => onJump(entry.block_id)} title={`${percent}% đã đọc`}>
+          <span className="toc-chapter-title">
+            <span style={{ fontWeight: entry.level === 1 ? 650 : 500 }}>{plainText(entry.title)}</span>
+            <span className="toc-chapter-bar" aria-hidden="true"><i style={{ width: `${percent}%` }} /></span>
+          </span>
+          <span className="reader-muted">{percent >= 99.9 ? "Xong" : percent > 0 ? `${Math.round(percent)}%` : entry.page ? `tr. ${entry.page}` : ""}</span>
         </button>
       ))}
     </aside>
+  );
+}
+
+/** Ảnh trang gốc xen trong bài đọc: chỉ tải khi cuộn gần tới; gập lại được. */
+export function InlineOriginal({ base, page, issues }: { base: string; page: number; issues: PageIssue[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(false);
+  const [open, setOpen] = useState(true);
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") { setNear(true); return; }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setNear(true); observer.disconnect(); }
+    }, { rootMargin: "600px 0px" });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!near || !open || url) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    (async () => {
+      try {
+        const res = await apiFetch(`${base}/pages/${page}/image?scale=1.6`);
+        if (!res.ok) throw new Error(String(res.status));
+        objectUrl = URL.createObjectURL(await res.blob());
+        if (!cancelled) setUrl(objectUrl); else URL.revokeObjectURL(objectUrl);
+      } catch {
+        if (!cancelled) setError(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [near, open, url, base, page]);
+
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  return (
+    <div ref={ref} className="reader-original" data-page={page}>
+      <div className="reader-original-head">
+        <span>Trang {page} của sách gốc{issues.length > 0 ? ` · ${issues.map((i) => PAGE_ISSUE_LABEL[i]).join(", ")}` : ""}</span>
+        <button className="reader-link" onClick={() => setOpen((v) => !v)}>{open ? "Thu gọn" : "Xem trang gốc"}</button>
+      </div>
+      {open && error && <p className="reader-muted">Không tải được ảnh trang này.</p>}
+      {open && !error && !url && <div className="reader-original-skeleton" aria-busy="true" />}
+      {open && url && <img src={url} alt={`Trang ${page} của tệp gốc`} loading="lazy" />}
+    </div>
   );
 }
 
@@ -75,6 +159,18 @@ export function SettingsPanel({ prefs, onChange, onClose }: {
       <label className="reader-label">Giãn dòng: {prefs.lineHeight.toFixed(1)}</label>
       <input type="range" min={1.3} max={2.2} step={0.1} value={prefs.lineHeight}
         onChange={(e) => onChange({ lineHeight: Number(e.target.value) })} style={{ width: "100%" }} />
+
+      <label className="reader-label">Kèm ảnh trang gốc</label>
+      <div className="reader-options row">
+        {([["auto", "Trang rủi ro"], ["all", "Mọi trang"], ["off", "Tắt"]] as const).map(([key, label]) => (
+          <button key={key} className={`reader-option ${prefs.originals === key ? "active" : ""}`} onClick={() => onChange({ originals: key })}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="reader-muted" style={{ marginTop: 6 }}>
+        Bảng, sơ đồ, câu hỏi điền từ không thể dựng lại hoàn hảo bằng chữ nên ảnh trang gốc được xen vào để không mất nội dung.
+      </div>
 
       <label className="reader-label">Độ rộng trang</label>
       <div className="reader-options row">

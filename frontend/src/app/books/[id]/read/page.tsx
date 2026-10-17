@@ -1,20 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
 import { API, apiFetch } from "@/lib/api";
 import {
   DEFAULT_PREFS, EbookBlock, EbookHighlight, EbookNote, FONT_SIZE_RANGE, HIGHLIGHT_COLORS, HIGHLIGHT_SWATCH,
-  BlockRevision, OutlineItem, READER_FONTS, READER_THEMES, READER_WIDTHS, ReaderPrefs, ResolvedHighlight,
+  BlockRevision, OutlineItem, PageIssue, TocData, READER_FONTS, READER_THEMES, READER_WIDTHS, ReaderPrefs, ResolvedHighlight,
   loadPrefs, plainText, resolveHighlight, savePrefs, toggleBoldByPlainRange,
 } from "@/lib/ebook";
 import BlockView from "@/components/ebook/BlockView";
 import BlockEditor from "@/components/ebook/BlockEditor";
 import ReaderStyles from "@/components/ebook/ReaderStyles";
 import {
-  NoteDraft, NotesPanel, PageImagePane, SearchPanel, SettingsPanel, TocPanel,
+  InlineOriginal, NoteDraft, NotesPanel, PageImagePane, SearchPanel, SettingsPanel, TocPanel,
 } from "@/components/ebook/ReaderPanels";
 
 const PAGE_SIZE = 300;
@@ -38,6 +38,8 @@ export default function BookReaderPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [processingNote, setProcessingNote] = useState<string | null>(null);
   const [outline, setOutline] = useState<OutlineItem[]>([]);
+  const [toc, setToc] = useState<TocData | null>(null);
+  const [pageIssues, setPageIssues] = useState<Map<number, PageIssue[]>>(new Map());
   const [notes, setNotes] = useState<EbookNote[]>([]);
   const [highlights, setHighlights] = useState<EbookHighlight[]>([]);
   const [prefs, setPrefs] = useState<ReaderPrefs>(DEFAULT_PREFS);
@@ -75,8 +77,15 @@ export default function BookReaderPage() {
   };
 
   const fetchOutline = useCallback(async () => {
-    const res = await apiFetch(`${base}/outline`);
-    if (res.ok) setOutline((await res.json()).outline || []);
+    const [outlineRes, tocRes, qualityRes] = await Promise.all([
+      apiFetch(`${base}/outline`), apiFetch(`${base}/toc`), apiFetch(`${base}/page-quality`),
+    ].map((p) => p.catch(() => null)));
+    if (outlineRes?.ok) setOutline((await outlineRes.json()).outline || []);
+    if (tocRes?.ok) setToc(await tocRes.json());
+    if (qualityRes?.ok) {
+      const pages: { page: number; reasons: PageIssue[] }[] = (await qualityRes.json()).pages || [];
+      setPageIssues(new Map(pages.map((p) => [p.page, p.reasons])));
+    }
   }, [base]);
 
   // ─── Chỉ mục AI: tự cập nhật khi người dùng ngừng sửa ───────
@@ -204,6 +213,12 @@ export default function BookReaderPage() {
     restoredRef.current = true;
     (async () => {
       try {
+        // Mở từ mục lục ở trang sách (?chapter=<block_id>): vào đúng chương đó thay vì chỗ đang đọc dở
+        const chapter = new URLSearchParams(window.location.search).get("chapter");
+        if (chapter && blocksRef.current.some((b) => b.id === chapter)) {
+          requestAnimationFrame(() => document.getElementById(`blk-${chapter}`)?.scrollIntoView({ block: "start" }));
+          return;
+        }
         const res = await apiFetch(`${base}/progress`);
         if (!res.ok) return;
         const progress = await res.json();
@@ -250,6 +265,20 @@ export default function BookReaderPage() {
   const hasPages = useMemo(() => blocks.some((b) => b.page_number), [blocks]);
   const maxPage = useMemo(() => blocks.reduce((m, b) => Math.max(m, b.page_number || 0), 0), [blocks]);
   const currentPage = (currentIndex >= 0 ? blocks[currentIndex].page_number : null) || 1;
+  const currentOrder = currentIndex >= 0 ? blocks[currentIndex].order_index : null;
+  // Ảnh trang gốc xen trước khối đầu tiên của mỗi trang cần/được yêu cầu hiển thị
+  const originalBefore = useMemo(() => {
+    const map = new Map<string, number>();
+    if (prefs.originals === "off") return map;
+    let lastPage: number | null = null;
+    for (const b of blocks) {
+      if (b.page_number && b.page_number !== lastPage) {
+        lastPage = b.page_number;
+        if (prefs.originals === "all" || pageIssues.has(b.page_number)) map.set(b.id, b.page_number);
+      }
+    }
+    return map;
+  }, [blocks, prefs.originals, pageIssues]);
   const shownPage = panePage ?? currentPage;
 
   // ─── Highlight theo khối (định vị lại theo chữ khi khối đã sửa) ───
@@ -548,7 +577,11 @@ export default function BookReaderPage() {
         )}
 
         {blocks.map((block) => (
-          editingId === block.id ? (
+          <Fragment key={block.id}>
+          {originalBefore.has(block.id) && (
+            <InlineOriginal base={base} page={originalBefore.get(block.id)!} issues={pageIssues.get(originalBefore.get(block.id)!) || []} />
+          )}
+          {editingId === block.id ? (
             <BlockEditor
               key={block.id}
               block={block}
@@ -572,13 +605,14 @@ export default function BookReaderPage() {
               onEdit={() => setEditingId(block.id)}
               onOpenNotes={() => { setNotesTab("notes"); setPanel("notes"); }}
             />
-          )
+          )}
+          </Fragment>
         ))}
 
         {loadingMore && blocks.length > 0 && <p className="reader-empty">Đang tải phần tiếp theo...</p>}
       </div>
 
-      {panel === "toc" && <TocPanel outline={outline} onJump={jumpTo} onClose={() => setPanel(null)} />}
+      {panel === "toc" && <TocPanel toc={toc} outline={outline} currentOrder={currentOrder} onJump={jumpTo} onClose={() => setPanel(null)} />}
       {panel === "search" && <SearchPanel base={base} onJump={jumpTo} onClose={() => setPanel(null)} />}
       {panel === "settings" && <SettingsPanel prefs={prefs} onChange={updatePrefs} onClose={() => setPanel(null)} />}
       {panel === "notes" && (

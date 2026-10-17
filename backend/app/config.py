@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     # Thanh toán chuyển khoản qua webhook SePay — đặt MỘT trong hai (API key hoặc HMAC secret)
     SEPAY_API_KEY: str = ""
     SEPAY_WEBHOOK_SECRET: str = ""
+    # Cổng thanh toán SePay (https://my.sepay.vn/pg): khách trả bằng QR trên trang của SePay, SePay gọi IPN về
+    # POST /api/v1/billing/webhook/sepay-ipn kèm header X-Secret-Key = SEPAY_SECRET_KEY.
+    SEPAY_MERCHANT_ID: str = ""
+    SEPAY_SECRET_KEY: str = ""
+    SEPAY_ENV: str = "production"  # production | sandbox
+    # Địa chỉ frontend, để SePay đưa khách quay lại sau khi thanh toán
+    FRONTEND_URL: str = "http://localhost:3000"
     # Tiền tố mã nội dung chuyển khoản (phải trùng "Cấu trúc mã thanh toán" cấu hình trên SePay)
     PAYMENT_CODE_PREFIX: str = "STD"
 

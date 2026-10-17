@@ -74,6 +74,23 @@ export function useAccount() {
   return { account, loading, isAdmin: account?.role === "admin", refresh: refreshAccount };
 }
 
+/** Tên hiển thị: tên tài khoản Google (hoặc tên đã nhập khi đăng ký), không bao giờ là địa chỉ email. */
+export function useDisplayName(account?: Account | null): string {
+  const [metaName, setMetaName] = useState("");
+  useEffect(() => {
+    const pick = (u: { user_metadata?: Record<string, unknown> } | null | undefined) => {
+      const m = u?.user_metadata || {};
+      const n = (m.full_name || m.name || m.display_name || "") as string;
+      setMetaName(String(n).trim());
+    };
+    supabase.auth.getSession().then(({ data }) => pick(data.session?.user));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => pick(s?.user));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+  const saved = (account?.full_name || "").trim();
+  return metaName || (saved && !saved.includes("@") ? saved : "") || "Tài khoản";
+}
+
 export const formatVnd = (n: number | null | undefined) =>
   `${Number(n || 0).toLocaleString("vi-VN")} đ`;
 

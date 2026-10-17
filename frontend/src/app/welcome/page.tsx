@@ -9,7 +9,11 @@ import {
 import Logo from "@/components/Logo";
 import AiIcon from "@/components/AiIcon";
 import ThemeToggle from "@/components/ThemeToggle";
-import CountUp from "@/components/CountUp";
+import Pricing from "./Pricing";
+import Numbers from "./Numbers";
+import HeroSlides from "./HeroSlides";
+import FeatureCta from "./FeatureCta";
+import { supabase } from "@/lib/supabase";
 import "./landing.css";
 
 type Variant = "up" | "left" | "right" | "zoom";
@@ -30,25 +34,6 @@ function Reveal({ children, delay = 0, variant = "up", className = "" }: {
   }, []);
   const v = variant === "up" ? "" : ` v-${variant}`;
   return <div ref={ref} className={`lp-rv${v}${on ? " in" : ""} ${className}`} style={{ ["--d" as any]: `${delay}ms` }}>{children}</div>;
-}
-
-/** Chỉ bắt đầu đếm khi số hiện ra trong màn hình. */
-function Stat({ value, label }: { value: number; label: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [seen, setSeen] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof IntersectionObserver === "undefined") { setSeen(true); return; }
-    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setSeen(true); io.disconnect(); } }, { threshold: 0.4 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-  return (
-    <div ref={ref} className="lp-stat">
-      <b>{seen ? <CountUp value={value} duration={1100} /> : 0}</b>
-      <span>{label}</span>
-    </div>
-  );
 }
 
 /** Nền minh hoạ vẽ bằng mã, các hình bên trong trôi chậm hơn nội dung khi cuộn (parallax). */
@@ -130,20 +115,33 @@ function useScrollFx(rootRef: React.RefObject<HTMLDivElement>) {
 
 const SKILLS = ["Listening", "Reading", "Writing", "Speaking", "Từ vựng học thuật", "Ngữ pháp", "Collocations", "Matching headings", "True / False / Not given", "Task 1 — biểu đồ", "Task 2 — essay", "Speaking Part 2", "Cambridge IELTS 21"];
 
+/** Phiên đăng nhập hiện tại (để đổi nút Đăng nhập thành tên người dùng). */
+function useSessionUser() {
+  const [user, setUser] = useState<{ name: string } | null | undefined>(undefined);
+  useEffect(() => {
+    const pick = (u: { user_metadata?: Record<string, unknown> } | null | undefined) => {
+      if (!u) { setUser(null); return; }
+      const m = u.user_metadata || {};
+      const n = String(m.full_name || m.name || m.display_name || "").trim();
+      setUser({ name: n && !n.includes("@") ? n : "Tài khoản" });
+    };
+    supabase.auth.getSession().then(({ data }) => pick(data.session?.user));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => pick(s?.user));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+  return user;
+}
+
 export default function Landing() {
   const root = useRef<HTMLDivElement>(null);
   useScrollFx(root);
+  const user = useSessionUser();
+  const loggedIn = !!user;
 
-  const taskStep = useCycle(5, 1500);
   const pipe = useCycle(7, 1100);
   const clock = useCountdown(41 * 60 + 30);
   const examQ = useCycle(3, 2600);
 
-  const tasks = [
-    ["Ôn 24 thẻ sắp quên", "8 phút · Flashcard"],
-    ["Reading: Urban bees", "20 phút · 13 câu"],
-    ["Nói thử Part 2: Describe a place", "10 phút · cùng Studia AI"],
-  ];
   const pipeSteps = ["Tải lên", "Đọc từng trang", "Tách chương, tách bài", "Lập chỉ mục cho AI", "Tạo bài học, flashcard"];
 
   return (
@@ -163,8 +161,20 @@ export default function Landing() {
           </nav>
           <div className="lp-nav-cta">
             <div style={{ width: 44 }}><ThemeToggle compact /></div>
-            <Link className="lp-btn lp-btn-ghost lp-btn-sm" href="/login">Đăng nhập</Link>
-            <Link className="lp-btn lp-btn-primary lp-btn-sm" href="/signup">Học thử miễn phí</Link>
+            {user ? (
+              <>
+                <Link className="lp-btn lp-btn-ghost lp-btn-sm lp-user" href="/settings" title="Mở cài đặt và trang cá nhân" aria-label={`${user.name}, mở cài đặt tài khoản`}>
+                  <span className="lp-av" aria-hidden="true">{user.name.trim().charAt(0).toUpperCase()}</span>
+                  <span className="lp-uname">{user.name}</span>
+                </Link>
+                <Link className="lp-btn lp-btn-primary lp-btn-sm" href="/">Vào học</Link>
+              </>
+            ) : (
+              <>
+                <Link className="lp-btn lp-btn-ghost lp-btn-sm" href="/login">Đăng nhập</Link>
+                <Link className="lp-btn lp-btn-primary lp-btn-sm" href="/signup">Học thử miễn phí</Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -183,7 +193,7 @@ export default function Landing() {
               Mỗi ngày bạn chỉ cần mở app và làm vài nhiệm vụ nhỏ.
             </p>
             <div className="lp-cta">
-              <Link className="lp-btn lp-btn-accent lp-btn-lg" href="/signup">Học thử miễn phí <ArrowRight size={20} aria-hidden="true" /></Link>
+              <Link className="lp-btn lp-btn-accent lp-btn-lg" href={loggedIn ? "/" : "/signup"}>{loggedIn ? "Vào học ngay" : "Học thử miễn phí"} <ArrowRight size={20} aria-hidden="true" /></Link>
               <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#thu-vien">Xem Studia làm được gì</a>
             </div>
             <div className="lp-trust">
@@ -198,30 +208,7 @@ export default function Landing() {
             <div className="lp-chip c2"><span className="lp-tag ok">+0.5</span><div>Band Reading<small>so với tuần trước</small></div></div>
             <div className="lp-chip c3"><span className="lp-tag warn">Sắp quên</span><div>Matching headings<small>Ôn trong hôm nay</small></div></div>
             <Stage tone="brand">
-              <div className="lp-win">
-                <div className="lp-win-bar" aria-hidden="true"><i /><i /><i /></div>
-                <div className="lp-win-body">
-                  <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
-                    <div className="lp-ring" role="img" aria-label="Band 6.5 trên 9">
-                      <svg width="100%" height="100%" viewBox="0 0 96 96" fill="none"><circle className="tr" cx="48" cy="48" r="42" strokeWidth="9" /><circle className="ar" cx="48" cy="48" r="42" strokeWidth="9" /></svg>
-                      <b>6.5</b>
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ font: "650 14px/18px var(--font-sans)", letterSpacing: ".6px", textTransform: "uppercase", color: "var(--ink-muted)" }}>Hôm nay</div>
-                      <div style={{ font: "750 clamp(22px, 2.2vw, 28px)/1.25 var(--font-display)", letterSpacing: -0.5 }}>3 nhiệm vụ · 38 phút</div>
-                      <div style={{ color: "var(--ink-muted)", fontSize: 15.5 }}>Mục tiêu: IELTS 6.5 trong 3 tháng</div>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 14 }}>
-                    {tasks.map(([t, m], i) => (
-                      <div key={t} className={`lp-task${taskStep > i ? " on" : ""}`}>
-                        <span className="ck"><Check size={15} strokeWidth={3.4} aria-hidden="true" /></span>
-                        <div style={{ minWidth: 0 }}><b>{t}</b><span>{m}</span></div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <HeroSlides />
             </Stage>
           </div>
         </div>
@@ -237,16 +224,7 @@ export default function Landing() {
       {/* ───── Số liệu ───── */}
       <section className="lp-section" style={{ paddingBottom: 0 }}>
         <div className="lp-wrap">
-          <div className="lp-stats">
-            {([
-              [4, "kỹ năng thi thử: Listening, Reading, Writing, Speaking"],
-              [24, "câu trong bài test trình độ, làm hết khoảng 12 phút"],
-              [5, "bước tự động xử lý mỗi cuốn sách bạn tải lên"],
-              [1, "cuốn sách miễn phí để dùng thử, mua thêm khi cần"],
-            ] as [number, string][]).map(([n, label], i) => (
-              <Reveal key={i} delay={i * 90} variant="zoom"><Stat value={n} label={label} /></Reveal>
-            ))}
-          </div>
+          <Reveal variant="zoom"><Numbers /></Reveal>
         </div>
       </section>
 
@@ -262,6 +240,7 @@ export default function Landing() {
               <li><span><b>Không phải chờ cả cuốn.</b> Phần nào xử lý xong là đọc được, phần còn lại hiện dần.</span></li>
               <li><span><b>Ghi chú, tô màu, hỏi AI</b> ngay trên đoạn bạn đang đọc.</span></li>
             </ul>
+            <FeatureCta href="/books" label="Mở Thư viện sách" loggedIn={loggedIn} />
           </Reveal>
           <Reveal variant="right" delay={120}>
             <Stage tone="brand">
@@ -298,6 +277,7 @@ export default function Landing() {
               <li><span><b>Quiz nhiều dạng.</b> Câu tự luận ngắn có AI chấm và giải thích.</span></li>
               <li><span><b>Luyện nhanh 15 phút:</b> xen kẽ thẻ và câu hỏi để nhớ lâu hơn.</span></li>
             </ul>
+            <FeatureCta href="/practice" label="Mở Ôn luyện" loggedIn={loggedIn} />
           </Reveal>
           <Reveal variant="left" delay={120}>
             <Stage tone="accent">
@@ -335,6 +315,7 @@ export default function Landing() {
               <li><span><b>Chấm 4 mức:</b> Quên, Khó, Được, Dễ. Lịch ôn tự chỉnh theo bạn.</span></li>
               <li><span><b>Mỗi ngày một danh sách nhiệm vụ</b> vừa sức với thời gian bạn có.</span></li>
             </ul>
+            <FeatureCta href="/flashcards" label="Mở Thẻ & từ vựng" loggedIn={loggedIn} />
           </Reveal>
           <Reveal variant="right" delay={120}>
             <Stage tone="success">
@@ -373,6 +354,7 @@ export default function Landing() {
               <li><span><b>Dựng đề từ chính cuốn sách của bạn,</b> hoặc dùng bộ Cambridge mẫu.</span></li>
               <li><span><b>Xem lại từng câu,</b> band từng kỹ năng và những lỗi hay lặp lại.</span></li>
             </ul>
+            <FeatureCta href="/exam" label="Mở Thi thử IELTS" loggedIn={loggedIn} />
           </Reveal>
           <Reveal variant="left" delay={120}>
             <Stage tone="navy">
@@ -420,6 +402,7 @@ export default function Landing() {
               <li><span><b>Hội thoại theo tình huống,</b> sửa ngữ pháp ngay trong lúc chat.</span></li>
               <li><span><b>Luyện phát âm theo cụm,</b> chọn tốc độ 0.8×, 1× hoặc 1.2×.</span></li>
             </ul>
+            <FeatureCta href="/tutor" label="Mở Studia AI" loggedIn={loggedIn} />
           </Reveal>
           <Reveal variant="right" delay={120}>
             <Stage tone="accent">
@@ -452,7 +435,7 @@ export default function Landing() {
           </Reveal>
           <div className="lp-grid">
             {([
-              [CalendarDays, "Lịch học tự điều chỉnh", "Đặt band mục tiêu và ngày thi, Studia chia nhỏ thành nhiệm vụ mỗi ngày. Có hôm bận quá thì lịch tự dời."],
+              [CalendarDays, "Lịch học & streak", "Đặt band mục tiêu và ngày thi, ghi chú theo từng giờ, chụp lại khoảnh khắc học mỗi ngày, giữ streak và nhận email nhắc trước 10 phút."],
               [Network, "Bản đồ kiến thức", "Nhìn một cái là biết chủ đề nào đã vững, chủ đề nào còn yếu và nên học gì trước."],
               [NotebookPen, "Sổ lỗi sai", "Lỗi từ quiz, hội thoại và phát âm gom về một chỗ, để bạn luyện đúng chỗ hay sai."],
               [Languages, "Từ vựng của bạn", "Gặp từ lạ khi đọc thì lưu luôn, kèm ví dụ và phiên âm, rồi đẩy thẳng vào flashcard."],
@@ -492,26 +475,9 @@ export default function Landing() {
           <Reveal>
             <span className="lp-eyebrow">Gói & lượt upload</span>
             <h2 className="lp-h2">Bắt đầu miễn phí, <span className="lp-hl">cần thêm thì mua thêm</span>.</h2>
-            <p className="lp-lead" style={{ margin: "20px auto 0" }}>Mỗi lượt tương ứng một cuốn sách tải lên. Thanh toán bằng chuyển khoản VietQR, lượt được cộng tự động khi tiền về.</p>
+            <p className="lp-lead" style={{ margin: "20px auto 0" }}>Mỗi lượt tương ứng một cuốn sách tải lên. Chọn gói bên dưới, thanh toán bằng chuyển khoản VietQR, lượt được cộng tự động khi tiền về.</p>
           </Reveal>
-          <div className="lp-price">
-            <Reveal variant="left">
-              <div className="lp-plan">
-                <h3>Dùng thử</h3><div className="big">0 đ</div>
-                <p style={{ color: "var(--ink-muted)" }}>Đủ để làm quen với Studia</p>
-                <ul className="lp-list"><li><span><b>1 cuốn sách</b> tải lên miễn phí</span></li><li><span>Dùng đủ phần học, thi thử và Studia AI</span></li></ul>
-                <Link className="lp-btn lp-btn-ghost" style={{ marginTop: 28, width: "100%" }} href="/signup">Tạo tài khoản</Link>
-              </div>
-            </Reveal>
-            <Reveal variant="right" delay={100}>
-              <div className="lp-plan hot">
-                <h3>Mua thêm lượt</h3><div className="big">Theo gói</div>
-                <p style={{ opacity: 0.8 }}>Gói nhỏ, vừa, lớn — xem giá sau khi đăng nhập</p>
-                <ul className="lp-list"><li><span><b>Thêm lượt</b> khi muốn tải thêm sách</span></li><li><span>Chuyển khoản VietQR, lượt cộng ngay khi nhận tiền</span></li></ul>
-                <Link className="lp-btn lp-btn-accent" style={{ marginTop: 28, width: "100%" }} href="/signup">Bắt đầu</Link>
-              </div>
-            </Reveal>
-          </div>
+          <Pricing />
         </div>
       </section>
 
@@ -524,8 +490,8 @@ export default function Landing() {
               <h2>Ngày học đầu tiên của bạn đang chờ.</h2>
               <p>Tạo tài khoản, chọn band mục tiêu, tải cuốn sách đầu tiên. Ba phút là xong.</p>
               <div className="lp-cta" style={{ justifyContent: "center" }}>
-                <Link className="lp-btn lp-btn-accent lp-btn-lg" href="/signup">Học thử miễn phí <ArrowRight size={20} aria-hidden="true" /></Link>
-                <Link className="lp-btn lp-btn-lg" href="/login" style={{ color: "var(--on-navy)", borderColor: "color-mix(in srgb, var(--on-navy) 40%, transparent)" }}>Mình đã có tài khoản</Link>
+                <Link className="lp-btn lp-btn-accent lp-btn-lg" href={loggedIn ? "/" : "/signup"}>{loggedIn ? "Vào học ngay" : "Học thử miễn phí"} <ArrowRight size={20} aria-hidden="true" /></Link>
+                {!loggedIn && <Link className="lp-btn lp-btn-lg" href="/login" style={{ color: "var(--on-navy)", borderColor: "color-mix(in srgb, var(--on-navy) 40%, transparent)" }}>Mình đã có tài khoản</Link>}
               </div>
             </div>
           </div>

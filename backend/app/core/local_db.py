@@ -54,7 +54,10 @@ DEFAULT_DB = {
     "document_highlights": [],
     "document_block_revisions": [],
     "reading_progress": [],
-    "exam_sets": []
+    "exam_sets": [],
+    "study_slots": [],
+    "study_moments": [],
+    "reminder_log": []
 }
 
 
@@ -394,6 +397,14 @@ class LocalStorageBucket:
     def download(self, path: str) -> bytes:
         with open(resolve_storage_path(self.bucket_name, path), "rb") as f:
             return f.read()
+
+    def remove(self, paths: List[str]):
+        for p in paths:
+            try:
+                os.remove(resolve_storage_path(self.bucket_name, p))
+            except (OSError, ValueError):
+                pass
+        return []
 
     def get_public_url(self, path: str) -> str:
         return f"http://localhost:8000/static/storage/{self.bucket_name}/{path}"

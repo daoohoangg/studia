@@ -16,6 +16,7 @@ logger = logging.getLogger("studia.billing.api")
 
 account_router = APIRouter(prefix="/account", tags=["Account"])
 router = APIRouter(prefix="/billing", tags=["Billing"])
+public_router = APIRouter(prefix="/billing", tags=["Billing public"])
 webhook_router = APIRouter(prefix="/billing/webhook", tags=["Billing webhook"])
 
 
@@ -29,6 +30,21 @@ def get_me():
         "role": acc.get("role", "student"),
         "status": acc.get("status", "active"),
         "quota": billing.quota(acc["id"], acc.get("role")),
+    }
+
+
+@public_router.get("/public-packs")
+def get_public_packs():
+    """Gói đang bán cho trang giới thiệu (xem được khi chưa đăng nhập). Gói chưa mở bán chỉ trả tên và số sách, không có giá."""
+    all_packs = billing.list_packs(include_inactive=True)
+    on_sale = [p for p in all_packs if p.get("active") and int(p.get("price_vnd") or 0) > 0]
+    upcoming = [p for p in all_packs if p not in on_sale]
+    pick = ("id", "name", "books", "price_vnd", "description", "highlight")
+    return {
+        "packs": [{k: p.get(k) for k in pick} for p in on_sale],
+        "upcoming": [{k: p.get(k) for k in ("name", "books", "description", "highlight")} for p in upcoming],
+        "free_books": billing.free_book_limit(),
+        "payments_ready": billing.payments_configured(),
     }
 
 

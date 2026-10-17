@@ -14,6 +14,14 @@ export default function BuyPacks({ compact = false }: { compact?: boolean }) {
   const [bankReady, setBankReady] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Gói đã chọn ở trang giới thiệu (?pack= hoặc sessionStorage) được làm nổi bật
+  const [picked, setPicked] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      setPicked(new URLSearchParams(window.location.search).get("pack") || sessionStorage.getItem("studia-pick-pack"));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     apiFetch("/billing/packs").then(async (r) => {
@@ -31,6 +39,7 @@ export default function BuyPacks({ compact = false }: { compact?: boolean }) {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Không tạo được đơn");
+      try { sessionStorage.removeItem("studia-pick-pack"); } catch {}
       router.push(`/billing/${d.order.id}`);
     } catch (e: any) {
       setError(e?.message || "Không tạo được đơn");
@@ -52,7 +61,7 @@ export default function BuyPacks({ compact = false }: { compact?: boolean }) {
       {error && <div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "var(--danger-tint)", color: "var(--danger)", fontSize: 14 }}>{error}</div>}
       {compact ? (
         packs.map((p) => (
-          <button key={p.id} type="button" className="pack-row" data-hot={p.highlight || undefined} onClick={() => buy(p)} disabled={!!busy}>
+          <button key={p.id} type="button" className="pack-row" data-hot={p.highlight || undefined} data-picked={p.id === picked || undefined} onClick={() => buy(p)} disabled={!!busy}>
             <span style={{ flex: 1, minWidth: 0 }}>
               <b>+{p.books} sách</b> {p.highlight && <span className="st-badge st-badge-accent" style={{ marginLeft: 6 }}>Chọn nhiều nhất</span>}
               <span className="meta" style={{ display: "block" }}>{p.description || p.name}</span>
@@ -63,8 +72,8 @@ export default function BuyPacks({ compact = false }: { compact?: boolean }) {
       ) : (
         <div className="grid-3">
           {packs.map((p) => (
-            <div key={p.id} className="pack-card" data-hot={p.highlight || undefined}>
-              <span className="label" style={{ color: p.highlight ? "var(--brand)" : undefined }}>{p.highlight ? "Chọn nhiều nhất" : p.name}</span>
+            <div key={p.id} className="pack-card" data-hot={p.highlight || undefined} data-picked={p.id === picked || undefined}>
+              <span className="label" style={{ color: p.highlight ? "var(--brand)" : undefined }}>{p.id === picked ? `Bạn đã chọn · ${p.name}` : p.highlight ? "Chọn nhiều nhất" : p.name}</span>
               <div className="pack-n num">+{p.books} <span>sách</span></div>
               <b className="num" style={{ font: "650 20px/24px var(--font-sans)" }}>{formatVnd(p.price_vnd)}</b>
               <p className="meta" style={{ fontSize: 14 }}>

@@ -95,6 +95,13 @@ class SafeBucketWrapper:
             logger.warning(f"Supabase Storage download failed: {e}. Fallback to Local Storage.")
             return self.local_bucket.download(path)
 
+    def remove(self, paths: list):
+        try:
+            return self.real_bucket.remove(paths)
+        except Exception as e:
+            logger.warning(f"Supabase Storage remove failed: {e}. Fallback to Local Storage.")
+            return self.local_bucket.remove(paths)
+
     def get_public_url(self, path: str) -> str:
         try:
             return self.real_bucket.get_public_url(path)

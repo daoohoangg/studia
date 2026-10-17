@@ -19,18 +19,51 @@ from app.api.v1.feedback import router as feedback_router
 from app.api.v1.exam import router as exam_router
 from app.api.v1.exam_sets import router as exam_sets_router
 from app.api.v1.profile import router as profile_router
-from app.api.v1.billing import account_router, router as billing_router, webhook_router as billing_webhook_router
+from app.api.v1.billing import account_router, public_router as billing_public_router, router as billing_router, webhook_router as billing_webhook_router
 from app.api.v1.admin import router as admin_router
+from app.api.v1.schedule import router as schedule_router
 from app.core.accounts import require_admin
+import asyncio
+import contextlib
 import logging
 
 logger = logging.getLogger(__name__)
+
+REMINDER_SCAN_SECONDS = 30
+
+
+async def _reminder_loop():
+    """Quét khung giờ học sắp bắt đầu và gửi email nhắc. Lỗi một vòng không làm dừng vòng sau."""
+    from fastapi.concurrency import run_in_threadpool
+    from app.services.schedule import run_reminder_cycle
+    while True:
+        try:
+            counts = await run_in_threadpool(run_reminder_cycle)
+            if counts.get("sent") or counts.get("failed"):
+                logger.info(f"Reminder cycle: {counts}")
+        except Exception as e:
+            logger.warning(f"Reminder cycle error: {e}")
+        await asyncio.sleep(REMINDER_SCAN_SECONDS)
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: FastAPI):
+    task = asyncio.create_task(_reminder_loop()) if settings.REMINDERS_ENABLED else None
+    try:
+        yield
+    finally:
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    description="Studia Personal Learning Intelligence Platform — RAG + Adaptive FSRS + Gemini AI + Speech Shadowing + TBLT Scenarios"
+    description="Studia Personal Learning Intelligence Platform — RAG + Adaptive FSRS + Gemini AI + Speech Shadowing + TBLT Scenarios",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -83,10 +116,13 @@ app.include_router(exam_sets_router, prefix=settings.API_V1_STR, dependencies=au
 app.include_router(account_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 app.include_router(profile_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 app.include_router(billing_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(schedule_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 # Quản trị: phải đăng nhập VÀ có role admin
 app.include_router(admin_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_admin)])
 # Webhook ngân hàng: không có token người dùng — tự xác thực bằng API key / chữ ký HMAC của SePay
 app.include_router(billing_webhook_router, prefix=settings.API_V1_STR)
+# Bảng giá cho trang giới thiệu: công khai, chỉ đọc
+app.include_router(billing_public_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():

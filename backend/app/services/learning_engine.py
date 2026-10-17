@@ -11,6 +11,8 @@ from datetime import datetime, date, timedelta, timezone
 import math
 import logging
 
+from app.services.schedule import local_today
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +69,7 @@ class LearningEngine:
 
         plans = []
         topic_index = 0
-        today = date.today()
+        today = local_today()
 
         for day_num in range(days_needed):
             plan_date = today + timedelta(days=day_num)
@@ -198,7 +200,7 @@ class LearningEngine:
             return current_plan
 
         if from_date is None:
-            from_date = date.today() + timedelta(days=1)
+            from_date = local_today() + timedelta(days=1)
 
         # Tạo review tasks cho weak topics
         review_tasks = []
@@ -284,7 +286,7 @@ class LearningEngine:
         2. Thêm flashcards đến hạn (FSRS)
         3. Tính tổng thời gian và streak
         """
-        today = date.today().isoformat()
+        today = local_today().isoformat()
         result = {
             "plan_date": today,
             "tasks": [],
@@ -313,18 +315,9 @@ class LearningEngine:
                 result["plan_id"] = plan.get("id", "")
                 result["plan_status"] = plan.get("status", "pending")
 
-            # Đếm streak (số ngày học liên tiếp)
-            streak_resp = supabase_client.table("daily_learning_plans") \
-                .select("plan_date, status") \
-                .eq("user_id", user_id) \
-                .eq("status", "completed") \
-                .order("plan_date", desc=True) \
-                .limit(30) \
-                .execute()
-
-            if streak_resp.data:
-                streak = LearningEngine._calculate_streak(streak_resp.data)
-                result["streak_days"] = streak
+            # Streak: số ngày học liên tiếp (nhiệm vụ, khung giờ, khoảnh khắc hoặc bài làm)
+            from app.services.schedule import streak_days
+            result["streak_days"] = streak_days(supabase_client, user_id)
 
             # Knowledge summary
             if knowledge_states:
@@ -349,7 +342,7 @@ class LearningEngine:
             return 0
 
         streak = 0
-        check_date = date.today()
+        check_date = local_today()
 
         completed_dates = set()
         for plan in completed_plans:

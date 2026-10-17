@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import date, timedelta
+from app.services.schedule import local_today
 from app.services.graph_engine import GraphEngine
 from app.services.learning_engine import LearningEngine
 from app.services.ai_engine import AIEngine
@@ -63,7 +64,7 @@ async def set_goal(req: SetGoalRequest):
 
     # 2. Lưu study goal
     goal_id = str(uuid.uuid4())
-    deadline_date = (date.today() + timedelta(days=req.deadline_days)).isoformat()
+    deadline_date = (local_today() + timedelta(days=req.deadline_days)).isoformat()
 
     supabase.table("study_goals").insert({
         "id": goal_id,
@@ -191,7 +192,7 @@ async def get_today_plan(user_id: Optional[str] = None):
     except Exception as e:
         logger.error(f"Error in get_today_plan: {e}")
         return {
-            "plan_date": date.today().isoformat(),
+            "plan_date": local_today().isoformat(),
             "tasks": [],
             "total_minutes": 0,
             "streak_days": 0,
@@ -321,8 +322,8 @@ async def get_study_plans(user_id: Optional[str] = None, days: int = 14):
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    start_date = date.today().isoformat()
-    end_date = (date.today() + timedelta(days=days)).isoformat()
+    start_date = local_today().isoformat()
+    end_date = (local_today() + timedelta(days=days)).isoformat()
 
     resp = supabase.table("daily_learning_plans") \
         .select("*") \
@@ -434,7 +435,7 @@ async def get_today_interleaved(user_id: Optional[str] = None):
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
     try:
-        today = date.today().isoformat()
+        today = local_today().isoformat()
         interleaved_tasks = []
 
         # 1. Lấy daily plan tasks (lesson, quiz, spaced_repetition)
@@ -545,17 +546,10 @@ async def get_today_interleaved(user_id: Optional[str] = None):
         # Tính tổng thời gian
         total_minutes = sum(t.get("duration_min", 15) for t in interleaved_tasks)
 
-        # Streak calculation
-        streak_resp = supabase.table("daily_learning_plans") \
-            .select("plan_date, status") \
-            .eq("user_id", uid) \
-            .eq("status", "completed") \
-            .order("plan_date", desc=True) \
-            .limit(30) \
-            .execute()
-
+        # Streak: dùng chung cách tính với trang Lịch học
         from app.services.learning_engine import LearningEngine
-        streak = LearningEngine._calculate_streak(streak_resp.data or [])
+        from app.services.schedule import streak_days
+        streak = streak_days(supabase, uid)
 
         # Knowledge profile
         ks_all_resp = supabase.table("knowledge_states") \
@@ -595,7 +589,7 @@ async def get_today_interleaved(user_id: Optional[str] = None):
     except Exception as e:
         logger.error(f"Error in get_today_interleaved: {e}")
         return {
-            "plan_date": date.today().isoformat(),
+            "plan_date": local_today().isoformat(),
             "interleaved_tasks": [],
             "total_minutes": 0,
             "task_count": 0,

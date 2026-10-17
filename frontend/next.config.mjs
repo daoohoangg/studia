@@ -3,8 +3,8 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Micro cho luyện nói; camera/định vị không dùng
-  { key: "Permissions-Policy", value: "microphone=(self), camera=(), geolocation=()" },
+  // Micro cho luyện nói, camera để chụp khoảnh khắc học trong Lịch học; định vị không dùng
+  { key: "Permissions-Policy", value: "microphone=(self), camera=(self), geolocation=()" },
 ];
 
 const nextConfig = {

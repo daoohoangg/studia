@@ -11,7 +11,7 @@ export default function GoogleButton({ label = "Tiếp tục với Google", onEr
     setBusy(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/`, queryParams: { prompt: "select_account" } },
+      options: { redirectTo: `${window.location.origin}/auth/callback`, queryParams: { prompt: "select_account" } },
     });
     if (error) {
       setBusy(false);

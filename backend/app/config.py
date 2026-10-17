@@ -56,6 +56,18 @@ class Settings(BaseSettings):
     # Tiền tố mã nội dung chuyển khoản (phải trùng "Cấu trúc mã thanh toán" cấu hình trên SePay)
     PAYMENT_CODE_PREFIX: str = "STD"
 
+    # Email nhắc lịch học — để trống SMTP_HOST thì chỉ ghi log, không gửi
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""  # vd. "Studia <no-reply@studia.vn>"; trống thì dùng SMTP_USER
+    SMTP_SECURITY: str = "starttls"  # starttls | ssl | none
+    REMINDERS_ENABLED: bool = True
+    REMINDER_LEAD_MINUTES: int = 10
+    # Múi giờ của người học (Việt Nam không có giờ mùa hè nên dùng độ lệch cố định so với UTC)
+    TZ_OFFSET_HOURS: float = 7.0
+
     # Demo user — chỉ dùng khi tắt auth ở development
     DEFAULT_USER_ID: str = "11111111-1111-1111-1111-111111111111"
 

@@ -21,10 +21,10 @@ USER_TABLES = (
     "user_profiles", "placement_results", "vocabulary_items", "error_logs", "knowledge_states",
     "flashcard_states", "question_attempts", "review_schedules", "study_goals", "daily_learning_plans",
     "learning_paths", "ai_chat_sessions", "exam_sessions", "exam_sets", "document_notes",
-    "document_highlights", "reading_progress", "documents",
+    "document_highlights", "reading_progress", "study_slots", "study_moments", "reminder_log", "documents",
 )
 EXPORT_TABLES = ("user_profiles", "placement_results", "vocabulary_items", "error_logs",
-                 "knowledge_states", "flashcard_states", "study_goals", "exam_sessions")
+                 "knowledge_states", "flashcard_states", "study_goals", "study_slots", "exam_sessions")
 
 SECTIONS = ("vocab", "grammar", "reading", "listening")
 

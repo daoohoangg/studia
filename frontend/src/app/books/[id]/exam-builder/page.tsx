@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { API, apiFetch } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
 
 // ─── Kiểu dữ liệu ────────────────────────────────────────────
 type Skill = "listening" | "reading";
@@ -126,13 +127,7 @@ export default function ExamBuilderPage() {
 
   // Theo dõi các đề đang được AI làm lại
   const refining = sets.some((s) => s.build_state === "refining");
-  useEffect(() => {
-    if (!refining) return;
-    const timer = setInterval(async () => {
-      await loadSets();
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [refining, loadSets]);
+  usePolling(loadSets, 4000, refining);
   useEffect(() => {
     if (selectedId && !refining && draft?.build_state === "refining") loadDraft(selectedId, true);
   }, [refining, selectedId, draft?.build_state, loadDraft]);

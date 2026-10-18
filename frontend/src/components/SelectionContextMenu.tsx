@@ -58,6 +58,10 @@ export default function SelectionContextMenu() {
 
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Phòng thi đặt body[data-exam-mode]: "real" chỉ cho tô sáng như thi thật, "practice" thêm từ điển/ghi chú/flashcard
+  const examMode = typeof document !== "undefined" ? document.body.dataset.examMode : undefined;
+  const realExam = examMode === "real";
+
   // Global mouse selection & contextmenu listener
   useEffect(() => {
     const handleSelectionEnd = (e: MouseEvent) => {
@@ -329,17 +333,38 @@ export default function SelectionContextMenu() {
           style={{ top: `${position.top}px`, left: `${position.left}px` }}
         >
           {/* Lookup Dictionary */}
-          <button
-            className="studia-selection-btn"
-            onClick={handleLookupDictionary}
-            title="Tra cứu từ điển & giải thích AI"
-          >
-            <span>Tra từ điển</span>
-          </button>
+          {!realExam && (
+            <>
+              <button
+                className="studia-selection-btn"
+                onClick={handleLookupDictionary}
+                title="Tra cứu từ điển & giải thích AI"
+              >
+                <span>Tra từ điển</span>
+              </button>
 
-          <div className="studia-selection-divider" />
+              <div className="studia-selection-divider" />
+            </>
+          )}
 
-          {ebookSelection && (
+          {examMode === "practice" && (
+            <>
+              <button
+                className="studia-selection-btn"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("studia:exam-note", { detail: { text: selectedText } }));
+                  window.getSelection()?.removeAllRanges();
+                  setVisible(false);
+                }}
+                title="Lưu đoạn này vào sổ ghi chú của lượt thi"
+              >
+                <span>Ghi chú</span>
+              </button>
+              <div className="studia-selection-divider" />
+            </>
+          )}
+
+          {!realExam && ebookSelection && (
             <>
               <button className="studia-selection-btn" onClick={() => dispatchEbookAction("bold")} title="In đậm / bỏ in đậm phần đã chọn (lưu vào sách)">
                 <span style={{ fontWeight: 800 }}>In đậm</span>
@@ -412,27 +437,31 @@ export default function SelectionContextMenu() {
             )}
           </div>
 
-          <div className="studia-selection-divider" />
+          {!realExam && (
+            <>
+              <div className="studia-selection-divider" />
 
-          {/* Add to Flashcard */}
-          <button
-            className="studia-selection-btn"
-            onClick={handleOpenFlashcardModal}
-            title="Tạo flashcard"
-          >
-            <span>Thêm Flashcard</span>
-          </button>
+              {/* Add to Flashcard */}
+              <button
+                className="studia-selection-btn"
+                onClick={handleOpenFlashcardModal}
+                title="Tạo flashcard"
+              >
+                <span>Thêm Flashcard</span>
+              </button>
 
-          <div className="studia-selection-divider" />
+              <div className="studia-selection-divider" />
 
-          {/* Pronounce TTS */}
-          <button
-            className="studia-selection-btn"
-            onClick={handlePronounce}
-            title="Phát âm tiếng Anh"
-          >
-            <span>Đọc từ</span>
-          </button>
+              {/* Pronounce TTS */}
+              <button
+                className="studia-selection-btn"
+                onClick={handlePronounce}
+                title="Phát âm tiếng Anh"
+              >
+                <span>Đọc từ</span>
+              </button>
+            </>
+          )}
         </div>
       )}
 

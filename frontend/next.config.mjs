@@ -11,6 +11,8 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
+  experimental: { optimizePackageImports: ["lucide-react"] },
+  images: { formats: ["image/avif", "image/webp"], minimumCacheTTL: 31536000 },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

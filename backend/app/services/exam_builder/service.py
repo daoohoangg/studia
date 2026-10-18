@@ -36,6 +36,8 @@ def summary(row: Dict[str, Any]) -> Dict[str, Any]:
         "errors": len(validation.get("errors", [])),
         "warnings": len(validation.get("warnings", [])),
         "stats": validation.get("stats", {}),
+        "sections": [s for s, n in (("listening", "listening"), ("reading", "reading"), ("writing", "writing_tasks"),
+                                    ("speaking", "speaking_parts")) if (validation.get("stats") or {}).get(n)],
         "build_state": (validation.get("build") or {}).get("state", "ready"),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),

@@ -4,7 +4,15 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 import CountUp from "@/components/CountUp";
-import { Flame, Target, BookOpen, Layers, ArrowRight } from "lucide-react";
+import { Flame, Target, BookOpen, Layers, ArrowRight, Volume2, NotebookPen } from "lucide-react";
+import { useAccount, useDisplayName } from "@/lib/account";
+import Mascot, { MOODS } from "@/components/mascot/Mascot";
+import JournalForm from "@/components/journal/JournalForm";
+import { pickMood } from "@/lib/mascot";
+import { quoteOfDay, wordOfDay } from "@/lib/daily";
+import { fetchStreak, todayIso, type Streak } from "@/lib/schedule";
+import { FEELINGS, useJournal } from "@/lib/journal";
+import "./home.css";
 
 import { API, apiFetch } from "@/lib/api";
 import { fetchServerProfile } from "@/lib/placement";
@@ -17,6 +25,9 @@ const greetings = () => {
 };
 
 export default function HomePage() {
+  const { account } = useAccount();
+  const displayName = useDisplayName(account);
+  const firstName = displayName === "Tài khoản" ? "bạn" : displayName.trim().split(/\s+/).slice(-1)[0];
   const [todayData, setTodayData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [completedTasks, setCompletedTasks] = useState<Set<number>>(new Set());
@@ -100,6 +111,24 @@ export default function HomePage() {
     }).catch(() => {});
   }, []);
 
+  const [streakInfo, setStreakInfo] = useState<Streak | null>(null);
+  useEffect(() => { fetchStreak().then(setStreakInfo).catch(() => {}); }, []);
+  const journal = useJournal();
+  const today = todayIso();
+  const todayEntry = journal.entries[today];
+  const [justSaved, setJustSaved] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const quote = quoteOfDay();
+  const word = wordOfDay();
+  const speak = (w: string) => {
+    try { const u = new SpeechSynthesisUtterance(w); u.lang = "en-GB"; u.rate = 0.9; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); } catch {}
+  };
+  // ?mood=sad|fire|... trong URL để xem thử từng biểu cảm của linh vật
+  const preview = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("mood") : null;
+  const base = pickMood(streakInfo);
+  const mascot = justSaved ? { mood: "love" as const, line: "Cảm ơn bạn đã kể cho mình nghe. Nghỉ ngơi thật tốt nhé!" }
+    : preview && (MOODS as string[]).includes(preview) ? { mood: preview as typeof MOODS[number], line: base.line } : base;
+
   if (loading) {
     return (
       <div className="wrap">
@@ -124,28 +153,82 @@ export default function HomePage() {
 
   return (
     <div className="wrap stagger">
-      <header className="page-head">
+      <header className="hm-hero">
+        <i className="hm-orb a" /><i className="hm-orb b" /><i className="hm-orb c" />
         <div>
-          <div className="muted" style={{ fontSize: 15 }}>{greetings()}, bạn</div>
-          <h1 className="page-title" style={{ marginTop: 4 }}>
-            {tasks.length > 0 ? <>Hôm nay bạn có <span style={{ color: "var(--brand)" }}>{tasks.length} nhiệm vụ</span></> : <>Sẵn sàng học hôm nay?</>}
+          <div className="hm-hello">{greetings()}, {firstName}</div>
+          <h1 className="hm-title">
+            {tasks.length > 0 ? <>Hôm nay bạn có <em>{tasks.length} nhiệm vụ</em></> : <>Sẵn sàng <em>chinh phục IELTS</em> hôm nay?</>}
           </h1>
-          {tasks.length > 0 && <p className="page-sub">{totalMin} phút · {tasks.length} bài tập · {progressPct}% hoàn thành</p>}
+          <p className="hm-sub">{tasks.length > 0 ? `${totalMin} phút · ${tasks.length} bài tập · ${progressPct}% hoàn thành` : "Dùng menu bên trái để chọn kỹ năng, hoặc thi thử để biết band hiện tại."}</p>
+          <p className="hm-say" role="status">{mascot.line}</p>
+          <div className="hm-actions">
+            {nextTask ? (
+              <Link className="hm-cta" href={taskHref(nextTask)}>
+                Tiếp tục: {nextTask.topic_name.length > 26 ? nextTask.topic_name.slice(0, 26) + "…" : nextTask.topic_name}
+                <ArrowRight className="st-btn-arrow" size={18} strokeWidth={2.2} />
+              </Link>
+            ) : (
+              <Link className="hm-cta" href="/exam">Thi thử ngay <ArrowRight className="st-btn-arrow" size={18} strokeWidth={2.2} /></Link>
+            )}
+            <Link className="hm-ghost" href="/plan">Xem lịch học</Link>
+          </div>
         </div>
-        <div className="row">
-          {streak > 0 && (
-            <span className="st-badge st-badge-accent" style={{ height: 32, padding: "0 14px", fontSize: 13.5 }}>
-              <Flame size={16} strokeWidth={2} /> {streak} ngày liên tiếp
-            </span>
-          )}
-          {nextTask && (
-            <Link className="st-btn st-btn-primary" href={taskHref(nextTask)}>
-              Tiếp tục: {nextTask.topic_name.length > 28 ? nextTask.topic_name.slice(0, 28) + "…" : nextTask.topic_name}
-              <ArrowRight className="st-btn-arrow" size={18} strokeWidth={2} />
-            </Link>
+        <div className="hm-side">
+          <div className="hm-mascot">
+            <Mascot mood={mascot.mood} size={132} />
+            <div className="hm-chip"><b><span className="hm-flame"><Flame size={20} strokeWidth={2.2} /></span> {streak}</b><span>ngày liên tiếp</span></div>
+          </div>
+          {tasks.length > 0 && (
+            <div className="hm-ring" role="img" aria-label={`${progressPct}% hoàn thành hôm nay`}>
+              <svg viewBox="0 0 112 112" fill="none" aria-hidden="true">
+                <circle className="t" cx="56" cy="56" r="48" strokeWidth="9" />
+                <circle className="v" cx="56" cy="56" r="48" strokeWidth="9" strokeDasharray={2 * Math.PI * 48} strokeDashoffset={2 * Math.PI * 48 * (1 - progressPct / 100)} />
+              </svg>
+              <div><b>{progressPct}%</b><small>hôm nay</small></div>
+            </div>
           )}
         </div>
       </header>
+
+      <div className="hm-daily">
+        <section className="hm-quote" aria-labelledby="quote-h">
+          <h2 id="quote-h" className="eyebrow">Câu nói hôm nay</h2>
+          <blockquote lang="en">“{quote.en}”</blockquote>
+          <p className="vi">{quote.vi}</p>
+          <cite>{quote.by}</cite>
+        </section>
+
+        <section className="hm-word st-card" aria-labelledby="word-h">
+          <div className="sec-head" style={{ marginBottom: 8 }}>
+            <h2 id="word-h" className="eyebrow">Từ vựng hôm nay</h2>
+            <button type="button" className="hm-speak" onClick={() => speak(word.word)} aria-label={`Nghe phát âm ${word.word}`}><Volume2 size={18} strokeWidth={2} /></button>
+          </div>
+          <div className="hm-word-h"><b lang="en">{word.word}</b><span>{word.pos}</span><i>{word.ipa}</i></div>
+          <p className="hm-word-vi">{word.vi}</p>
+          <p className="hm-word-ex" lang="en">“{word.example}”</p>
+          <p className="meta">{word.exampleVi}</p>
+        </section>
+
+        <section className="st-card hm-journal" aria-labelledby="jn-h">
+          <div className="sec-head" style={{ marginBottom: 10 }}>
+            <h2 id="jn-h" className="sec-title"><NotebookPen size={18} strokeWidth={2} style={{ verticalAlign: -3, marginRight: 8 }} />Nhật ký hôm nay</h2>
+            <Link className="link" href="/journal">Xem tất cả</Link>
+          </div>
+          {!journal.ready ? <div className="skeleton" style={{ height: 120 }} /> : todayEntry && !editing ? (
+            <div className="hm-jdone">
+              <Mascot mood={FEELINGS[(todayEntry?.feeling ?? 3) - 1].mood} size={72} />
+              <div>
+                <b>Hôm nay bạn thấy {(FEELINGS[(todayEntry?.feeling ?? 3) - 1].label).toLowerCase()}</b>
+                {todayEntry?.text && <p className="meta" style={{ marginTop: 4 }}>{todayEntry.text.length > 110 ? todayEntry.text.slice(0, 110) + "…" : todayEntry.text}</p>}
+                <button type="button" className="link" onClick={() => { setEditing(true); setJustSaved(false); }} style={{ marginTop: 6 }}>Sửa nhật ký</button>
+              </div>
+            </div>
+          ) : (
+            <JournalForm day={today} entry={todayEntry} onSave={(e) => { journal.save(e); setEditing(false); setJustSaved(true); }} />
+          )}
+        </section>
+      </div>
 
       {!todayData?.has_plan && tasks.length === 0 && (
         <section className="st-card" aria-labelledby="setup-h">
@@ -161,30 +244,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {!todayData?.has_plan && tasks.length === 0 && (
-        <section aria-labelledby="try-h">
-          <div className="sec-head"><h2 id="try-h" className="sec-title">Hoặc thử ngay, không cần thiết lập</h2></div>
-          <div className="grid-3">
-            {[
-              ["/exam", "Thi thử một kỹ năng", "Reading 60 phút hoặc Listening 30 phút, có chấm điểm band.", "tile"],
-              ["/pronunciation", "Luyện nói 5 phút", "Đọc theo câu mẫu Speaking Part 1, xem từ nào phát âm sai.", "tile tile-accent"],
-              ["/tutor", "Hỏi trợ lý AI", "Hỏi bất cứ điều gì về ngữ pháp, từ vựng hay cách làm bài.", "tile tile-success"],
-            ].map(([href, t, d, cls]) => (
-              <Link key={href} href={href} className="st-card st-card-interactive" style={{ display: "flex", flexDirection: "column", gap: 10, textDecoration: "none", color: "inherit" }}>
-                <span className={cls} aria-hidden="true"><ArrowRight size={20} strokeWidth={1.75} /></span>
-                <b style={{ font: "650 16px/22px var(--font-sans)" }}>{t}</b><span className="meta">{d}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="grid-3 stat-grid" aria-label="Số liệu hôm nay">
-        <div className="st-stat st-stat-accent">
-          <div className="st-stat-top"><span className="st-stat-icon"><Flame size={16} strokeWidth={2} /></span>Chuỗi ngày học</div>
-          <div className="st-stat-value"><CountUp value={streak} /><small>ngày</small></div>
-          <div className="st-stat-hint">{streak > 0 ? "Giữ nhịp, đừng để đứt chuỗi" : "Học hôm nay để bắt đầu chuỗi"}</div>
-        </div>
+      <section className="hm-stats" aria-label="Số liệu hôm nay">
         <div className="st-stat">
           <div className="st-stat-top"><span className="st-stat-icon"><Target size={16} strokeWidth={2} /></span>Thành thạo</div>
           <div className="st-stat-value"><CountUp value={mastery} /><small>%</small></div>

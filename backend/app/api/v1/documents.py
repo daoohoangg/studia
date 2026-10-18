@@ -8,7 +8,7 @@ from app.services.rag_engine import RAGEngine
 from app.services.ai_engine import AIEngine
 from app.core.supabase_client import get_supabase_client
 from app.config import settings
-from app.core.auth import current_user_id, require_owned
+from app.core.auth import current_user_id, forget_owned, require_owned
 from app.core.accounts import current_account
 from app.services import billing
 from app.core.uploads import (
@@ -397,6 +397,7 @@ def delete_document(document_id: str):
         except Exception:
             pass
     supabase.table("documents").delete().eq("id", document_id).execute()
+    forget_owned("documents", document_id)
     return {"deleted": True, "id": document_id}
 
 

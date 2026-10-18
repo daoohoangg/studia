@@ -1,6 +1,7 @@
 "use client";
 
-import { Flame } from "lucide-react";
+import Mascot from "@/components/mascot/Mascot";
+import { pickMood } from "@/lib/mascot";
 import { WEEKDAYS_SHORT, type Streak, parse, weekdayIdx } from "@/lib/schedule";
 
 /** Chuỗi ngày học liên tiếp, 7 ngày gần nhất và mốc kế tiếp. */
@@ -18,7 +19,7 @@ export default function StreakCard({ streak, loading }: { streak: Streak | null;
   return (
     <section className="sk st-card" aria-labelledby="sk-h" data-state={at_risk ? "risk" : today_done ? "ok" : "idle"}>
       <div className="sk-head">
-        <span className="sk-flame" aria-hidden="true"><Flame size={26} strokeWidth={2} /></span>
+        <Mascot mood={pickMood(streak).mood} size={72} />
         <div>
           <h2 id="sk-h" className="sk-num num"><b>{current}</b> <span>ngày liên tiếp</span></h2>
           <p className="sk-msg">{msg}</p>

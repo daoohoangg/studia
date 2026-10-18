@@ -8,6 +8,8 @@ Xác thực người dùng qua Supabase Auth JWT.
 from contextvars import ContextVar
 from typing import Optional
 import logging
+import threading
+import time
 
 import jwt
 from fastapi import Depends, HTTPException
@@ -23,6 +25,19 @@ _current_user_id: ContextVar[Optional[str]] = ContextVar("current_user_id", defa
 _jwks_client: Optional[jwt.PyJWKClient] = None
 
 ASYMMETRIC_ALGS = ["ES256", "RS256"]
+
+# Cache ngắn các lần xác nhận "bản ghi này của tôi" để các request liên tiếp (đọc ebook, làm bài…) không hỏi DB lại.
+# Chỉ cache kết quả khớp chủ sở hữu; quyền đọc sách chung / admin vẫn được tra mới mỗi lần.
+_OWNED_TTL = 20.0
+_OWNED_MAX = 5000
+_owned_cache: dict[tuple[str, str, str], float] = {}
+_owned_lock = threading.Lock()
+
+
+def forget_owned(table: str, row_id: str) -> None:
+    with _owned_lock:
+        for k in [k for k in _owned_cache if k[1] == table and k[2] == str(row_id)]:
+            _owned_cache.pop(k, None)
 
 
 def _get_jwks_client() -> jwt.PyJWKClient:
@@ -108,6 +123,10 @@ def require_owned(table: str, row_id: str, missing_ok: bool = False, write: bool
     from app.core.supabase_client import get_supabase_client
 
     uid = current_user_id()
+    ck = (uid, table, str(row_id))
+    with _owned_lock:
+        if _owned_cache.get(ck, 0) > time.time():
+            return
     cols = "user_id, visibility" if table == "documents" else "user_id"
     try:
         resp = get_supabase_client().table(table).select(cols).eq("id", row_id).execute()
@@ -120,6 +139,10 @@ def require_owned(table: str, row_id: str, missing_ok: bool = False, write: bool
         raise HTTPException(status_code=404, detail="Không tìm thấy")
     row = rows[0]
     if str(row.get("user_id")) == uid:
+        with _owned_lock:
+            if len(_owned_cache) >= _OWNED_MAX:
+                _owned_cache.clear()
+            _owned_cache[ck] = time.time() + _OWNED_TTL
         return
     if table == "documents":
         from app.core.accounts import is_admin

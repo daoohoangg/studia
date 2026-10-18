@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   Home, BarChart3, BookOpen, CalendarDays, Layers, Mic,
   PenLine, Target, FlaskConical, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon,
-  LayoutGrid, Users, CreditCard, Package, Library, Sparkles, Zap, Settings,
+  NotebookPen, ChevronRight, LayoutGrid, Users, CreditCard, Package, Library, Sparkles, Zap, Settings,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import SelectionContextMenu from "@/components/SelectionContextMenu";
@@ -30,6 +30,7 @@ const navGroups: NavItem[][] = [
     { href: "/dashboard", label: "Tiến độ", icon: BarChart3, also: ["/knowledge-map"] },
     { href: "/books", label: "Thư viện sách", icon: BookOpen },
     { href: "/plan", label: "Lịch học", icon: CalendarDays },
+    { href: "/journal", label: "Nhật ký", icon: NotebookPen },
   ],
   [
     { href: "/practice", label: "Ôn luyện", icon: Zap, also: ["/review"] },
@@ -164,13 +165,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               </Link>
             )}
             {account && (
-              <div className="sidebar-user" title={displayName}>
+              <Link href="/settings" className="sidebar-user sidebar-user-btn" title={`${displayName} · Tài khoản`} aria-label={`Tài khoản: ${displayName}`}>
                 <span className="sidebar-avatar" aria-hidden="true">{displayName.charAt(0).toUpperCase()}</span>
                 <span className="nav-label sidebar-user-text">
                   <b>{displayName}</b>
                   <span className="meta">{isAdmin ? "Quản lý" : "Học sinh"}</span>
                 </span>
-              </div>
+                <ChevronRight className="nav-label sidebar-user-chev" size={16} strokeWidth={2} aria-hidden="true" />
+              </Link>
             )}
             <Link href="/settings" className={cls("nav-item", isActivePath(pathname, "/settings") && "active")}
               aria-current={isActivePath(pathname, "/settings") ? "page" : undefined} title={!expanded ? "Cài đặt" : undefined}>

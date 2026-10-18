@@ -27,7 +27,7 @@ STATUSES = ("active", "locked")
 _current_email: ContextVar[Optional[str]] = ContextVar("current_email", default=None)
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
-CACHE_TTL_SECONDS = 30
+CACHE_TTL_SECONDS = 60
 LAST_SEEN_EVERY_SECONDS = 600
 
 

@@ -4,7 +4,7 @@ Tài khoản của tôi, gói lượt upload, đơn thanh toán và webhook ngâ
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
@@ -34,8 +34,9 @@ def get_me():
 
 
 @public_router.get("/public-packs")
-def get_public_packs():
+def get_public_packs(response: Response):
     """Gói đang bán cho trang giới thiệu (xem được khi chưa đăng nhập). Gói chưa mở bán chỉ trả tên và số sách, không có giá."""
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
     all_packs = billing.list_packs(include_inactive=True)
     on_sale = [p for p in all_packs if p.get("active") and int(p.get("price_vnd") or 0) > 0]
     upcoming = [p for p in all_packs if p not in on_sale]

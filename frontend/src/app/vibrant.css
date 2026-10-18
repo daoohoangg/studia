@@ -1,0 +1,158 @@
+/* Studia — lớp màu sắc & chuyển động bổ sung, áp dụng cho mọi trang.
+   Chỉ dùng token trong globals.css (tự đổi theo sáng/tối). Tắt chuyển động khi reduceMotion. */
+
+:root {
+  --vb-1: #2344c9;   /* chàm */
+  --vb-2: #7c3aed;   /* tím */
+  --vb-3: #f2611f;   /* cam */
+  --vb-4: #0d9488;   /* ngọc */
+  --vb-5: #db2777;   /* hồng */
+  --vb-grad: linear-gradient(135deg, var(--vb-1), var(--vb-2));
+  --vb-grad-warm: linear-gradient(135deg, var(--vb-3), #f59e0b);
+  --vb-grad-cool: linear-gradient(135deg, var(--vb-4), #0ea5e9);
+}
+[data-theme='dark'] {
+  --vb-1: #7d9bff; --vb-2: #b39bff; --vb-3: #ff9a5c; --vb-4: #4fd1c0; --vb-5: #ff8ac0;
+}
+
+@keyframes vb-rise { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes vb-sheen { from { background-position: 200% 0; } to { background-position: -100% 0; } }
+@keyframes vb-drift { 0%,100% { transform: translate3d(0,0,0); } 50% { transform: translate3d(18px,-22px,0); } }
+@keyframes vb-bob { 0%,100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-6px) rotate(-4deg); } }
+@keyframes vb-flame { 0%,100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.18) rotate(-7deg); } }
+@keyframes vb-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vb-3) 45%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+
+/* ---- Nền trang: vài đốm màu rất nhạt phía sau nội dung ---- */
+.app-main { position: relative; isolation: isolate; }
+.app-main::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60vmax 40vmax at 100% -10%, color-mix(in srgb, var(--vb-2) 9%, transparent), transparent 60%),
+    radial-gradient(50vmax 40vmax at -10% 110%, color-mix(in srgb, var(--vb-3) 8%, transparent), transparent 60%),
+    radial-gradient(40vmax 30vmax at 60% 60%, color-mix(in srgb, var(--vb-4) 5%, transparent), transparent 60%);
+}
+
+/* ---- Mỗi trang vào bằng hiệu ứng trượt lên, các khối con nối nhau ---- */
+.wrap > *, .wrap-narrow > * { animation: vb-rise var(--dur-slow) var(--ease-out) both; }
+.wrap > *:nth-child(2), .wrap-narrow > *:nth-child(2) { animation-delay: 60ms; }
+.wrap > *:nth-child(3), .wrap-narrow > *:nth-child(3) { animation-delay: 120ms; }
+.wrap > *:nth-child(4), .wrap-narrow > *:nth-child(4) { animation-delay: 180ms; }
+.wrap > *:nth-child(n+5), .wrap-narrow > *:nth-child(n+5) { animation-delay: 240ms; }
+
+/* ---- Tiêu đề ---- */
+.page-title {
+  background: linear-gradient(100deg, var(--ink) 30%, var(--vb-1) 70%, var(--vb-2));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+}
+.page-title span { -webkit-text-fill-color: initial; }
+.sec-title { position: relative; padding-left: 14px; }
+.sec-title::before {
+  content: ""; position: absolute; left: 0; top: 50%; width: 5px; height: 1em; transform: translateY(-50%);
+  border-radius: 99px; background: var(--vb-grad);
+}
+.sec-head:nth-of-type(3n+2) .sec-title::before { background: var(--vb-grad-warm); }
+.sec-head:nth-of-type(3n) .sec-title::before { background: var(--vb-grad-cool); }
+
+/* ---- Thẻ ---- */
+.st-card {
+  position: relative; border-color: color-mix(in srgb, var(--vb-1) 12%, var(--hairline));
+  box-shadow: 0 1px 2px rgba(15,31,77,.04), 0 8px 24px -12px rgba(35,68,201,.18);
+  transition: transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), border-color var(--dur-base);
+}
+.st-card::after {
+  content: ""; position: absolute; left: 20px; right: 20px; top: -1px; height: 3px; border-radius: 0 0 99px 99px;
+  background: var(--vb-grad); opacity: .0; transition: opacity var(--dur-base);
+}
+.st-card:hover { box-shadow: 0 2px 4px rgba(15,31,77,.05), 0 18px 36px -14px rgba(35,68,201,.28); border-color: color-mix(in srgb, var(--vb-1) 30%, var(--hairline)); }
+.st-card:hover::after { opacity: 1; }
+.st-card-interactive:hover { transform: translateY(-4px); }
+.wrap > .st-card:nth-child(3n+2)::after, .split > .st-card:nth-child(2n)::after { background: var(--vb-grad-warm); }
+.wrap > .st-card:nth-child(3n)::after { background: var(--vb-grad-cool); }
+
+/* ---- Số liệu ---- */
+.st-stat {
+  position: relative; overflow: hidden; border: 0; color: var(--ink);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--vb-1) 13%, var(--surface)), var(--surface) 70%);
+  box-shadow: 0 8px 24px -14px rgba(35,68,201,.35);
+  transition: transform var(--dur-base) var(--ease-spring), box-shadow var(--dur-base);
+}
+.st-stat::before {
+  content: ""; position: absolute; right: -28px; top: -28px; width: 96px; height: 96px; border-radius: 50%;
+  background: color-mix(in srgb, var(--vb-1) 16%, transparent); transition: transform var(--dur-slow) var(--ease-out);
+}
+.st-stat:hover { transform: translateY(-4px) rotate(-.4deg); }
+.st-stat:hover::before { transform: scale(1.5); }
+.st-stat-accent { background: linear-gradient(145deg, color-mix(in srgb, var(--vb-3) 17%, var(--surface)), var(--surface) 70%); box-shadow: 0 8px 24px -14px rgba(242,97,31,.4); }
+.st-stat-accent::before { background: color-mix(in srgb, var(--vb-3) 20%, transparent); }
+.st-stat-success { background: linear-gradient(145deg, color-mix(in srgb, var(--vb-4) 16%, var(--surface)), var(--surface) 70%); box-shadow: 0 8px 24px -14px rgba(13,148,136,.4); }
+.st-stat-success::before { background: color-mix(in srgb, var(--vb-4) 20%, transparent); }
+.st-stat-icon { background: var(--vb-grad); color: #fff; box-shadow: 0 4px 10px -2px color-mix(in srgb, var(--vb-1) 55%, transparent); }
+.st-stat-accent .st-stat-icon { background: var(--vb-grad-warm); color: #fff; box-shadow: 0 4px 10px -2px color-mix(in srgb, var(--vb-3) 55%, transparent); }
+.st-stat-success .st-stat-icon { background: var(--vb-grad-cool); color: #fff; box-shadow: 0 4px 10px -2px color-mix(in srgb, var(--vb-4) 55%, transparent); }
+.st-stat-value { background: linear-gradient(180deg, var(--ink), color-mix(in srgb, var(--vb-1) 70%, var(--ink))); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.st-stat-value small { -webkit-text-fill-color: var(--ink-muted); }
+
+/* ---- Ô biểu tượng ---- */
+.tile { background: var(--vb-grad); color: #fff; box-shadow: 0 6px 14px -4px color-mix(in srgb, var(--vb-1) 55%, transparent); transition: transform var(--dur-base) var(--ease-spring); }
+.tile-accent { background: var(--vb-grad-warm); box-shadow: 0 6px 14px -4px color-mix(in srgb, var(--vb-3) 55%, transparent); color: #fff; }
+.tile-success { background: var(--vb-grad-cool); box-shadow: 0 6px 14px -4px color-mix(in srgb, var(--vb-4) 55%, transparent); color: #fff; }
+.tile-warning { background: linear-gradient(135deg, #f59e0b, #f97316); color: #fff; }
+.st-card:hover .tile, .st-card-interactive:hover .tile { transform: scale(1.12) rotate(-6deg); }
+
+/* ---- Nút ---- */
+.st-btn-primary {
+  background: linear-gradient(120deg, var(--vb-1), var(--vb-2) 55%, var(--vb-1)); background-size: 200% 100%;
+  color: #fff; box-shadow: 0 8px 18px -8px color-mix(in srgb, var(--vb-1) 70%, transparent);
+  transition: background-position var(--dur-slow) var(--ease-out), transform var(--dur-instant), box-shadow var(--dur-base);
+}
+[data-theme='dark'] .st-btn-primary { color: #0b1022; }
+.st-btn-primary:hover:not(:disabled) { background-position: 100% 0; transform: translateY(-2px); box-shadow: 0 14px 26px -10px color-mix(in srgb, var(--vb-1) 80%, transparent); }
+.st-btn-accent { background: var(--vb-grad-warm); color: #fff; }
+.st-btn-secondary:hover:not(:disabled) { background: var(--brand-tint); border-color: var(--vb-1); color: var(--vb-1); }
+
+/* ---- Thanh tiến độ ---- */
+.st-progress-fill, .bar > i {
+  background-image: linear-gradient(90deg, var(--vb-1), var(--vb-2), var(--vb-5), var(--vb-2));
+  background-size: 300% 100%; animation: vb-sheen 5s linear infinite;
+}
+.bar > i[style*="var(--success)"], .st-progress-fill[style*="var(--success)"] { background-image: linear-gradient(90deg, var(--vb-4), #34d399, var(--vb-4)); }
+
+/* ---- Huy hiệu & nhiệm vụ ---- */
+.st-badge-accent { background: var(--vb-grad-warm); color: #fff; box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--vb-3) 60%, transparent); }
+.st-badge-brand { background: color-mix(in srgb, var(--vb-1) 14%, var(--surface)); color: var(--vb-1); }
+.st-task { transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast); }
+.st-task:hover { transform: translateX(4px); border-color: var(--vb-1); box-shadow: 0 8px 20px -12px color-mix(in srgb, var(--vb-1) 60%, transparent); }
+.st-task-done .st-task-check { background: var(--vb-grad-cool); border-color: transparent; color: #fff; animation: st-pop var(--dur-base) var(--ease-spring); }
+.st-task-icon { color: var(--vb-1); }
+
+/* ---- Thanh điều hướng: icon mỗi nhóm một màu ---- */
+.app-sidebar .nav-item svg { transition: transform var(--dur-base) var(--ease-spring), color var(--dur-fast); }
+.app-sidebar .nav-item:hover svg { transform: scale(1.18) rotate(-5deg); }
+.sidebar-nav .nav-group:nth-child(1) .nav-item svg { color: var(--vb-1); }
+.sidebar-nav .nav-group:nth-child(2) .nav-item svg { color: var(--vb-3); }
+.sidebar-nav .nav-group:nth-child(3) .nav-item svg { color: var(--vb-4); }
+.sidebar-nav .nav-group:nth-child(4) .nav-item svg { color: var(--vb-5); }
+.app-sidebar .nav-item.active svg { color: inherit; }
+
+.sidebar-user-btn {
+  margin: 2px 0; padding: 6px 8px; border-radius: var(--radius-md); text-decoration: none; color: inherit;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--vb-1) 12%, var(--surface)), color-mix(in srgb, var(--vb-2) 10%, var(--surface)));
+  border: 1px solid color-mix(in srgb, var(--vb-1) 22%, var(--hairline));
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-base), border-color var(--dur-fast);
+}
+.sidebar-user-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -10px color-mix(in srgb, var(--vb-1) 70%, transparent); border-color: var(--vb-1); }
+.sidebar-user-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.sidebar-user-btn .sidebar-avatar { width: 30px; height: 30px; margin: 0; background: var(--vb-grad); color: #fff; font-size: 14px; box-shadow: 0 4px 10px -2px color-mix(in srgb, var(--vb-1) 60%, transparent); }
+.sidebar-user-chev { margin-left: auto; color: var(--ink-muted); transition: transform var(--dur-fast) var(--ease-out); }
+.sidebar-user-btn:hover .sidebar-user-chev { transform: translateX(3px); color: var(--vb-1); }
+.app-sidebar.collapsed .sidebar-user-btn { padding: 4px 0; background: none; border-color: transparent; }
+
+.mobile-tab.active svg { color: var(--vb-1); }
+
+/* ---- Tôn trọng người dùng giảm chuyển động ---- */
+@media (prefers-reduced-motion: reduce) {
+  .wrap > *, .wrap-narrow > *, .st-progress-fill, .bar > i { animation: none !important; }
+  .st-stat:hover, .st-card-interactive:hover, .st-task:hover { transform: none; }
+}
+[data-motion='reduce'] .wrap > *, [data-motion='reduce'] .wrap-narrow > *,
+[data-motion='reduce'] .st-progress-fill, [data-motion='reduce'] .bar > i { animation: none !important; }

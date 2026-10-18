@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, Check, Clock } from "lucide-react";
+import { usePolling } from "@/lib/usePolling";
 import { apiFetch } from "@/lib/api";
 import { formatVnd, refreshAccount, ORDER_STATUS } from "@/lib/account";
 
@@ -46,11 +47,7 @@ export default function CheckoutPage() {
 
   useEffect(() => { load(); }, [load]);
   // Chờ tiền về: hỏi lại mỗi 4 giây (webhook ngân hàng cập nhật đơn phía máy chủ)
-  useEffect(() => {
-    if (!order || order.status !== "pending") return;
-    const t = setInterval(load, 4000);
-    return () => clearInterval(t);
-  }, [order, load]);
+  usePolling(load, 5000, order?.status === "pending");
 
   const left = useCountdown(order?.expires_at);
   useEffect(() => { if (order?.status === "pending" && left === 0 && order.expires_at) load(); }, [left, order, load]);

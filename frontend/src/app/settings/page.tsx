@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { API, apiFetch } from "@/lib/api";
-import { useAccount, clearAccount } from "@/lib/account";
+import Link from "next/link";
+import { useAccount, clearAccount, formatVnd } from "@/lib/account";
 import { DEFAULT_PROFILE, Profile, fetchServerProfile, pushServerProfile } from "@/lib/placement";
 import { DEFAULT_PREFS, Prefs, loadPrefs, savePrefs } from "@/lib/prefs";
 
 const SECTIONS = [
-  ["ho-so", "Hồ sơ"], ["muc-tieu", "Mục tiêu học"], ["nhac-hoc", "Nhắc học"],
+  ["ho-so", "Hồ sơ"], ["goi", "Gói của tôi"], ["muc-tieu", "Mục tiêu học"], ["nhac-hoc", "Nhắc học"],
   ["am-thanh", "Âm thanh & giọng đọc"], ["giao-dien", "Giao diện"], ["du-lieu", "Dữ liệu & tài khoản"],
 ] as const;
 const BANDS = [5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0];
@@ -53,12 +54,14 @@ export default function SettingsPage() {
   const [delEmail, setDelEmail] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [active, setActive] = useState<string>("ho-so");
+  const [orders, setOrders] = useState<any[] | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setPrefs(loadPrefs());
     supabase.auth.getUser().then(({ data }) => setName((data.user?.user_metadata?.full_name as string) || ""));
     fetchServerProfile().then((r) => r.profile && setProfile(r.profile));
+    apiFetch("/billing/orders").then(async (r) => setOrders(r.ok ? (await r.json()).orders || [] : [])).catch(() => setOrders([]));
   }, []);
 
   useEffect(() => {
@@ -140,6 +143,11 @@ export default function SettingsPage() {
     }
   };
 
+  const quota = account?.quota;
+  const quotaTotal = quota ? quota.free + quota.purchased + quota.adjusted : 0;
+  const paidOrders = (orders || []).filter((o) => o.status === "paid");
+  const pendingOrder = (orders || []).find((o) => o.status === "pending");
+
   const badge = status === "saving" ? ["st-badge", "Đang lưu…"] : status === "error" ? ["st-badge st-badge-danger", "Chưa lưu được"] : ["st-badge st-badge-success", "✓ Đã lưu"];
 
   return (
@@ -189,6 +197,52 @@ export default function SettingsPage() {
               )}
             </Row>
             {pwMsg && <p role={pwMsg.ok ? "status" : "alert"} className="meta" style={{ color: pwMsg.ok ? "var(--success)" : "var(--danger)" }}>{pwMsg.text}</p>}
+          </section>
+
+          <section id="goi" className="st-card" aria-labelledby="hgs">
+            <div className="row" style={{ justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+              <h2 id="hgs" className="heading-3">Gói của tôi</h2>
+              <span className={isAdmin ? "st-badge st-badge-accent" : paidOrders.length ? "st-badge st-badge-success" : "st-badge st-badge-brand"}>
+                {isAdmin ? "Quản lý" : paidOrders.length ? `Gói ${paidOrders[0].pack_name || "đã mua"}` : "Gói miễn phí"}
+              </span>
+            </div>
+            <Row title="Trạng thái tài khoản" hint={isAdmin ? "Tải sách không giới hạn, quản lý gói và giá ở mục Quản trị" : "Học Thư viện Studia luôn miễn phí"}>
+              <span className={account?.status === "locked" ? "st-badge st-badge-danger" : "st-badge st-badge-success"}>{account?.status === "locked" ? "Đã khoá" : "Đang hoạt động"}</span>
+            </Row>
+            {isAdmin ? (
+              <Row title="Lượt upload sách"><b>Không giới hạn</b></Row>
+            ) : (
+              <>
+                <div className="set-quota" style={{ padding: "16px 0", borderTop: "1px solid var(--hairline)" }}>
+                  <div className="row" style={{ alignItems: "baseline", gap: 10 }}>
+                    <b className="num" style={{ font: "750 40px/1 var(--font-display)", letterSpacing: "-1px" }}>{quota ? quota.remaining : "–"}</b>
+                    <span className="ink2">lượt upload sách còn lại</span>
+                  </div>
+                  {quota && quotaTotal > 0 && <div className="bar" style={{ margin: "10px 0 6px" }}><i style={{ width: `${Math.min(100, Math.round((quota.used / quotaTotal) * 100))}%` }} /></div>}
+                  {quota && <p className="meta">{quota.free} miễn phí · {quota.purchased} đã mua{quota.adjusted ? ` · ${quota.adjusted > 0 ? "+" : ""}${quota.adjusted} điều chỉnh` : ""} · {quota.used} đã dùng</p>}
+                </div>
+                <Row title="Gói đã mua" hint={orders === null ? "Đang tải…" : paidOrders.length ? undefined : "Bạn chưa mua gói nào"}>
+                  {paidOrders.length > 0 ? (
+                    <div className="stack" style={{ gap: 2, textAlign: "right" }}>
+                      {paidOrders.slice(0, 3).map((o) => (
+                        <span key={o.id} className="ink2" style={{ fontSize: 14 }}>
+                          <b style={{ fontWeight: 600 }}>{o.pack_name}</b> · +{o.books} sách · {formatVnd(o.paid_amount_vnd ?? o.amount_vnd)}
+                          {o.paid_at ? ` · ${new Date(o.paid_at).toLocaleDateString("vi-VN")}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  ) : <span className="ink2">—</span>}
+                </Row>
+                {pendingOrder && (
+                  <Row title="Đơn đang chờ thanh toán" hint={`${pendingOrder.pack_name} · ${formatVnd(pendingOrder.amount_vnd)}`}>
+                    <Link className="st-btn st-btn-secondary st-btn-sm" href={`/billing/${pendingOrder.id}`}>Tiếp tục thanh toán</Link>
+                  </Row>
+                )}
+              </>
+            )}
+            <Row title={isAdmin ? "Quản lý gói" : "Mua thêm lượt, xem lịch sử"}>
+              <Link className="st-btn st-btn-primary st-btn-sm" href={isAdmin ? "/admin/packs" : "/billing"}>{isAdmin ? "Mở Gói & cài đặt" : "Gói & lượt upload"}</Link>
+            </Row>
           </section>
 
           <section id="muc-tieu" className="st-card" aria-labelledby="h2s">

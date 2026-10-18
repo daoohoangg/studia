@@ -20,6 +20,7 @@ from app.config import settings
 from app.core.auth import current_user_id, require_owned
 from app.core.supabase_client import get_supabase_client
 from app.core.uploads import signed_storage_url
+from app.services import exam_explain
 from app.services import exam_grading as grading
 from app.services.exam_builder.answer_key import score_answers
 from app.services.exam_builder.extractor import GeminiJsonLLM
@@ -39,6 +40,9 @@ SECTIONS_BY_TYPE = {
     "full": ["listening", "reading", "writing", "speaking"],
     "listening": ["listening"], "reading": ["reading"], "writing": ["writing"], "speaking": ["speaking"],
 }
+SKILL_ORDER = ["listening", "reading", "writing", "speaking"]
+SESSION_MODES = ("real", "practice")
+MIN_SECTION_MINUTES, MAX_SECTION_MINUTES = 1, 240
 EXPIRY_GRACE_SECONDS = 180   # thời gian chuyển giữa các phần/mạng chậm
 
 _answer_locks: Dict[str, threading.Lock] = {}
@@ -53,6 +57,10 @@ class CreateExamSessionRequest(BaseModel):
     exam_type: str = "full"              # full | listening | reading | writing | speaking
     exam_mode: str = "academic"          # academic | general
     exam_set_id: Optional[str] = None    # None = đề mẫu
+    sections: Optional[List[str]] = None  # tự chọn các phần thi (ghi đè exam_type); giữ đúng thứ tự L-R-W-S
+    session_mode: str = "real"           # real = mô phỏng phòng thi thật | practice = luyện tập có công cụ hỗ trợ
+    durations: Optional[Dict[str, int]] = None  # phút cho từng phần (ghi đè mặc định)
+    untimed: bool = False                # chỉ chế độ practice: không đếm ngược
     user_id: Optional[str] = None        # bỏ qua: luôn lấy từ token
 
 
@@ -74,6 +82,11 @@ class SaveWritingRequest(BaseModel):
 
 class SectionRequest(BaseModel):
     section: str
+
+
+class ExplainRequest(BaseModel):
+    skill: str                           # listening | reading
+    number: int = Field(..., ge=1, le=200)
 
 
 class SubmitExamRequest(BaseModel):
@@ -161,23 +174,42 @@ def _sections_of(row: Dict[str, Any]) -> List[str]:
     return _json_field(row.get("sections"), [])
 
 
-def _durations(sections: List[str]) -> Dict[str, int]:
-    return {s: SECTION_DURATIONS[s] for s in sections}
+def _config(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Cấu hình phiên (chế độ, thời gian từng phần) chụp trong exam_snapshot; phiên cũ không có → mặc định."""
+    snap = row.get("exam_snapshot")
+    if isinstance(snap, str):
+        snap = _json_field(snap, {})
+    cfg = snap.get("config") if isinstance(snap, dict) else None
+    cfg = cfg if isinstance(cfg, dict) else {}
+    return {"mode": cfg.get("mode") if cfg.get("mode") in SESSION_MODES else "real",
+            "untimed": bool(cfg.get("untimed")),
+            "durations": cfg.get("durations") if isinstance(cfg.get("durations"), dict) else {}}
+
+
+def _durations(sections: List[str], row: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
+    custom = _config(row)["durations"] if row else {}
+    out: Dict[str, int] = {}
+    for s in sections:
+        seconds = custom.get(s)
+        out[s] = int(seconds) if isinstance(seconds, (int, float)) and seconds > 0 else SECTION_DURATIONS[s]
+    return out
 
 
 def _deadline(row: Dict[str, Any], meta: Dict[str, Any]) -> Optional[datetime]:
+    if _config(row)["untimed"]:
+        return None
     started = _parse_time(row.get("started_at") or meta.get("started_at"))
     if not started:
         return None
-    total = sum(_durations(_sections_of(row)).values())
+    total = sum(_durations(_sections_of(row), row).values())
     return started + timedelta(seconds=total + EXPIRY_GRACE_SECONDS)
 
 
 def _remaining(row: Dict[str, Any], meta: Dict[str, Any], section: Optional[str]) -> Optional[int]:
-    if not section:
+    if not section or _config(row)["untimed"]:
         return None
     started = _parse_time((meta.get("section_started") or {}).get(section))
-    duration = SECTION_DURATIONS.get(section, 0)
+    duration = _durations([section], row).get(section, 0)
     if not started:
         return duration
     return max(0, int(duration - (_now() - started).total_seconds()))
@@ -215,10 +247,12 @@ def _session_view(supabase, row: Dict[str, Any], include_questions: bool = True)
         "title": snapshot.get("title"),
         "exam_type": row.get("exam_type"),
         "exam_mode": row.get("exam_mode"),
+        "session_mode": _config(row)["mode"],
+        "untimed": _config(row)["untimed"],
         "status": row.get("status"),
         "sections": sections,
         "section_order": sections,
-        "section_durations": _durations(sections),
+        "section_durations": _durations(sections, row),
         "current_section": current,
         "remaining_seconds": _remaining(row, meta, current) if row.get("status") == "IN_PROGRESS" else None,
         "started_at": row.get("started_at"),
@@ -331,6 +365,8 @@ def _compute_result(row: Dict[str, Any], auto_submitted: bool) -> Dict[str, Any]
         "exam_set_id": row.get("exam_set_id"),
         "title": snapshot.get("title"),
         "exam_type": row.get("exam_type"),
+        "session_mode": _config(row)["mode"],
+        "sections": sections,
         "status": "AUTO_SUBMITTED" if auto_submitted else "SUBMITTED",
         "overall_band": overall,
         "section_results": results,
@@ -403,13 +439,31 @@ def create_exam_session(req: CreateExamSessionRequest):
     supabase = _db()
     source = _load_exam_source(supabase, req)
 
-    wanted = SECTIONS_BY_TYPE.get(req.exam_type)
-    if wanted is None:
-        raise HTTPException(status_code=422, detail=f"exam_type không hợp lệ: {req.exam_type}")
+    if req.session_mode not in SESSION_MODES:
+        raise HTTPException(status_code=422, detail="session_mode phải là real hoặc practice")
+    if req.sections is not None:
+        bad = [s for s in req.sections if s not in SKILL_ORDER]
+        if bad or not req.sections:
+            raise HTTPException(status_code=422, detail=f"Phần thi không hợp lệ: {', '.join(bad) or '(trống)'}")
+        wanted = [s for s in SKILL_ORDER if s in req.sections]
+    else:
+        wanted = SECTIONS_BY_TYPE.get(req.exam_type)
+        if wanted is None:
+            raise HTTPException(status_code=422, detail=f"exam_type không hợp lệ: {req.exam_type}")
     available = source["content"].get("sections") or {}
     sections = [s for s in wanted if s in available]
     if not sections:
         raise HTTPException(status_code=422, detail="Đề này không có phần thi bạn chọn.")
+
+    durations: Dict[str, int] = {}
+    for skill, minutes in (req.durations or {}).items():
+        if skill in sections:
+            if not MIN_SECTION_MINUTES <= int(minutes) <= MAX_SECTION_MINUTES:
+                raise HTTPException(status_code=422, detail=f"Thời gian {skill} phải từ {MIN_SECTION_MINUTES} đến "
+                                                           f"{MAX_SECTION_MINUTES} phút")
+            durations[skill] = int(minutes) * 60
+    # Phòng thi thật luôn có đồng hồ; chỉ luyện tập mới được tắt giờ
+    untimed = bool(req.untimed) and req.session_mode == "practice"
 
     session_id = str(uuid.uuid4())
     snapshot = {
@@ -417,6 +471,7 @@ def create_exam_session(req: CreateExamSessionRequest):
         "content": source["content"],
         "answer_key": source["answer_key"],
         "listening_audio_path": source["listening_audio_path"],
+        "config": {"mode": req.session_mode, "untimed": untimed, "durations": durations},
     }
     row = {
         "id": session_id,
@@ -445,6 +500,8 @@ def list_exam_sessions(limit: int = Query(20, ge=1, le=100)):
         "session_id": r["id"],
         "title": r["exam_snapshot"].get("title") if isinstance(r.get("exam_snapshot"), dict) else None,
         "exam_type": r.get("exam_type"),
+        "session_mode": _config(r)["mode"],
+        "sections": _sections_of(r),
         "status": r.get("status"),
         "overall_band": r.get("overall_band"),
         "created_at": r.get("created_at"),
@@ -564,6 +621,35 @@ def get_exam_result(session_id: str):
     if not result:
         raise HTTPException(status_code=404, detail="Phiên thi chưa nộp bài hoặc chưa có kết quả")
     return result
+
+
+@router.post("/sessions/{session_id}/explain")
+def explain_answer(session_id: str, req: ExplainRequest):
+    """Giải thích chi tiết một câu sau khi nộp bài: vì sao đáp án đúng, bằng chứng trong bài. Kết quả được lưu lại."""
+    if req.skill not in ("listening", "reading"):
+        raise HTTPException(status_code=422, detail="skill phải là listening hoặc reading")
+    supabase = _db()
+    row = _auto_submit_if_expired(supabase, _get_session(supabase, session_id))
+    if row.get("status") not in ("SUBMITTED", "AUTO_SUBMITTED"):
+        raise HTTPException(status_code=409, detail="Chỉ xem giải thích sau khi đã nộp bài")
+    stored = _json_field(row.get("result_json"), None) or {}
+    cache_key = f"{req.skill}_{req.number}"
+    cached = (stored.get("explanations") or {}).get(cache_key)
+    if cached:
+        return cached
+    snapshot = _snapshot(row)
+    llm = GeminiJsonLLM() if settings.GEMINI_API_KEY else None
+    explained = exam_explain.explain_question(snapshot["content"], snapshot.get("answer_key") or {},
+                                              _answers_of(row), req.skill, req.number, llm)
+    if not explained:
+        raise HTTPException(status_code=404, detail="Không tìm thấy câu hỏi này trong đề")
+    if stored:
+        stored.setdefault("explanations", {})[cache_key] = explained
+        try:
+            supabase.table("exam_sessions").update({"result_json": stored}).eq("id", session_id).execute()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[{session_id}] Could not cache explanation: {e}")
+    return explained
 
 
 @router.get("/sample-data")

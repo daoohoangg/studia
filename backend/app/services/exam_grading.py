@@ -237,7 +237,7 @@ def analyze(by_type: Dict[str, Dict[str, int]], writing: Optional[Dict[str, Any]
     return {
         "current_band": overall,
         "target_band": target,
-        "strengths": strengths or ["Hoàn thành bài thi trong điều kiện thi thật"],
+        "strengths": strengths or ["Hoàn thành trọn vẹn bài thi"],
         "weaknesses": [f"{w['label']}: {w['correct']}/{w['total']} câu đúng" for w in weaknesses]
                       + writing_notes or ["Chưa phát hiện dạng câu hỏi nào yếu rõ rệt"],
         "weak_types": weaknesses,

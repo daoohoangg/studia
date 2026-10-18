@@ -1,8 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
+import ShareResult from "@/components/exam/ShareResult";
+import { postJson } from "@/lib/examSession";
+import { readNotes } from "@/lib/examNotes";
+import type { CardResult } from "@/lib/shareCard";
+
+export type Explanation = {
+  explanation_vi: string; evidence?: string | null; tip_vi?: string; scored_by?: string; correct_answers?: string[];
+};
+export type Explainer = (skill: string, number: number) => Promise<Explanation>;
+
+const serverExplainer = (sessionId: string): Explainer => async (skill, number) => {
+  const res = await postJson(`/exam/sessions/${sessionId}/explain`, { skill, number });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Không tải được giải thích");
+  return data as Explanation;
+};
 
 const SKILL_LABELS: Record<string, string> = {
   listening: "Listening", reading: "Reading", writing: "Writing", speaking: "Speaking",
@@ -45,8 +61,30 @@ const CRITERIA: [string, string][] = [
   ["lexical_resource", "Lexical Resource"], ["grammatical_range_accuracy", "Grammar"],
 ];
 
-export default function ServerResult({ result, onRetry }: { result: any; onRetry: () => void }) {
+export default function ServerResult({ result, onRetry, explain, sessionKey }: {
+  result: any; onRetry: () => void; explain?: Explainer; sessionKey?: string;
+}) {
   const sections = result.section_results || {};
+  const explainer = useMemo<Explainer>(() => explain || serverExplainer(result.session_id), [explain, result.session_id]);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [exps, setExps] = useState<Record<string, { loading?: boolean; error?: string; data?: Explanation }>>({});
+  const [sharing, setSharing] = useState(false);
+  const notes = useMemo(() => (typeof window === "undefined" ? [] : readNotes(sessionKey || result.session_id || "")), [sessionKey, result.session_id]);
+  const practice = result.session_mode === "practice";
+
+  const toggleExplain = async (skill: string, number: number) => {
+    const id = `${skill}_${number}`;
+    const nowOpen = !open[id];
+    setOpen((o) => ({ ...o, [id]: nowOpen }));
+    if (!nowOpen || exps[id]?.data || exps[id]?.loading) return;
+    setExps((e) => ({ ...e, [id]: { loading: true } }));
+    try {
+      const data = await explainer(skill, number);
+      setExps((e) => ({ ...e, [id]: { data } }));
+    } catch (err: any) {
+      setExps((e) => ({ ...e, [id]: { error: err?.message || "Không tải được giải thích" } }));
+    }
+  };
   const skills = ["listening", "reading"].filter((s) => sections[s]);
   const [reviewSkill, setReviewSkill] = useState<string>(skills.find(s => result.review?.[s]?.length) || skills[0] || "listening");
   const [onlyWrong, setOnlyWrong] = useState(true);
@@ -67,6 +105,16 @@ export default function ServerResult({ result, onRetry }: { result: any; onRetry
   const typeRows: any[] = [...(analysis.weak_types || [])];
   const task = writing?.[wTask] || {};
   const date = result.submitted_at || result.updated_at || result.created_at;
+  const card: CardResult = {
+    title: result.title || "IELTS Mock Test",
+    overall: result.overall_band != null ? Number(result.overall_band) : null,
+    skills: [
+      ...skills.map((s) => ({ label: SKILL_LABELS[s], band: sections[s].band ?? null, note: `${sections[s].raw_score}/${sections[s].total}` })),
+      ...(writing ? [{ label: "Writing", band: writing.band ?? null }] : []),
+    ],
+    date: new Date(date || Date.now()).toLocaleDateString("vi-VN"),
+    modeLabel: practice ? "Luyện tập" : "Thi thật",
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--canvas)", padding: "32px 16px 48px" }}>
@@ -77,8 +125,10 @@ export default function ServerResult({ result, onRetry }: { result: any; onRetry
               {result.status === "AUTO_SUBMITTED" ? "Bài đã tự nộp khi hết giờ" : "Kết quả bài thi"}{date ? ` · ${new Date(date).toLocaleDateString("vi-VN")}` : ""}
             </div>
             <h1 className="page-title" style={{ marginTop: 4 }}>{result.title || "IELTS Mock Test"}</h1>
+            {result.session_mode && <span className={practice ? "st-badge st-badge-accent" : "st-badge st-badge-brand"} style={{ marginTop: 8 }}>{practice ? "Phòng luyện tập" : "Mô phỏng thi thật"}</span>}
           </div>
           <div className="row-wrap" style={{ gap: 8 }}>
+            <button className="st-btn st-btn-secondary" type="button" onClick={() => setSharing(true)}>Chụp ảnh kết quả</button>
             <Link className="st-btn st-btn-secondary" href="/feedback">Xem phân tích lỗi</Link>
             <button className="st-btn st-btn-primary" type="button" onClick={onRetry}>Làm đề khác</button>
           </div>
@@ -88,7 +138,7 @@ export default function ServerResult({ result, onRetry }: { result: any; onRetry
           <BandRing band={result.overall_band} />
           <div style={{ flex: 1, minWidth: 240 }}>
             <h2 className="heading-2">
-              {result.overall_band == null ? "Bài của bạn đang được chấm." : strongest && weakest && strongest.key !== weakest.key
+              {result.overall_band == null ? "Chưa quy ra band tổng cho phần đã chọn." : strongest && weakest && strongest.key !== weakest.key
                 ? `${SKILL_LABELS[strongest.key]} là điểm mạnh, ${SKILL_LABELS[weakest.key]} cần luyện thêm.`
                 : `Overall band ${Number(result.overall_band).toFixed(1)}.`}
             </h2>
@@ -100,10 +150,10 @@ export default function ServerResult({ result, onRetry }: { result: any; onRetry
 
         <section className="grid-4" aria-label="Điểm từng kỹ năng">
           {skills.map(s => (
-            <SkillBox key={s} label={SKILL_LABELS[s]} band={sections[s].band} note={`${sections[s].raw_score}/${sections[s].total} câu đúng`} weak={weakest?.key === s} />
+            <SkillBox key={s} label={SKILL_LABELS[s]} band={sections[s].band} note={sections[s].band == null ? `${sections[s].answered ?? 0}/${sections[s].total} câu đã trả lời` : `${sections[s].raw_score}/${sections[s].total} câu đúng`} weak={weakest?.key === s} />
           ))}
           {writing && <SkillBox label="Writing" band={writing.band} weak={weakest?.key === "writing"}
-            note={writing.scored_by === "ai" ? "Chấm bằng AI · 2 task" : "Ước lượng theo độ dài"} />}
+            note={writing.scored_by === "ai" ? "Chấm bằng AI · 2 task" : writing.band == null ? "Chưa chấm tự động" : "Ước lượng theo độ dài"} />}
           {sections.speaking && <SkillBox label="Speaking" band={null} note="Chưa chấm tự động" />}
         </section>
 
@@ -177,23 +227,65 @@ export default function ServerResult({ result, onRetry }: { result: any; onRetry
             </div>
             <div className="table-box">
               <table className="table">
-                <thead><tr><th scope="col">Câu</th><th scope="col">Dạng</th><th scope="col">Bạn trả lời</th><th scope="col">Đáp án</th><th scope="col">Kết quả</th></tr></thead>
+                <thead><tr><th scope="col">Câu</th><th scope="col">Dạng</th><th scope="col">Bạn trả lời</th><th scope="col">Đáp án</th><th scope="col">Kết quả</th><th scope="col"><span className="st-sr">Giải thích</span></th></tr></thead>
                 <tbody>
-                  {review.map((item: any) => (
-                    <tr key={item.number} className={item.is_correct ? undefined : "row-wrong"}>
-                      <td className="num">{item.number}</td>
-                      <td title={item.question}>{TYPE_LABELS[item.type] || item.type}</td>
-                      <td>{String(item.user_answer || "") || <i className="muted">(bỏ trống)</i>}</td>
-                      <td style={{ color: "var(--ink)", fontWeight: 600 }}>{(item.correct_answers || []).join(" / ")}</td>
-                      <td style={{ fontWeight: 650, color: item.is_correct ? "var(--success)" : "var(--danger)" }}>{item.is_correct ? "✓ Đúng" : "✕ Sai"}</td>
-                    </tr>
-                  ))}
+                  {review.map((item: any) => {
+                    const id = `${reviewSkill}_${item.number}`;
+                    const ex = exps[id];
+                    return (
+                      <Fragment key={item.number}>
+                        <tr className={`ex-row ${item.is_correct ? "" : "row-wrong"}`}>
+                          <td className="num">{item.number}</td>
+                          <td title={item.question}>{TYPE_LABELS[item.type] || item.type}</td>
+                          <td>{String(item.user_answer || "") || <i className="muted">(bỏ trống)</i>}</td>
+                          <td style={{ color: "var(--ink)", fontWeight: 600 }}>{(item.correct_answers || []).join(" / ")}</td>
+                          <td style={{ fontWeight: 650, color: item.is_correct ? "var(--success)" : "var(--danger)" }}>{item.is_correct ? "✓ Đúng" : "✕ Sai"}</td>
+                          <td style={{ textAlign: "right" }}>
+                            <button type="button" className="ex-btn" aria-expanded={!!open[id]} onClick={() => toggleExplain(reviewSkill, item.number)}>
+                              {open[id] ? "Ẩn giải thích" : "Giải thích"}
+                            </button>
+                          </td>
+                        </tr>
+                        {open[id] && (
+                          <tr>
+                            <td colSpan={6} style={{ paddingTop: 0 }}>
+                              <div className="ex-panel" role="region" aria-label={`Giải thích câu ${item.number}`}>
+                                {item.question && <span className="meta">Câu {item.number}: {item.question}</span>}
+                                {ex?.loading && <span className="meta">Đang soạn giải thích…</span>}
+                                {ex?.error && <span role="alert" style={{ color: "var(--danger)", fontSize: 14 }}>{ex.error}</span>}
+                                {ex?.data && (
+                                  <>
+                                    <p>{ex.data.explanation_vi}</p>
+                                    {ex.data.evidence && <blockquote>{ex.data.evidence}</blockquote>}
+                                    {ex.data.tip_vi && <p className="ex-tip"><b style={{ fontWeight: 600 }}>Mẹo làm dạng này:</b> {ex.data.tip_vi}</p>}
+                                    <span className="meta">{ex.data.scored_by === "ai" ? "Giải thích do AI viết, câu bằng chứng đã được đối chiếu với bài." : "Giải thích tự động theo đáp án và nội dung bài."}</span>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                   {review.length === 0 && (
-                    <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--ink-muted)", padding: 20 }}>{onlyWrong && allReview.length ? "Không có câu sai nào ở phần này." : "Không có câu nào để hiển thị."}</td></tr>
+                    <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--ink-muted)", padding: 20 }}>{onlyWrong && allReview.length ? "Không có câu sai nào ở phần này." : "Không có câu nào để hiển thị."}</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
+          </section>
+        )}
+
+        {notes.length > 0 && (
+          <section className="st-card" aria-labelledby="nt-h">
+            <h2 id="nt-h" className="sec-title" style={{ marginBottom: 8 }}>Ghi chú của bạn trong lúc làm bài</h2>
+            {notes.map((n) => (
+              <div key={n.id} className="sr-det">
+                {n.quote && <p className="meta" style={{ fontStyle: "italic" }}>“{n.quote}”</p>}
+                {n.text && <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{n.text}</p>}
+              </div>
+            ))}
           </section>
         )}
 
@@ -215,6 +307,7 @@ export default function ServerResult({ result, onRetry }: { result: any; onRetry
           </section>
         )}
       </div>
+      {sharing && <ShareResult card={card} onClose={() => setSharing(false)} />}
     </div>
   );
 }

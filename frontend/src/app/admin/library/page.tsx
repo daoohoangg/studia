@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Trash2 } from "lucide-react";
 import { API, apiFetch } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
 import AdminGuard from "@/components/AdminGuard";
 
 function SharedLibrary() {
@@ -15,7 +16,8 @@ function SharedLibrary() {
     const r = await apiFetch("/admin/library?scope=shared");
     if (r.ok) setDocs((await r.json()).documents || []);
   }, []);
-  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { load(); }, [load]);
+  usePolling(load, 15000);
 
   const setVis = async (d: any, visibility: string) => {
     setBusy(d.id); setMsg(null);

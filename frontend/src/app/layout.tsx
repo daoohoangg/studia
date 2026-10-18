@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./studia-ui.css";
+import "./vibrant.css";
 import MainLayout from "@/components/MainLayout";
 
 export const metadata: Metadata = {

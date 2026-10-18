@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { API, apiFetch } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
 
 const FALLBACK_STEPS = [
   "Tải lên", "Đọc nội dung từng trang", "Tách chương và bài đọc", "Lập chỉ mục cho Trợ lý AI", "Tạo chủ đề, bài học và flashcard",
@@ -19,19 +20,15 @@ export default function ProcessingPipeline({ bookId, initial, onDone, onRetry }:
   const failed = book.processing_status === "failed";
   const running = book.processing_status === "processing" || book.processing_status === "pending";
 
-  useEffect(() => {
-    if (!running) return;
-    const t = setInterval(async () => {
-      try {
-        const r = await apiFetch(`${API}/documents/${bookId}/status`);
-        if (!r.ok) return;
-        const d = await r.json();
-        setBook(d);
-        if (d.processing_status === "completed") onDone?.();
-      } catch {}
-    }, 4000);
-    return () => clearInterval(t);
-  }, [bookId, running, onDone]);
+  usePolling(async () => {
+    try {
+      const r = await apiFetch(`${API}/documents/${bookId}/status`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setBook(d);
+      if (d.processing_status === "completed") onDone?.();
+    } catch {}
+  }, 4000, running);
 
   const steps: string[] = book.steps || FALLBACK_STEPS;
   const cur = Math.min(Math.max(Number(book.processing_step) || (running ? 2 : 1), 1), steps.length);

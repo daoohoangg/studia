@@ -27,7 +27,12 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
     const headers = new Headers(init.headers);
     const token = data.session?.access_token;
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    return fetch(url, { ...init, headers });
+    try {
+      return await fetch(url, { ...init, headers });
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") throw e;
+      throw new Error("Không kết nối được máy chủ Studia. Kiểm tra mạng, hoặc backend đã chạy chưa.");
+    }
   };
 
   if (method !== "GET") {

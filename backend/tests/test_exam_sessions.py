@@ -262,5 +262,145 @@ class ScoringTests(SessionTestCase):
         self.assertIn("Test 1", history[0]["title"])
 
 
+class SessionConfigTests(SessionTestCase):
+    def create_cfg(self, set_id, **body):
+        return self.client.post("/api/v1/exam/sessions", json={"exam_set_id": set_id, **body})
+
+    def test_custom_sections_and_durations(self):
+        set_id, _key = self.published_set()
+        res = self.create_cfg(set_id, sections=["reading", "listening"], durations={"reading": 20, "listening": 10},
+                              session_mode="practice")
+        self.assertEqual(res.status_code, 200, res.text)
+        session = res.json()["session"]
+        self.assertEqual(session["sections"], ["listening", "reading"])  # luôn theo thứ tự L-R-W-S
+        self.assertEqual(session["section_durations"], {"listening": 600, "reading": 1200})
+        self.assertEqual(session["session_mode"], "practice")
+        started = self.client.post(f"/api/v1/exam/sessions/{session['session_id']}/start").json()
+        self.assertLessEqual(started["remaining_seconds"], 600)
+        self.assertGreater(started["remaining_seconds"], 540)
+
+    def test_invalid_config_is_rejected(self):
+        set_id, _key = self.published_set()
+        for body in ({"sections": []}, {"sections": ["cooking"]}, {"session_mode": "cheat"},
+                     {"sections": ["reading"], "durations": {"reading": 0}},
+                     {"sections": ["reading"], "durations": {"reading": 999}}):
+            self.assertEqual(self.create_cfg(set_id, **body).status_code, 422, body)
+
+    def test_untimed_only_in_practice_mode(self):
+        set_id, _key = self.published_set()
+        practice = self.create_cfg(set_id, exam_type="reading", session_mode="practice", untimed=True).json()["session"]
+        self.assertTrue(practice["untimed"])
+        started = self.client.post(f"/api/v1/exam/sessions/{practice['session_id']}/start").json()
+        self.assertIsNone(started["remaining_seconds"])
+        real = self.create_cfg(set_id, exam_type="reading", session_mode="real", untimed=True).json()["session"]
+        self.assertFalse(real["untimed"])
+
+    def test_untimed_session_never_auto_expires(self):
+        set_id, _key = self.published_set()
+        sid = self.create_cfg(set_id, exam_type="reading", session_mode="practice",
+                              untimed=True).json()["session"]["session_id"]
+        self.client.post(f"/api/v1/exam/sessions/{sid}/start")
+        long_ago = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        self.store.table("exam_sessions").update({"started_at": long_ago}).eq("id", sid).execute()
+        self.assertEqual(self.client.get(f"/api/v1/exam/sessions/{sid}").json()["session"]["status"], "IN_PROGRESS")
+
+    def test_mode_is_in_result_and_history(self):
+        set_id, _key = self.published_set()
+        sid = self.create_cfg(set_id, exam_type="listening", session_mode="practice").json()["session"]["session_id"]
+        self.client.post(f"/api/v1/exam/sessions/{sid}/start")
+        result = self.client.post(f"/api/v1/exam/sessions/{sid}/submit", json={}).json()
+        self.assertEqual(result["session_mode"], "practice")
+        self.assertEqual(result["sections"], ["listening"])
+        self.assertEqual(self.client.get("/api/v1/exam/sessions").json()["sessions"][0]["session_mode"], "practice")
+
+    def test_old_sessions_default_to_real_mode(self):
+        set_id, _key = self.published_set()
+        sid = self.create_session(set_id)["session"]["session_id"]
+        row = self.store.table("exam_sessions").select("*").eq("id", sid).execute().data[0]
+        snap = dict(row["exam_snapshot"])
+        snap.pop("config", None)
+        self.store.table("exam_sessions").update({"exam_snapshot": snap}).eq("id", sid).execute()
+        session = self.client.get(f"/api/v1/exam/sessions/{sid}").json()["session"]
+        self.assertEqual(session["session_mode"], "real")
+        self.assertEqual(session["section_durations"]["listening"], 1800)
+
+
+class ExplainTests(SessionTestCase):
+    def submitted(self, set_id):
+        sid = self.create_session(set_id, exam_type="reading")["session"]["session_id"]
+        self.client.post(f"/api/v1/exam/sessions/{sid}/start")
+        self.answer(sid, "reading", 1, "definitely wrong")
+        self.client.post(f"/api/v1/exam/sessions/{sid}/submit", json={})
+        return sid
+
+    def explain(self, sid, skill="reading", number=1):
+        return self.client.post(f"/api/v1/exam/sessions/{sid}/explain", json={"skill": skill, "number": number})
+
+    def test_explanation_needs_a_submitted_session(self):
+        set_id, _key = self.published_set()
+        sid = self.create_session(set_id, exam_type="reading")["session"]["session_id"]
+        self.client.post(f"/api/v1/exam/sessions/{sid}/start")
+        self.assertEqual(self.explain(sid).status_code, 409)
+
+    def test_explanation_shape_and_cache(self):
+        set_id, _key = self.published_set()
+        sid = self.submitted(set_id)
+        res = self.explain(sid)
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertEqual(body["number"], 1)
+        self.assertFalse(body["is_correct"])
+        self.assertEqual(body["scored_by"], "rule")
+        self.assertTrue(body["correct_answers"])
+        self.assertIn("Đáp án đúng", body["explanation_vi"])
+        self.assertTrue(body["tip_vi"])
+        self.assertEqual(self.explain(sid).json(), body)  # lần hai lấy từ bộ nhớ đệm
+        stored = self.client.get(f"/api/v1/exam/sessions/{sid}/result").json()
+        self.assertIn("reading_1", stored["explanations"])
+
+    def test_explain_validation_and_ownership(self):
+        set_id, _key = self.published_set()
+        sid = self.submitted(set_id)
+        self.assertEqual(self.explain(sid, skill="writing").status_code, 422)
+        self.assertEqual(self.explain(sid, number=199).status_code, 404)
+        # require_owned ghi nhớ kết quả đã kiểm tra, nên dùng phiên chưa từng được truy cập
+        foreign = self.create_session(set_id, exam_type="reading")["session"]["session_id"]
+        self.store.table("exam_sessions").update({"user_id": OTHER_USER}).eq("id", foreign).execute()
+        self.assertEqual(self.explain(foreign).status_code, 404)
+
+
+class ExplainRuleTests(unittest.TestCase):
+    CONTENT = {"sections": {"reading": {"passages": [{
+        "index": 1, "title": "Sleep",
+        "body_markdown": "Researchers found that adults need seven hours of sleep every night. "
+                         "Children need considerably more rest than adults do. "
+                         "The circadian rhythm is an internal clock that responds to light.",
+        "groups": [{"type": "sentence_completion", "questions": [
+            {"number": 1, "question": "The ___ is an internal clock that responds to light."}]}]}]}}, "materials": {}}
+    KEY = {"reading": {"1": {"accept": ["circadian rhythm"]}}}
+
+    def test_evidence_is_found_by_answer_and_keywords(self):
+        from app.services import exam_explain
+        res = exam_explain.explain_question(self.CONTENT, self.KEY, {"reading_1": "melatonin"}, "reading", 1)
+        self.assertIn("circadian rhythm", res["evidence"])
+        self.assertFalse(res["is_correct"])
+        self.assertIn("melatonin", res["explanation_vi"])
+
+    def test_ai_evidence_must_be_quoted_from_source(self):
+        from app.services import exam_explain
+
+        class FakeLLM:
+            def generate_json(self, prompt):
+                return {"explanation_vi": "Giải thích AI.", "evidence": "A sentence the passage never says.",
+                        "tip_vi": "Mẹo AI"}
+
+        res = exam_explain.explain_question(self.CONTENT, self.KEY, {"reading_1": "circadian rhythm"},
+                                            "reading", 1, FakeLLM())
+        self.assertEqual(res["scored_by"], "ai")
+        self.assertEqual(res["explanation_vi"], "Giải thích AI.")
+        self.assertIn("circadian rhythm", res["evidence"])  # bằng chứng bịa bị thay bằng câu thật
+        self.assertTrue(res["is_correct"])
+
+
 if __name__ == "__main__":
     unittest.main()

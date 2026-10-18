@@ -5,6 +5,7 @@ import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 
 import { API, apiFetch } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
 import { X, Plus, Search, Upload, ArrowRight, Trash2 } from "lucide-react";
 import { useAccount, refreshAccount } from "@/lib/account";
 import BuyPacks from "@/components/BuyPacks";
@@ -54,11 +55,10 @@ export default function BooksPage() {
     else window.alert("Không xoá được sách này.");
   };
 
-  useEffect(() => {
-    fetchBooks();
-    const interval = setInterval(fetchBooks, 3000); // poll for processing status
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => { fetchBooks(); }, []);
+  // Chỉ hỏi lại trạng thái khi còn sách đang xử lý (và tab đang mở)
+  const anyProcessing = books.some((b: any) => b.processing_status === "processing" || b.processing_status === "pending");
+  usePolling(() => fetchBooks(), 5000, anyProcessing);
 
   const fetchBooks = async () => {
     try {

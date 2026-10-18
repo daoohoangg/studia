@@ -1,0 +1,37 @@
+/* Hoạt hình cho linh vật Tim. Tất cả tắt khi người dùng chọn giảm chuyển động. */
+.mc { overflow: visible; display: block; }
+.mc-all { transform-box: fill-box; transform-origin: 50% 100%; animation: mc-bob 3.2s ease-in-out infinite; }
+.mc-cheer .mc-all { animation: mc-jump 1.1s cubic-bezier(.3, 1.6, .5, 1) infinite; }
+.mc-sad .mc-all { animation: mc-sag 4.2s ease-in-out infinite; }
+.mc-sleepy .mc-all { animation: mc-breathe 4s ease-in-out infinite; }
+.mc-worried .mc-all { animation: mc-shake 1.8s ease-in-out infinite; }
+.mc-eyes { transform-box: fill-box; transform-origin: center; animation: mc-blink 5s infinite; }
+.mc-flame { transform-box: fill-box; transform-origin: 50% 100%; animation: mc-flick 1.2s ease-in-out infinite alternate; }
+.mc-twinkle { transform-box: fill-box; transform-origin: center; animation: mc-twinkle 2.2s ease-in-out infinite; }
+.mc-pulse { transform-box: fill-box; transform-origin: center; animation: mc-twinkle 1.1s ease-in-out infinite; }
+.mc-float { animation: mc-float 2.6s ease-in-out infinite; }
+.mc-z { animation: mc-z 2.8s ease-in-out infinite; }
+.mc-z2 { animation-delay: -1.2s; }
+.mc-drip { animation: mc-drip 2s ease-in infinite; }
+.mc-drip2 { animation-delay: -1s; }
+
+@keyframes mc-bob { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-4px) rotate(-1.2deg); } }
+@keyframes mc-jump { 0%, 100% { transform: translateY(0) scale(1.04, .94); } 40% { transform: translateY(-14px) scale(.96, 1.06); } }
+@keyframes mc-sag { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px) scale(1.01, .98); } }
+@keyframes mc-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.03, .97); } }
+@keyframes mc-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-2px); } 40% { transform: translateX(2px); } 60% { transform: translateX(-1px); } }
+@keyframes mc-blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.08); } }
+@keyframes mc-flick { from { transform: scale(1, 1) rotate(-1.5deg); } to { transform: scale(1.04, 1.08) rotate(1.5deg); } }
+@keyframes mc-twinkle { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.7); opacity: .6; } }
+@keyframes mc-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes mc-z { 0% { transform: translate(0, 6px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translate(6px, -10px); opacity: 0; } }
+@keyframes mc-drip { 0% { transform: translateY(-4px); opacity: 0; } 25% { opacity: 1; } 100% { transform: translateY(26px); opacity: 0; } }
+
+.mc-still .mc-all, .mc-still .mc-eyes, .mc-still .mc-flame, .mc-still .mc-twinkle, .mc-still .mc-pulse,
+.mc-still .mc-float, .mc-still .mc-z, .mc-still .mc-drip { animation: none !important; }
+.mc-still .mc-z, .mc-still .mc-drip { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mc * , .mc { animation: none !important; }
+}
+[data-motion='reduce'] .mc *, [data-motion='reduce'] .mc { animation: none !important; }

@@ -1,0 +1,102 @@
+"""Sinh các mẫu email Supabase Auth theo giao diện Studia. Chạy: python build.py  -> tạo *.html cạnh file này.
+Dán nội dung từng file vào Supabase > Authentication > Email Templates (xem README.md)."""
+import pathlib
+
+OUT = pathlib.Path(__file__).parent
+
+LAYOUT = """<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light"><title>@@subject@@</title></head>
+<body style="margin:0;padding:0;background:#f8f6f2;font-family:'Be Vietnam Pro','Segoe UI',Arial,sans-serif;color:#0e1630;-webkit-text-size-adjust:100%">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">@@preheader@@</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8f6f2"><tr><td align="center" style="padding:32px 16px">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px">
+  <tr><td style="padding:0 4px 18px">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="vertical-align:middle"><img src="{{ .SiteURL }}/icon-192.png" width="36" height="36" alt="" style="display:block;border-radius:10px;border:0"></td>
+      <td style="vertical-align:middle;padding-left:10px;font-size:24px;font-weight:800;letter-spacing:-.5px;color:#0f1f4d">Studia<span style="color:#f2611f">.</span></td>
+    </tr></table>
+  </td></tr>
+  <tr><td style="background:#ffffff;border:1px solid #e5e0d8;border-radius:24px;overflow:hidden">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="background:#0f1f4d;background-image:linear-gradient(135deg,#0f1f4d 0%,#2344c9 100%);padding:32px 36px 30px">
+        <div style="display:inline-block;padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.14);color:#ffe27a;font-size:12.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase">@@badge@@</div>
+        <h1 style="margin:14px 0 0;font-size:28px;line-height:36px;font-weight:800;letter-spacing:-.4px;color:#ffffff">@@title@@</h1>
+      </td></tr>
+      <tr><td style="padding:30px 36px 8px;font-size:16px;line-height:26px;color:#3a4260">
+        @@body@@
+      </td></tr>
+@@cta_block@@
+      <tr><td style="padding:14px 36px 30px">@@perks@@</td></tr>
+    </table>
+  </td></tr>
+  <tr><td style="padding:20px 8px 0;font-size:12.5px;line-height:20px;color:#5e6480;text-align:center">
+    @@footnote@@<br>
+    &copy; Studia &middot; Luyện thi IELTS mỗi ngày
+  </td></tr>
+</table></td></tr></table></body></html>
+"""
+
+CTA_BLOCK = """      <tr><td align="left" style="padding:12px 36px 8px">
+        <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:15px 30px;border-radius:14px;background:#f2611f;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none">@@cta@@ &rarr;</a>
+      </td></tr>
+      <tr><td style="padding:18px 36px 10px;font-size:13.5px;line-height:21px;color:#5e6480">
+        Nút không bấm được? Dán đường dẫn này vào trình duyệt:<br>
+        <a href="{{ .ConfirmationURL }}" style="color:#2344c9;word-break:break-all">{{ .ConfirmationURL }}</a>
+      </td></tr>"""
+
+PERKS = """<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8f6f2;border-radius:16px"><tr>
+  <td style="padding:16px 8px 16px 18px;width:33%;vertical-align:top;font-size:13px;line-height:19px;color:#3a4260"><b style="color:#2344c9;font-size:18px">&#9733;</b><br><b>Biến sách PDF</b><br>thành bài học &amp; đề thi</td>
+  <td style="padding:16px 8px;width:33%;vertical-align:top;font-size:13px;line-height:19px;color:#3a4260"><b style="color:#f2611f;font-size:18px">&#9889;</b><br><b>Giữ chuỗi ngày</b><br>nhắc đúng giờ học</td>
+  <td style="padding:16px 18px 16px 8px;width:33%;vertical-align:top;font-size:13px;line-height:19px;color:#3a4260"><b style="color:#0d7a5f;font-size:18px">&#10003;</b><br><b>Thi thử IELTS</b><br>chấm band tức thì</td>
+</tr></table>"""
+
+P = '<p style="margin:0 0 12px">'
+
+T = {
+    "confirm-signup": dict(
+        subject="Xác nhận email để bắt đầu học cùng Studia", preheader="Một cú bấm nữa là tài khoản Studia của bạn sẵn sàng.",
+        badge="Chào mừng bạn", title="Xác nhận email của bạn",
+        body=P + "Chào bạn,</p>" + P + 'Cảm ơn bạn đã đăng ký <b style="color:#0f1f4d">Studia</b>. Bấm nút bên dưới để xác nhận địa chỉ <b>{{ .Email }}</b> và bắt đầu thiết lập lộ trình luyện thi IELTS của riêng bạn.</p>',
+        cta="Xác nhận &amp; bắt đầu học", perks=PERKS,
+        footnote="Nếu không phải bạn đăng ký, hãy bỏ qua email này, tài khoản sẽ không được tạo."),
+    "reset-password": dict(
+        subject="Đặt lại mật khẩu Studia", preheader="Bấm để đặt mật khẩu mới. Liên kết có hạn.",
+        badge="Bảo mật", title="Đặt lại mật khẩu",
+        body=P + "Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản <b>{{ .Email }}</b>.</p>" + P + "Bấm nút bên dưới để chọn mật khẩu mới. Liên kết chỉ dùng được trong thời gian ngắn.</p>",
+        cta="Đặt mật khẩu mới", perks="",
+        footnote="Không phải bạn yêu cầu? Cứ bỏ qua email này, mật khẩu hiện tại vẫn an toàn."),
+    "magic-link": dict(
+        subject="Liên kết đăng nhập Studia của bạn", preheader="Bấm để đăng nhập, không cần mật khẩu.",
+        badge="Đăng nhập nhanh", title="Đăng nhập vào Studia",
+        body=P + "Bấm nút bên dưới để đăng nhập tài khoản <b>{{ .Email }}</b> mà không cần mật khẩu.</p>",
+        cta="Đăng nhập ngay", perks="",
+        footnote="Liên kết chỉ dùng một lần. Không phải bạn yêu cầu? Hãy bỏ qua email này."),
+    "invite": dict(
+        subject="Bạn được mời vào Studia", preheader="Chấp nhận lời mời để tạo tài khoản.",
+        badge="Lời mời", title="Bạn được mời tham gia Studia",
+        body=P + 'Bạn vừa được mời dùng <b style="color:#0f1f4d">Studia</b>, nơi biến sách và đề thi thành lộ trình luyện IELTS mỗi ngày.</p>',
+        cta="Chấp nhận lời mời", perks=PERKS,
+        footnote="Nếu bạn không mong đợi lời mời này, hãy bỏ qua email."),
+    "change-email": dict(
+        subject="Xác nhận đổi email Studia", preheader="Xác nhận địa chỉ email mới của bạn.",
+        badge="Tài khoản", title="Xác nhận email mới",
+        body=P + "Bạn đang đổi email tài khoản từ <b>{{ .Email }}</b> sang <b>{{ .NewEmail }}</b>. Bấm nút bên dưới để xác nhận.</p>",
+        cta="Xác nhận thay đổi", perks="",
+        footnote="Không phải bạn thực hiện? Hãy đổi mật khẩu ngay để bảo vệ tài khoản."),
+    "reauthentication": dict(
+        subject="Mã xác nhận Studia", preheader="Mã dùng một lần của bạn.",
+        badge="Xác minh", title="Mã xác nhận của bạn",
+        body=P + 'Nhập mã sau để tiếp tục:</p><p style="margin:0;font-size:34px;letter-spacing:8px;font-weight:800;color:#2344c9">{{ .Token }}</p>',
+        cta=None, perks="",
+        footnote="Mã hết hạn sau ít phút. Đừng chia sẻ mã này với ai."),
+}
+
+for name, t in T.items():
+    html = LAYOUT
+    block = CTA_BLOCK.replace("@@cta@@", t["cta"]) if t["cta"] else ""
+    html = html.replace("@@cta_block@@", block)
+    for k in ("subject", "preheader", "badge", "title", "body", "perks", "footnote"):
+        html = html.replace(f"@@{k}@@", t[k])
+    (OUT / f"{name}.html").write_text(html, encoding="utf-8")
+    print("wrote", name)

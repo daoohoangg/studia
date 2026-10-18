@@ -1,6 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.config import settings
 from app.core.auth import require_user
 from app.api.v1.documents import router as documents_router
@@ -29,7 +30,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-REMINDER_SCAN_SECONDS = 30
+REMINDER_SCAN_SECONDS = 60
 
 
 async def _reminder_loop():
@@ -48,7 +49,9 @@ async def _reminder_loop():
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    task = asyncio.create_task(_reminder_loop()) if settings.REMINDERS_ENABLED else None
+    # Chỉ chạy vòng quét khi có SMTP để gửi: không thì mỗi phút đọc DB chỉ để bỏ qua
+    from app.services import mailer
+    task = asyncio.create_task(_reminder_loop()) if settings.REMINDERS_ENABLED and mailer.smtp_configured() else None
     try:
         yield
     finally:
@@ -66,6 +69,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Nén JSON/HTML lớn (danh sách sách, khối ebook…) để giảm băng thông ra
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

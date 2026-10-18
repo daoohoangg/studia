@@ -6,16 +6,16 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import ExamTimer from "@/components/ExamTimer";
 import Logo from "@/components/Logo";
-import cambridge21Test1 from "@/data/cambridge21_test1.json";
-import cambridge21Test2 from "@/data/cambridge21_test2.json";
-import cambridge21Test3 from "@/data/cambridge21_test3.json";
-import cambridge21Test4 from "@/data/cambridge21_test4.json";
 
 import { API, apiFetch } from "@/lib/api";
 import { AnswerSaver, createAnswerSaver, postJson } from "@/lib/examSession";
 import GroupHeader from "@/components/exam/GroupHeader";
 import ServerResult from "@/components/exam/ServerResult";
 import { Mic, Square } from "lucide-react";
+import ExamNotes from "@/components/exam/ExamNotes";
+import { useExamFlags, useExamNotes } from "@/lib/examNotes";
+import { SKILL_ORDER, STANDARD_MINUTES, type RoomMode } from "@/lib/examConfig";
+import "./room.css";
 
 // ─── Types ──────────────────────────────────────────────────
 type Section = "listening" | "reading" | "writing" | "speaking";
@@ -152,28 +152,87 @@ const LISTENING_BANDS: [number, number][] = [[39, 9], [37, 8.5], [35, 8], [32, 7
 const READING_BANDS: [number, number][] = [[39, 9], [37, 8.5], [35, 8], [33, 7.5], [30, 7], [27, 6.5], [23, 6], [19, 5.5], [15, 5], [13, 4.5], [10, 4], [8, 3.5], [6, 3], [4, 2.5]];
 const toBand = (raw: number, table: [number, number][]) => (table.find(([min]) => raw >= min)?.[1] ?? 1);
 
-/** Trả về số câu đúng, hoặc null nếu đề chưa có đáp án. */
-function scoreQuestions(questions: any[] | undefined, prefix: string, answers: Record<string, any>): number | null {
+/** Chấm từng câu; null nếu đề chưa có đáp án. */
+function gradeQuestions(questions: any[] | undefined, prefix: string, answers: Record<string, any>): { correct: number; items: any[] } | null {
   if (!questions || questions.length === 0 || !questions.every(q => q.correct_answer)) return null;
   const byNumber: Record<string, any> = {};
   questions.forEach(q => { byNumber[String(q.number)] = q; });
+  const items: any[] = [];
   let correct = 0;
   for (const q of questions) {
-    const given = canon(answers[`${prefix}_${q.number}`]);
-    if (!given) continue;
-    if (q.either_order_with) {
+    const raw = answers[`${prefix}_${q.number}`];
+    const given = canon(raw);
+    let ok = false;
+    let shown: string[] = (q.accepted_answers || [q.correct_answer]).map(String);
+    if (given && q.either_order_with) {
       // Hai câu có thể trả lời theo thứ tự bất kỳ, nhưng không được trùng nhau
       const partner = byNumber[String(q.either_order_with)];
       const pair = [canon(q.correct_answer), canon(partner?.correct_answer)];
       const partnerGiven = canon(answers[`${prefix}_${partner?.number}`]);
       const isFirst = Number(q.number) < Number(partner?.number);
-      if (pair.includes(given) && (isFirst || given !== partnerGiven)) correct++;
-    } else {
-      const accepted = (q.accepted_answers || [q.correct_answer]).map(canon);
-      if (accepted.includes(given)) correct++;
+      ok = pair.includes(given) && (isFirst || given !== partnerGiven);
+    } else if (given) {
+      ok = shown.map(canon).includes(given);
     }
+    if (q.either_order_with) shown = [String(q.correct_answer)];
+    if (ok) correct++;
+    items.push({
+      number: q.number, type: q.type, section: q.section || q.passage, question: q.question,
+      user_answer: raw == null ? "" : String(raw), correct_answers: shown, is_correct: ok,
+    });
   }
-  return correct;
+  return { correct, items };
+}
+
+/** Kết quả của phòng thi demo (chấm ngay trên trình duyệt) theo đúng dạng máy chủ trả về, để dùng chung màn kết quả. */
+function buildDemoResult(o: {
+  sections: Section[]; questions: any; answers: Record<string, any>; task1: string; task2: string;
+  mode: RoomMode; title: string; auto: boolean;
+}) {
+  const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
+  const section_results: Record<string, any> = {};
+  const review: Record<string, any[]> = {};
+  const bands: number[] = [];
+  for (const skill of ["listening", "reading"] as const) {
+    const qs: any[] = o.questions?.[skill] || [];
+    if (!o.sections.includes(skill) || qs.length === 0) continue;
+    const graded = gradeQuestions(qs, skill, o.answers);
+    const answered = qs.filter(q => String(o.answers[`${skill}_${q.number}`] ?? "").trim() !== "").length;
+    const band = graded ? toBand(graded.correct, skill === "listening" ? LISTENING_BANDS : READING_BANDS) : null;
+    if (band != null) bands.push(band);
+    section_results[skill] = { raw_score: graded?.correct ?? 0, total: qs.length, band, answered };
+    review[skill] = graded?.items || [];
+  }
+  if (o.sections.includes("writing")) {
+    section_results.writing = {
+      band: null, scored_by: "none",
+      task1: { words: words(o.task1), min_words: 150, scored_by: "none" },
+      task2: { words: words(o.task2), min_words: 250, scored_by: "none" },
+    };
+  }
+  if (o.sections.includes("speaking")) section_results.speaking = { band: null, status: "not_scored" };
+  return {
+    session_id: "demo", title: o.title, status: o.auto ? "AUTO_SUBMITTED" : "SUBMITTED",
+    session_mode: o.mode, sections: o.sections,
+    overall_band: bands.length ? Math.round((bands.reduce((a, b) => a + b, 0) / bands.length) * 2) / 2 : null,
+    section_results, review, by_type: {}, ai_analysis: {}, materials: {},
+    submitted_at: new Date().toISOString(),
+  };
+}
+
+/** Giải thích cho phòng thi demo: không có AI hay nguồn bài, chỉ đối chiếu đáp án của bạn với đáp án đúng. */
+function demoExplanation(result: any, skill: string, number: number) {
+  const item = (result.review?.[skill] || []).find((i: any) => i.number === number);
+  if (!item) throw new Error("Không tìm thấy câu này");
+  const correct = (item.correct_answers || []).join(" / ");
+  const mine = String(item.user_answer || "").trim();
+  return {
+    explanation_vi: `Đáp án đúng là ${correct}.` + (item.is_correct ? " Bạn đã trả lời đúng."
+      : mine ? ` Bạn đã chọn/điền “${mine}”, không khớp với đáp án.` : " Bạn đã bỏ trống câu này."),
+    evidence: null,
+    tip_vi: "Gạch chân từ khoá của câu hỏi, tìm đoạn paraphrase trong bài rồi đối chiếu với đáp án; chú ý giới hạn số từ và chính tả.",
+    scored_by: "rule",
+  };
 }
 
 function ExamSessionContent() {
@@ -183,6 +242,12 @@ function ExamSessionContent() {
   const sessionId = params.id as string;
   const isDemoMode = sessionId === "demo";
   const demoType = searchParams.get("type") || "full";
+  // Cấu hình của phòng thi demo nằm trên URL; phiên thật lấy từ máy chủ khi tải
+  const demoMode: RoomMode = searchParams.get("sm") === "practice" ? "practice" : "real";
+  const demoSectionsParam = searchParams.get("sections");
+  const demoMinsParam = searchParams.get("mins");
+  const demoUntimed = searchParams.get("untimed") === "1";
+  const demoStamp = useRef(Date.now());
 
   const [examData, setExamData] = useState<ExamData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -198,6 +263,14 @@ function ExamSessionContent() {
   const [result, setResult] = useState<any>(null);
   const [sectionDone, setSectionDone] = useState<string[]>([]);
   const [showNav, setShowNav] = useState(true);
+  const [roomMode, setRoomMode] = useState<RoomMode>(isDemoMode ? demoMode : "real");
+  const [untimed, setUntimed] = useState(isDemoMode && demoMode === "practice" && demoUntimed);
+  const sessionKey = isDemoMode ? `demo-${demoType}-${demoStamp.current}` : sessionId;
+  const { notes, add: addNote, remove: removeNote } = useExamNotes(sessionKey);
+  const { flags, toggle: toggleFlag } = useExamFlags(sessionKey);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [noteQuote, setNoteQuote] = useState("");
+  const [hintDismissed, setHintDismissed] = useState(false);
 
   // Speaking state
   const [speakingPart, setSpeakingPart] = useState<"part1" | "part2" | "part3">("part1");
@@ -227,15 +300,24 @@ function ExamSessionContent() {
       if (isDemoMode) {
         // Build demo session
         const isCam21 = demoType.startsWith("cambridge21");
-        const demoSections = (demoType === "full" || isCam21)
-          ? ["listening", "reading", "writing", "speaking"]
-          : [demoType];
+        const picked = (demoSectionsParam || "").split(",").filter((x) => (SKILL_ORDER as string[]).includes(x));
+        const demoSections = picked.length
+          ? SKILL_ORDER.filter((x) => picked.includes(x))
+          : (demoType === "full" || isCam21)
+            ? ["listening", "reading", "writing", "speaking"]
+            : [demoType];
+        const customMinutes: Record<string, number> = {};
+        (demoMinsParam || "").split(",").forEach((pair) => {
+          const [k, v] = pair.split(":");
+          const m = Number(v);
+          if ((SKILL_ORDER as string[]).includes(k) && m >= 1 && m <= 240) customMinutes[k] = Math.round(m);
+        });
+        const minutesOf = (k: "listening" | "reading" | "writing" | "speaking") => (customMinutes[k] ?? STANDARD_MINUTES[k]) * 60;
 
         let srcData: any;
-        if (demoType === "cambridge21_test1") srcData = cambridge21Test1;
-        else if (demoType === "cambridge21_test2") srcData = cambridge21Test2;
-        else if (demoType === "cambridge21_test3") srcData = cambridge21Test3;
-        else if (demoType === "cambridge21_test4") srcData = cambridge21Test4;
+        // Bộ đề Cambridge nạp theo yêu cầu: không đưa ~250KB JSON vào bundle của mọi người dùng
+        const camMatch = /^cambridge21_test([1-4])$/.exec(demoType);
+        if (camMatch) srcData = (await import(`@/data/cambridge21_test${camMatch[1]}.json`)).default;
         else {
           srcData = {
             listening: DEMO_LISTENING,
@@ -254,7 +336,7 @@ function ExamSessionContent() {
             sections: demoSections as Section[],
             section_order: demoSections as Section[],
             section_durations: {
-              listening: 1800, reading: 3600, writing: 3600, speaking: 900
+              listening: minutesOf("listening"), reading: minutesOf("reading"), writing: minutesOf("writing"), speaking: minutesOf("speaking"),
             },
             audio_url: isCam21 ? resolveAudioUrl(srcData.listening_audio) : undefined
           },
@@ -291,6 +373,8 @@ function ExamSessionContent() {
           }
         }
         setExamData({ session, questions: data.questions });
+        setRoomMode(session.session_mode === "practice" ? "practice" : "real");
+        setUntimed(!!session.untimed);
         const saved = data.answers || {};
         setAnswers(saved);
         setWritingTask1(saved.writing_task1 || "");
@@ -315,6 +399,23 @@ function ExamSessionContent() {
       saverRef.current?.dispose();
     };
   }, [sessionId, isDemoMode, demoType]);
+
+  // Menu bôi đen chữ đọc chế độ phòng thi từ body: thi thật chỉ cho tô sáng, luyện tập có thêm từ điển/ghi chú
+  useEffect(() => {
+    if (result) return;
+    document.body.dataset.examMode = roomMode;
+    return () => { delete document.body.dataset.examMode; };
+  }, [roomMode, result]);
+
+  useEffect(() => {
+    if (roomMode !== "practice") return;
+    const onNote = (e: Event) => {
+      setNoteQuote(String((e as CustomEvent).detail?.text || "").slice(0, 400));
+      setNotesOpen(true);
+    };
+    window.addEventListener("studia:exam-note", onNote);
+    return () => window.removeEventListener("studia:exam-note", onNote);
+  }, [roomMode]);
 
   // Autosave writing
   useEffect(() => {
@@ -355,25 +456,13 @@ function ExamSessionContent() {
       setShowSubmitModal(false);
       return;
     }
-    const count = (prefix: string, total: number) =>
-      Array.from({ length: total }, (_, i) => i + 1)
-        .filter(n => String(answers[`${prefix}_${n}`] ?? "").trim() !== "").length;
-    const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
-    const listeningTotal = (examData?.questions as any)?.listening?.length || 40;
-    const readingTotal = (examData?.questions as any)?.reading?.length || 40;
-
+    const camTitle = /^cambridge21_test(\d)$/.exec(demoType);
     setResult({
-      auto_submitted: auto,
-      listening: sections.includes("listening") ? (() => {
-        const correct = scoreQuestions((examData?.questions as any)?.listening, "listening", answers);
-        return { answered: count("listening", listeningTotal), total: listeningTotal, correct, band: correct === null ? null : toBand(correct, LISTENING_BANDS) };
-      })() : null,
-      reading: sections.includes("reading") ? (() => {
-        const correct = scoreQuestions((examData?.questions as any)?.reading, "reading", answers);
-        return { answered: count("reading", readingTotal), total: readingTotal, correct, band: correct === null ? null : toBand(correct, READING_BANDS) };
-      })() : null,
-      writing: sections.includes("writing") ? { task1: words(writingTask1), task2: words(writingTask2) } : null,
-      speaking: sections.includes("speaking"),
+      ...buildDemoResult({
+        sections: sections as Section[], questions: examData?.questions, answers, task1: writingTask1, task2: writingTask2,
+        mode: roomMode, title: camTitle ? `Cambridge IELTS 21 - Test ${camTitle[1]}` : "Đề mẫu Studia", auto,
+      }),
+      server: true, demo: true,
     });
     setSubmitLoading(false);
     setShowSubmitModal(false);
@@ -487,8 +576,10 @@ function ExamSessionContent() {
   }
 
   // ─── Result Screen ───────────────────────────────────────────
-  if (result?.server) return <ServerResult result={result} onRetry={() => router.push("/exam")} />;
-  if (result) return <ResultScreen result={result} onRetry={() => router.push("/exam")} />;
+  if (result) {
+    return <ServerResult result={result} onRetry={() => router.push("/exam")} sessionKey={sessionKey}
+      explain={result.demo ? async (skill, number) => demoExplanation(result, skill, number) : undefined} />;
+  }
 
   if (loadError) return (
     <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", padding: "24px", textAlign: "center" }}>
@@ -558,14 +649,18 @@ function ExamSessionContent() {
   }
 
   const totalQs: Record<Section, number> = {
-    listening: 40, reading: 40, writing: 2, speaking: 3
+    listening: questions.listening?.length || 40, reading: questions.reading?.length || 40, writing: 2, speaking: 3
+  };
+  const navNumbers = (sec: "listening" | "reading") => {
+    const list: any[] = questions[sec] || [];
+    return list.length ? list.map((q) => q.number as number) : Array.from({ length: 40 }, (_, i) => i + 1);
   };
 
   return (
     <div style={{ background: "var(--canvas)", minHeight: "100vh" }}>
       {/* ─── Exam Header ─────────────────────────────────────── */}
       <div className="exam-header">
-        <span className="exam-header-brand row" style={{ gap: 10 }}><Logo variant="mark" height={22} />IELTS Mock Test</span>
+        <span className="exam-header-brand row" style={{ gap: 10 }}><Logo variant="mark" height={22} />IELTS Mock Test<span className="room-mode" data-mode={roomMode}>{roomMode === "practice" ? "Luyện tập" : "Thi thật"}</span></span>
 
         {/* Section tabs */}
         <div className="row" style={{ gap: 6 }} aria-label="Các phần thi">
@@ -582,18 +677,22 @@ function ExamSessionContent() {
 
         {/* Timer + actions */}
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <ExamTimer
-            key={currentSection}
-            initialSeconds={remainingOverride ?? sectionDuration}
-            onExpire={() => {
-              if (sections.indexOf(currentSection) < sections.length - 1) {
-                nextSection();
-              } else {
-                setTimeUp(true);
-                handleAutoSubmit();
-              }
-            }}
-          />
+          {untimed ? (
+            <span className="room-untimed">Không giới hạn giờ</span>
+          ) : (
+            <ExamTimer
+              key={currentSection}
+              initialSeconds={remainingOverride ?? sectionDuration}
+              onExpire={() => {
+                if (sections.indexOf(currentSection) < sections.length - 1) {
+                  nextSection();
+                } else {
+                  setTimeUp(true);
+                  handleAutoSubmit();
+                }
+              }}
+            />
+          )}
           <button className="st-btn st-btn-primary st-btn-sm" type="button" onClick={() => setShowSubmitModal(true)}>
             Nộp bài
           </button>
@@ -612,6 +711,13 @@ function ExamSessionContent() {
       {backOnline !== null && (
         <div role="status" style={{ position: "fixed", left: "50%", bottom: 84, transform: "translateX(-50%)", zIndex: 80, display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", borderRadius: 999, background: "var(--navy)", color: "var(--on-navy)", font: "550 14px/1 var(--font-sans)", boxShadow: "var(--shadow-lg)" }}>
           ✓ Đã kết nối lại{backOnline > 0 ? ` · ${backOnline} câu trả lời đang được lưu` : ""}
+        </div>
+      )}
+
+      {roomMode === "practice" && !hintDismissed && (
+        <div className="practice-hint" role="note">
+          <span><b style={{ fontWeight: 600 }}>Phòng luyện tập:</b> bôi đen chữ trong bài để tra từ điển, tô sáng, thêm flashcard hoặc ghi chú. Nút “Ghi chú” ở góc trái mở sổ tay.</span>
+          <button type="button" onClick={() => setHintDismissed(true)}>Đã hiểu</button>
         </div>
       )}
 
@@ -700,10 +806,20 @@ function ExamSessionContent() {
               >
                 {sections.indexOf(currentSection) < sections.length - 1 ? "Phần tiếp" : "Nộp Bài"}
               </button>
-              {Array.from({ length: 40 }, (_, i) => i + 1).map(n => (
+              <button
+                type="button"
+                className="exam-flag-btn"
+                style={{ marginRight: "8px" }}
+                aria-pressed={!!flags[`${currentSection}_${currentQuestion}`]}
+                onClick={() => toggleFlag(`${currentSection}_${currentQuestion}`)}
+                title="Đánh dấu câu này để quay lại xem trước khi nộp"
+              >
+                {flags[`${currentSection}_${currentQuestion}`] ? `Bỏ đánh dấu câu ${currentQuestion}` : `Đánh dấu câu ${currentQuestion}`}
+              </button>
+              {navNumbers(currentSection).map(n => (
                 <button
                   key={n}
-                  className={`exam-nav-btn ${getAnswer(currentSection, n) ? "answered" : ""} ${currentQuestion === n ? "current" : ""}`}
+                  className={`exam-nav-btn ${getAnswer(currentSection, n) ? "answered" : ""} ${currentQuestion === n ? "current" : ""} ${flags[`${currentSection}_${n}`] ? "flagged" : ""}`}
                   onClick={() => setCurrentQuestion(n)}
                 >
                   {n}
@@ -834,6 +950,11 @@ function ExamSessionContent() {
         </button>
       )}
 
+      {roomMode === "practice" && (
+        <ExamNotes notes={notes} onAdd={addNote} onRemove={removeNote} open={notesOpen} onOpenChange={setNotesOpen}
+          quote={noteQuote} onQuoteUsed={() => setNoteQuote("")} />
+      )}
+
       {/* ─── Submit Modal ─────────────────────────────────────── */}
       {showSubmitModal && (
         <div className="exam-modal-overlay">
@@ -845,6 +966,7 @@ function ExamSessionContent() {
             </div>
             <p style={{ color: "var(--ink-muted)", fontSize: "0.88rem", marginBottom: "24px", lineHeight: 1.6 }}>
               Bạn có chắc muốn nộp bài thi không? Hành động này không thể hoàn tác.
+              {Object.keys(flags).length > 0 && ` Bạn còn ${Object.keys(flags).length} câu đang được đánh dấu để xem lại.`}
             </p>
 
             {/* Stats */}
@@ -852,7 +974,7 @@ function ExamSessionContent() {
               {sections.includes("listening") && (
                 <div style={{ background: "var(--surface-sunken)", padding: "14px", borderRadius: "12px", textAlign: "center" }}>
                   <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--brand)" }}>
-                    {answeredCount("listening", 40)}/40
+                    {answeredCount("listening", totalQs.listening)}/{totalQs.listening}
                   </div>
                   <div style={{ fontSize: "0.72rem", color: "var(--ink-muted)" }}>Listening</div>
                 </div>
@@ -860,7 +982,7 @@ function ExamSessionContent() {
               {sections.includes("reading") && (
                 <div style={{ background: "var(--surface-sunken)", padding: "14px", borderRadius: "12px", textAlign: "center" }}>
                   <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--brand)" }}>
-                    {answeredCount("reading", 40)}/40
+                    {answeredCount("reading", totalQs.reading)}/{totalQs.reading}
                   </div>
                   <div style={{ fontSize: "0.72rem", color: "var(--ink-muted)" }}>Reading</div>
                 </div>
@@ -1978,116 +2100,6 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Result Screen ───────────────────────────────────────────
-function ResultScreen({ result, onRetry }: any) {
-  const MIN_T1 = 150;
-  const MIN_T2 = 250;
-
-  const scored = [result.listening, result.reading].filter((s: any) => s && typeof s.band === "number");
-  const missingKey = [result.listening, result.reading].some((s: any) => s && s.band === null);
-  const average = scored.length
-    ? Math.round((scored.reduce((a: number, s: any) => a + s.band, 0) / scored.length) * 2) / 2
-    : null;
-
-  const notes: string[] = [];
-  if (result.listening && result.listening.answered < result.listening.total) {
-    notes.push(`Listening còn ${result.listening.total - result.listening.answered} câu chưa trả lời.`);
-  }
-  if (result.reading && result.reading.answered < result.reading.total) {
-    notes.push(`Reading còn ${result.reading.total - result.reading.answered} câu chưa trả lời.`);
-  }
-  if (missingKey && scored.length > 0) {
-    notes.push("Một phần của đề này chưa có đáp án nên chưa được chấm.");
-  }
-  if (result.writing) {
-    if (result.writing.task1 < MIN_T1) notes.push(`Writing Task 1 mới được ${result.writing.task1} từ, yêu cầu tối thiểu ${MIN_T1} từ.`);
-    if (result.writing.task2 < MIN_T2) notes.push(`Writing Task 2 mới được ${result.writing.task2} từ, yêu cầu tối thiểu ${MIN_T2} từ.`);
-  }
-
-  const card: React.CSSProperties = {
-    background: "var(--bg-card)", border: "1px solid var(--border-subtle)",
-    borderRadius: "12px", padding: "20px",
-  };
-  const label: React.CSSProperties = { fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 600, marginBottom: "6px" };
-  const value: React.CSSProperties = { fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.25px" };
-
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-primary)", padding: "48px 20px" }}>
-      <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <h1 style={{ fontSize: "2rem", marginBottom: "8px" }}>Bạn đã hoàn thành bài thi</h1>
-        <p style={{ color: "var(--text-secondary)", marginBottom: "28px", lineHeight: 1.6 }}>
-          {result.auto_submitted ? "Hết giờ nên bài được nộp tự động. " : ""}
-          {scored.length > 0
-            ? "Listening và Reading đã được chấm theo đáp án trong sách. Band chỉ là ước tính theo bảng quy đổi chuẩn; Writing và Speaking chưa chấm tự động."
-            : "Bài thi này chưa có đáp án để chấm điểm tự động, nên chưa quy ra band. Dưới đây là thống kê bài làm của bạn."}
-        </p>
-
-        {average !== null && (
-          <div style={{ ...card, marginBottom: "14px", display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap" }}>
-            <span style={{ fontSize: "2.4rem", fontWeight: 700, letterSpacing: "-1px" }}>{average}</span>
-            <span style={{ color: "var(--text-secondary)" }}>
-              Band trung bình {scored.length === 2 ? "Listening và Reading" : "phần đã chấm"} (ước tính)
-            </span>
-          </div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px", marginBottom: "28px" }}>
-          {[["Listening", result.listening], ["Reading", result.reading]].map(([name, s]: any) => s && (
-            <div style={card} key={name}>
-              <div style={label}>{name}</div>
-              {typeof s.band === "number" ? (
-                <>
-                  <div style={value}>Band {s.band}</div>
-                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                    {s.correct}/{s.total} câu đúng
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div style={value}>{s.answered}/{s.total}</div>
-                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>câu đã trả lời</div>
-                </>
-              )}
-            </div>
-          ))}
-          {result.writing && (
-            <div style={card}>
-              <div style={label}>Writing</div>
-              <div style={value}>{result.writing.task1 + result.writing.task2} từ</div>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                Task 1: {result.writing.task1} · Task 2: {result.writing.task2}
-              </div>
-            </div>
-          )}
-          {result.speaking && (
-            <div style={card}>
-              <div style={label}>Speaking</div>
-              <div style={value}>Đã thi</div>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>chưa chấm tự động</div>
-            </div>
-          )}
-        </div>
-
-        <div style={{ ...card, marginBottom: "28px" }}>
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "12px" }}>Cần chú ý</h2>
-          {notes.length > 0 ? (
-            <ul style={{ paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-              {notes.map((n, i) => <li key={i}>{n}</li>)}
-            </ul>
-          ) : (
-            <p style={{ color: "var(--text-secondary)" }}>Bạn đã trả lời đủ các câu và viết đủ số từ yêu cầu.</p>
-          )}
-        </div>
-
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <button type="button" onClick={onRetry} className="btn-primary">Làm bài thi khác</button>
-          <a href="/" className="btn-secondary">Về trang chính</a>
-        </div>
-      </div>
     </div>
   );
 }

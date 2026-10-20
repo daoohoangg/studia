@@ -1,0 +1,8 @@
+# Tên miền sslip.io tự trỏ về IP 3.25.144.63 (không cần mua domain). Có domain riêng thì thay vào đây và trỏ A record về Elastic IP.
+api.3-25-144-63.sslip.io {
+	encode gzip
+	request_body {
+		max_size 150MB
+	}
+	reverse_proxy api:8000
+}

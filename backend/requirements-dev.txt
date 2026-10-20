@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8.0.0
+# Test fixtures (tests/fixtures/make_fixtures.py)
+fpdf2>=2.8.0

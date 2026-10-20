@@ -1,8 +1,12 @@
 __pycache__/
 *.pyc
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 data/
 tests/
+conftest.py
 .pytest_cache/
+requirements-dev.txt

@@ -31,3 +31,6 @@ drive-download-*/
 # Hệ điều hành
 .DS_Store
 Thumbs.db
+
+# Khoá SSH
+*.pem

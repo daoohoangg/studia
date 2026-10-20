@@ -1,0 +1,35 @@
+# Chạy trên EC2: docker compose up -d --build
+services:
+  api:
+    # CI/CD đặt API_IMAGE (file .env cạnh compose) để kéo image từ GHCR; chạy tay thì build tại chỗ.
+    image: ${API_IMAGE:-studia-api:local}
+    build: ../../backend
+    restart: unless-stopped
+    env_file: ../../backend/.env          # tạo trên server, KHÔNG commit
+    environment:
+      PORT: "8000"
+      ENVIRONMENT: production
+    # 1 worker: vòng nhắc lịch và xử lý sách chạy trong tiến trình, nhiều worker sẽ gửi trùng
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    mem_limit: 750m      # free tier 1 GB RAM; swap 2 GB do setup.sh tạo
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    expose: ["8000"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [api]
+
+volumes:
+  caddy_data:

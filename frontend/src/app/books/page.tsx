@@ -268,7 +268,8 @@ export default function BooksPage() {
                       ? <span className="st-badge st-badge-warning" style={{ flexShrink: 0 }}>Đang ẩn</span>
                       : <span className={statusBadge(book.processing_status)} style={{ flexShrink: 0 }}>{statusText(book.processing_status)}</span>}
                   </div>
-                  <div className="meta" style={{ marginTop: 4 }}>{book.topic_count > 0 ? `${book.topic_count} chủ đề` : "Đang tách chủ đề"}</div>
+                  <div className="meta" style={{ marginTop: 4 }}>{book.category ? `${book.category} · ` : ""}{book.topic_count > 0 ? `${book.topic_count} chủ đề` : "Đang tách chủ đề"}</div>
+                  {book.description && <div className="ink2" style={{ marginTop: 4, fontSize: 13.5, lineHeight: "19px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{book.description}</div>}
                 </div>
                 <div className="row" style={{ marginTop: "auto", justifyContent: "space-between", pointerEvents: "auto" }}>
                   {book.processing_status === "failed" && (book.is_owner || isAdmin) ? (

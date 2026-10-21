@@ -22,8 +22,10 @@ from app.api.v1.exam_sets import router as exam_sets_router
 from app.api.v1.profile import router as profile_router
 from app.api.v1.billing import account_router, public_router as billing_public_router, router as billing_router, webhook_router as billing_webhook_router
 from app.api.v1.admin import router as admin_router
+from app.api.v1.site_config import admin_router as admin_config_router, public_router as config_public_router
 from app.api.v1.schedule import router as schedule_router
 from app.core.accounts import require_admin
+from app.core.features import require_feature
 import asyncio
 import contextlib
 import logging
@@ -105,29 +107,32 @@ authenticated = [Depends(require_user)]
 app.include_router(documents_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 app.include_router(ebook_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 app.include_router(learning_paths_router, prefix=settings.API_V1_STR, dependencies=authenticated)
-app.include_router(quizzes_router, prefix=settings.API_V1_STR, dependencies=authenticated)
-app.include_router(reviews_router, prefix=settings.API_V1_STR, dependencies=authenticated)
-app.include_router(flashcards_router, prefix=settings.API_V1_STR, dependencies=authenticated)
-app.include_router(tutor_router, prefix=settings.API_V1_STR, dependencies=authenticated)
-app.include_router(speech_router, prefix=settings.API_V1_STR, dependencies=authenticated)
-app.include_router(scenarios_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(quizzes_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("practice"))])
+app.include_router(reviews_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("practice"))])
+app.include_router(flashcards_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("flashcards"))])
+app.include_router(tutor_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("tutor"))])
+app.include_router(speech_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("pronunciation"))])
+app.include_router(scenarios_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("scenarios"))])
 app.include_router(export_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 app.include_router(dual_coding_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 # V3 — Learnova Language Learning Features
-app.include_router(vocabulary_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(vocabulary_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("flashcards"))])
 app.include_router(feedback_router, prefix=settings.API_V1_STR, dependencies=authenticated)
-app.include_router(exam_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(exam_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("exam"))])
 app.include_router(exam_sets_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 app.include_router(account_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 app.include_router(profile_router, prefix=settings.API_V1_STR, dependencies=authenticated)
 app.include_router(billing_router, prefix=settings.API_V1_STR, dependencies=authenticated)
-app.include_router(schedule_router, prefix=settings.API_V1_STR, dependencies=authenticated)
+app.include_router(schedule_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_feature("plan"))])
 # Quản trị: phải đăng nhập VÀ có role admin
 app.include_router(admin_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_admin)])
+app.include_router(admin_config_router, prefix=settings.API_V1_STR, dependencies=authenticated + [Depends(require_admin)])
 # Webhook ngân hàng: không có token người dùng — tự xác thực bằng API key / chữ ký HMAC của SePay
 app.include_router(billing_webhook_router, prefix=settings.API_V1_STR)
 # Bảng giá cho trang giới thiệu: công khai, chỉ đọc
 app.include_router(billing_public_router, prefix=settings.API_V1_STR)
+# Cấu hình công khai cho frontend (tính năng đang bật, banner, nội dung luyện tập)
+app.include_router(config_public_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():

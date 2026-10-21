@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 from fastapi import HTTPException
 
 from app.config import settings
+from app.services import sysconfig
 
 DOCUMENTS_BUCKET = "documents"
 PDF_MAGIC = b"%PDF-"
@@ -41,8 +42,9 @@ def validate_pdf_bytes(pdf_bytes: bytes) -> int:
     """Kiểm tra chữ ký PDF, dung lượng và số trang. Trả về số trang; lỗi → HTTP 400/413."""
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="Tệp PDF rỗng")
-    if len(pdf_bytes) > settings.MAX_PDF_MB * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"Tệp PDF vượt quá {settings.MAX_PDF_MB} MB")
+    max_mb = sysconfig.limit("MAX_PDF_MB")
+    if len(pdf_bytes) > max_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"Tệp PDF vượt quá {max_mb} MB")
     if not pdf_bytes.startswith(PDF_MAGIC):
         raise HTTPException(status_code=400, detail="Tệp không phải PDF hợp lệ")
 
@@ -59,10 +61,11 @@ def validate_pdf_bytes(pdf_bytes: bytes) -> int:
 
     if page_count == 0:
         raise HTTPException(status_code=400, detail="PDF không có trang nào")
-    if page_count > settings.MAX_PDF_PAGES:
+    max_pages = sysconfig.limit("MAX_PDF_PAGES")
+    if page_count > max_pages:
         raise HTTPException(
             status_code=413,
-            detail=f"PDF có {page_count} trang, vượt quá giới hạn {settings.MAX_PDF_PAGES} trang",
+            detail=f"PDF có {page_count} trang, vượt quá giới hạn {max_pages} trang",
         )
     return page_count
 
@@ -71,8 +74,9 @@ def validate_docx_bytes(docx_bytes: bytes) -> None:
     """Kiểm tra chữ ký, dung lượng và mở thử tệp DOCX. Lỗi → HTTP 400/413."""
     if not docx_bytes:
         raise HTTPException(status_code=400, detail="Tệp DOCX rỗng")
-    if len(docx_bytes) > settings.MAX_PDF_MB * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"Tệp vượt quá {settings.MAX_PDF_MB} MB")
+    max_mb = sysconfig.limit("MAX_PDF_MB")
+    if len(docx_bytes) > max_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"Tệp vượt quá {max_mb} MB")
     if not docx_bytes.startswith(ZIP_MAGIC):
         raise HTTPException(status_code=400, detail="Tệp không phải DOCX hợp lệ")
     try:

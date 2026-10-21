@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.core import accounts
 from app.core.auth import current_user_id
-from app.services import billing
+from app.services import billing, sysconfig
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -353,6 +353,7 @@ def put_settings(req: SettingsRequest):
 @router.get("/library")
 def library(scope: str = "shared"):
     db = _db()
+    meta = sysconfig.book_meta()
     rows = db.table("documents").select("id, user_id, title, source_type, processing_status, visibility, created_at") \
         .order("created_at", desc=True).execute().data or []
     if scope == "shared":
@@ -363,21 +364,51 @@ def library(scope: str = "shared"):
     for r in rows:
         r["visibility"] = r.get("visibility") or "private"
         r["readers"] = len(readers.get(str(r["id"]), set()))
+        r.update({"description": "", "category": "", "sort_order": None, "featured": False, **meta.get(str(r["id"]), {})})
     return {"documents": rows}
 
 
-class VisibilityRequest(BaseModel):
-    visibility: str
+class DocumentUpdate(BaseModel):
+    visibility: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    sort_order: Optional[int] = None
+    featured: Optional[bool] = None
 
 
 @router.patch("/documents/{document_id}")
-def set_visibility(document_id: str, req: VisibilityRequest):
-    if req.visibility not in ("private", "shared", "shared_draft"):
+def update_document(document_id: str, req: DocumentUpdate):
+    """Đổi chế độ hiển thị, tên, mô tả, danh mục, thứ tự và đánh dấu nổi bật của sách."""
+    if req.visibility is not None and req.visibility not in ("private", "shared", "shared_draft"):
         raise HTTPException(status_code=400, detail="Chế độ hiển thị không hợp lệ")
     rows = _db().table("documents").select("id, processing_status").eq("id", document_id).limit(1).execute().data or []
     if not rows:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu")
     if req.visibility == "shared" and rows[0].get("processing_status") != "completed":
         raise HTTPException(status_code=409, detail="Sách đang xử lý hoặc bị lỗi, chưa hiện cho học sinh được")
-    _db().table("documents").update({"visibility": req.visibility}).eq("id", document_id).execute()
-    return {"id": document_id, "visibility": req.visibility}
+
+    changes: dict = {}
+    if req.visibility is not None:
+        changes["visibility"] = req.visibility
+    if req.title is not None:
+        title = " ".join(req.title.split())
+        if not title or len(title) > 200:
+            raise HTTPException(status_code=400, detail="Tên sách phải có 1–200 ký tự")
+        changes["title"] = title
+    if req.sort_order is not None and not 0 <= req.sort_order <= 100000:
+        raise HTTPException(status_code=400, detail="Thứ tự phải từ 0 đến 100000")
+    if changes:
+        _db().table("documents").update(changes).eq("id", document_id).execute()
+
+    meta_fields = {k: v for k, v in (("description", req.description), ("category", req.category),
+                                     ("sort_order", req.sort_order), ("featured", req.featured)) if v is not None}
+    if "description" in meta_fields:
+        meta_fields["description"] = " ".join(meta_fields["description"].split())[:500]
+    if "category" in meta_fields:
+        meta_fields["category"] = " ".join(meta_fields["category"].split())[:60]
+    if meta_fields:
+        all_meta = dict(sysconfig.book_meta())
+        all_meta[document_id] = {**all_meta.get(document_id, {}), **meta_fields}
+        sysconfig.save("book_meta", all_meta)
+    return {"id": document_id, **changes, **meta_fields}

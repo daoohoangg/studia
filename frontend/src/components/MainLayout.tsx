@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   Home, BarChart3, BookOpen, CalendarDays, Layers, Mic,
   PenLine, Target, FlaskConical, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon,
-  NotebookPen, ChevronRight, LayoutGrid, Users, CreditCard, Package, Library, Sparkles, Zap, Settings,
+  NotebookPen, ChevronRight, LayoutGrid, Users, CreditCard, Package, Library, Sparkles, Zap, Settings, SlidersHorizontal, Megaphone,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import SelectionContextMenu from "@/components/SelectionContextMenu";
@@ -14,6 +14,8 @@ import AuthGate from "@/components/AuthGate";
 import TutorPopup from "@/components/TutorPopup";
 import NavProgress from "@/components/NavProgress";
 import Logo from "@/components/Logo";
+import SiteBanner from "@/components/SiteBanner";
+import { featureForPath, featureOn, useSiteConfig } from "@/lib/siteConfig";
 import { supabase } from "@/lib/supabase";
 import { useAccount, clearAccount, useDisplayName } from "@/lib/account";
 
@@ -37,7 +39,7 @@ const navGroups: NavItem[][] = [
     { href: "/flashcards", label: "Thẻ & từ vựng", icon: Layers, also: ["/vocabulary"] },
   ],
   [
-    { href: "/scenarios", label: "Luyện nói", icon: Mic, also: ["/pronunciation"] },
+    { href: "/scenarios", label: "Luyện nói", icon: Mic, also: ["/pronunciation", "/dictation"] },
     { href: "/feedback", label: "Lỗi sai", icon: PenLine, also: ["/mistakes"] },
     { href: "/exam", label: "Thi thử IELTS", icon: Target },
     ...(SHOW_DEV_TOOLS ? [{ href: "/config-test", label: "Công cụ kiểm thử", icon: FlaskConical }] : []),
@@ -48,7 +50,7 @@ const mobileTabs: NavItem[] = [
   { href: "/", label: "Hôm nay", icon: Home },
   { href: "/flashcards", label: "Thẻ", icon: Layers, also: ["/vocabulary"] },
   { href: "/practice", label: "Ôn luyện", icon: Zap, also: ["/review"] },
-  { href: "/scenarios", label: "Luyện nói", icon: Mic, also: ["/pronunciation"] },
+  { href: "/scenarios", label: "Luyện nói", icon: Mic, also: ["/pronunciation", "/dictation"] },
   { href: "/exam", label: "Thi thử", icon: Target },
 ];
 
@@ -57,7 +59,9 @@ const adminGroup: NavItem[] = [
   { href: "/admin/users", label: "Tài khoản", icon: Users },
   { href: "/admin/orders", label: "Thanh toán", icon: CreditCard },
   { href: "/admin/packs", label: "Gói & cài đặt", icon: Package },
-  { href: "/admin/library", label: "Thư viện chung", icon: Library },
+  { href: "/admin/library", label: "Sách hệ thống", icon: Library },
+  { href: "/admin/features", label: "Tính năng & giới hạn", icon: SlidersHorizontal },
+  { href: "/admin/content", label: "Nội dung & thông báo", icon: Megaphone },
 ];
 
 /** Mục đang active: khớp đúng "/" hoặc tiền tố của các route con (vd /books/123). */
@@ -81,8 +85,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [settled, setSettled] = useState(false);
   const pathname = usePathname();
   const { account, isAdmin } = useAccount();
+  const site = useSiteConfig();
   const displayName = useDisplayName(account);
-  const groups = isAdmin ? [adminGroup, ...navGroups] : navGroups;
+  // Quản lý tắt tính năng nào thì học sinh không thấy mục đó; quản lý vẫn thấy và vào được để kiểm thử.
+  const visible = (it: NavItem) => isAdmin || featureOn(site, featureForPath(it.href));
+  const baseGroups = navGroups.map((g) => g.filter(visible)).filter((g) => g.length);
+  const groups = isAdmin ? [adminGroup, ...baseGroups] : baseGroups;
+  const featureOff = !isAdmin && !featureOn(site, featureForPath(pathname));
   const expanded = !collapsed || hover;
   const peek = collapsed && hover;
 
@@ -115,7 +124,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         {/* Menu ngữ cảnh khi bôi đen chữ */}
         <SelectionContextMenu />
         <NavProgress />
-        {!pathname.startsWith("/tutor") && !/^\/exam\/[^/]+/.test(pathname) && <TutorPopup />}
+        {!pathname.startsWith("/tutor") && !/^\/exam\/[^/]+/.test(pathname) && (isAdmin || featureOn(site, "tutor")) && <TutorPopup />}
 
         {/* Sidebar (desktop/tablet) */}
         <aside
@@ -214,12 +223,21 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
         {/* Nội dung chính */}
         <main className={cls("app-main", collapsed && "collapsed", !settled && "no-anim")}>
-          {children}
+          <SiteBanner />
+          {featureOff ? (
+            <div className="wrap">
+              <div className="st-card" style={{ textAlign: "center", padding: 40 }}>
+                <h1 className="heading-2">Tính năng đang tạm tắt</h1>
+                <p className="ink2" style={{ marginTop: 6 }}>Studia đang bảo trì phần này. Bạn quay lại sau nhé, hoặc tiếp tục học các phần khác.</p>
+                <Link className="st-btn st-btn-primary" href="/" style={{ marginTop: 16 }}>Về trang Hôm nay</Link>
+              </div>
+            </div>
+          ) : children}
         </main>
 
         {/* Thanh tab dưới (mobile) */}
         <nav className="mobile-tabbar" aria-label="Điều hướng nhanh">
-          {mobileTabs.map((t) => {
+          {mobileTabs.filter(visible).map((t) => {
             const active = isItemActive(pathname, t);
             const Icon = t.icon;
             return (

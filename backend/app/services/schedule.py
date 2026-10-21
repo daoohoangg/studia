@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 from app.config import settings
+from app.services import sysconfig
 
 logger = logging.getLogger("studia.schedule")
 
@@ -280,7 +281,7 @@ def run_reminder_cycle(db=None, now: Optional[datetime] = None, send=None) -> Di
     from app.services import mailer
 
     counts = {"due": 0, "sent": 0, "skipped": 0, "failed": 0}
-    if not settings.REMINDERS_ENABLED:
+    if not sysconfig.reminders_enabled():
         return counts
     send = send or mailer.send_email
     if db is None:

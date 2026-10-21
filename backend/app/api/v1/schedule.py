@@ -16,7 +16,7 @@ from app.config import settings
 from app.core.auth import current_user_id
 from app.core.supabase_client import get_supabase_client
 from app.core.uploads import ensure_private_bucket, signed_storage_url
-from app.services import mailer
+from app.services import mailer, sysconfig
 from app.services import schedule as sched
 
 logger = logging.getLogger("studia.schedule.api")
@@ -335,7 +335,7 @@ def reminder_status():
     uid = current_user_id()
     db = _db()
     return {
-        "enabled": settings.REMINDERS_ENABLED,
+        "enabled": sysconfig.reminders_enabled(),
         "smtp_configured": mailer.smtp_configured(),
         "lead_minutes": settings.REMINDER_LEAD_MINUTES,
         "email": sched.user_email(db, uid),

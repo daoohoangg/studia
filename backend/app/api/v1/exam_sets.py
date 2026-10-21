@@ -15,6 +15,7 @@ from app.config import settings
 from app.core.auth import current_user_id, require_owned
 from app.core.supabase_client import get_supabase_client
 from app.core.uploads import ensure_private_bucket, safe_filename, signed_storage_url
+from app.services import sysconfig
 from app.services.document_pipeline import load_all_blocks
 from app.services.exam_builder import GeminiJsonLLM
 from app.services.exam_builder.generate import GenerationError, build_practice_exam
@@ -245,12 +246,13 @@ def validate_exam_set(set_id: str):
 async def upload_audio(set_id: str, file: UploadFile = File(...)):
     supabase = _db()
     row = await run_in_threadpool(_get_set, supabase, set_id)
-    limit = settings.MAX_AUDIO_MB * 1024 * 1024
+    max_mb = sysconfig.limit("MAX_AUDIO_MB")
+    limit = max_mb * 1024 * 1024
     data = await file.read(limit + 1)
     if not data:
         raise HTTPException(status_code=400, detail="Tệp audio rỗng")
     if len(data) > limit:
-        raise HTTPException(status_code=413, detail=f"Tệp audio vượt quá {settings.MAX_AUDIO_MB} MB")
+        raise HTTPException(status_code=413, detail=f"Tệp audio vượt quá {max_mb} MB")
     content_type = _sniff_audio(data)
     if not content_type:
         raise HTTPException(status_code=400, detail="Không nhận ra định dạng audio (hỗ trợ MP3, M4A, WAV, OGG)")

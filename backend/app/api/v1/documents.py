@@ -10,7 +10,7 @@ from app.core.supabase_client import get_supabase_client
 from app.config import settings
 from app.core.auth import current_user_id, forget_owned, require_owned
 from app.core.accounts import current_account
-from app.services import billing
+from app.services import billing, sysconfig
 from app.core.uploads import (
     DOCUMENTS_BUCKET, safe_filename, storage_path_from, validate_docx_bytes, validate_pdf_bytes,
 )
@@ -91,10 +91,13 @@ async def upload_document_text(
 
 def _upload_visibility(shared: bool) -> str:
     """Quản lý có thể tải thẳng vào thư viện chung (ở trạng thái ẩn); học sinh luôn là sách riêng."""
+    is_admin = current_account().get("role") == "admin"
     if shared:
-        if current_account().get("role") != "admin":
+        if not is_admin:
             raise HTTPException(status_code=403, detail="Chỉ quản lý mới thêm sách vào thư viện chung")
         return "shared_draft"
+    if not is_admin and not sysconfig.feature_enabled("upload"):
+        raise HTTPException(status_code=403, detail="Quản lý đang tạm tắt việc tải sách lên. Bạn vẫn đọc được Thư viện Studia.")
     return "private"
 
 
@@ -129,7 +132,7 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="Chỉ chấp nhận tệp .pdf hoặc .docx")
 
     # Đọc tối đa giới hạn + 1 byte để phát hiện tệp quá lớn mà không nạp hết vào RAM
-    file_bytes = await file.read(settings.MAX_PDF_MB * 1024 * 1024 + 1)
+    file_bytes = await file.read(sysconfig.limit("MAX_PDF_MB") * 1024 * 1024 + 1)
     await run_in_threadpool(_validate_upload, kind, file_bytes)
     filename = safe_filename(file.filename, default=f"document.{kind}")
 
@@ -421,6 +424,7 @@ async def list_documents(user_id: Optional[str] = None):
 
     seen = set()
     documents = []
+    book_meta = sysconfig.book_meta()
     for doc in own + shared:
         if doc["id"] in seen:
             continue
@@ -429,8 +433,18 @@ async def list_documents(user_id: Optional[str] = None):
         doc["is_owner"] = str(doc.get("user_id")) == uid
         # Sách thư viện chung luôn ở tab "Thư viện Studia", kể cả với quản lý đã tải nó lên
         doc["is_shared"] = doc["visibility"] in ("shared", "shared_draft")
+        meta = book_meta.get(str(doc["id"])) if doc["is_shared"] else None
+        if meta:
+            doc.update({k: meta[k] for k in ("description", "category", "sort_order", "featured") if k in meta})
         doc.pop("user_id", None)
         documents.append(doc)
+
+    # Thư viện chung: sách nổi bật lên đầu, rồi theo thứ tự quản lý đặt (không đặt thì theo ngày thêm như cũ)
+    shared_docs = [d for d in documents if d["is_shared"]]
+    if any("sort_order" in d or d.get("featured") for d in shared_docs):
+        order = {id(d): i for i, d in enumerate(shared_docs)}
+        shared_docs.sort(key=lambda d: (not d.get("featured"), d.get("sort_order", 10**6), order[id(d)]))
+        documents = [d for d in documents if not d["is_shared"]] + shared_docs
 
     # Thêm topic count cho mỗi document
     for doc in documents:

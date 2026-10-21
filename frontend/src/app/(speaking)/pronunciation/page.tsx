@@ -2,22 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import { API, apiFetch } from "@/lib/api";
+import { useSiteConfig } from "@/lib/siteConfig";
+import { DEFAULT_SENTENCES } from "@/lib/pronunciationBank";
 
 type Word = { word: string; status: "correct" | "missing" | "extra" };
 type Result = { accuracy_percent: number; feedback: string; word_details: Word[]; pace_evaluation?: string };
 
-const SENTENCES = [
-  { group: "Part 1 · Hometown", text: "I grew up in a small coastal town in central Vietnam." },
-  { group: "Part 1 · Hometown", text: "What I like most is the slow pace of life." },
-  { group: "Part 2 · A place you visited", text: "It was absolutely breathtaking, especially at sunrise." },
-  { group: "Part 2 · A place you visited", text: "I'd recommend it to anyone who enjoys hiking." },
-  { group: "Part 3 · Environment", text: "Governments should invest more in renewable energy." },
-];
 const SPEEDS = [0.8, 1, 1.2];
 
 type Phase = "idle" | "rec" | "busy" | "done";
 
 export default function PronunciationPage() {
+  const site = useSiteConfig();
+  // Quản lý có thể thay bộ câu luyện; chưa đặt thì dùng bộ có sẵn
+  const SENTENCES = site.pronunciation_sentences?.length ? site.pronunciation_sentences : DEFAULT_SENTENCES;
   const [idx, setIdx] = useState(0);
   const [speed, setSpeed] = useState(0.8);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -29,7 +27,7 @@ export default function PronunciationPage() {
   const recRef = useRef<any>(null);
   const startRef = useRef(0);
   const textRef = useRef("");
-  const sentence = SENTENCES[idx];
+  const sentence = SENTENCES[Math.min(idx, SENTENCES.length - 1)];
 
   useEffect(() => {
     const w = window as any;

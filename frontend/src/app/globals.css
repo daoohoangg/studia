@@ -1358,3 +1358,8 @@ html[data-motion="reduce"] *, html[data-motion="reduce"] *::before, html[data-mo
 @keyframes tp-label { to { max-width: 0; opacity: 0; margin-left: -10px; } }
 .tp-fab:not(.open) { animation: tp-pad 0.5s 7s var(--ease-in-out) forwards; }
 @keyframes tp-pad { to { padding: 0 16px; } }
+
+/* Nút hỏi Coal: Coal đứng ngay trên nút thay cho biểu tượng AI */
+.tp-fab:not(.open) { padding: 0 20px 0 6px; }
+.tp-fab .mc { flex-shrink: 0; margin-top: -14px; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .25)); }
+@media (max-width: 860px) { .tp-fab:not(.open) { padding: 0 8px; } }

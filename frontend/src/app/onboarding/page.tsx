@@ -47,7 +47,7 @@ export default function OnboardingPage() {
   const finish = async (toPlacement: boolean) => {
     setSaving(true);
     await pushServerProfile({ ...p, completedAt: new Date().toISOString() });
-    router.push(toPlacement ? "/placement" : "/");
+    router.push(toPlacement ? "/placement" : "/home");
   };
 
   const next = () => (step < 4 ? setStep(step + 1) : finish(false));

@@ -39,7 +39,7 @@ function DayPreview({ day, detail, onOpen }: { day: string; detail: DayDetail | 
         <span><b className="num">{s.slots || 0}</b> khung giờ</span>
       </div>
 
-      {empty && <p className="meta" style={{ marginTop: 12 }}>Ngày này chưa có gì. Mở chi tiết để thêm khung giờ học hoặc lưu một khoảnh khắc.</p>}
+      {empty && <p className="meta" style={{ marginTop: 12 }}>{day < today ? "Ngày này không có gì được ghi lại." : "Ngày này chưa có gì. Mở chi tiết để thêm khung giờ học hoặc lưu một khoảnh khắc."}</p>}
 
       {slots.length > 0 && (
         <ul className="dp-list" aria-label="Khung giờ">
@@ -67,7 +67,7 @@ function DayPreview({ day, detail, onOpen }: { day: string; detail: DayDetail | 
           {moments.length > 4 && <span className="meta">+{moments.length - 4}</span>}
         </div>
       )}
-      <button type="button" className="st-btn st-btn-primary st-btn-block" style={{ marginTop: 16 }} onClick={onOpen}>Mở chi tiết ngày</button>
+      <button type="button" className="st-btn st-btn-primary st-btn-block" style={{ marginTop: 16 }} onClick={onOpen}>{day < today ? "Xem lại ngày này" : "Mở chi tiết ngày"}</button>
     </section>
   );
 }

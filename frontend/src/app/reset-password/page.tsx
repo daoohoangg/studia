@@ -21,7 +21,7 @@ export default function ResetPasswordPage() {
     const { error: err } = await supabase.auth.updateUser({ password: pw });
     setBusy(false);
     if (err) setError(err.message.includes("session") ? "Đường dẫn đã hết hạn. Hãy yêu cầu đường dẫn mới." : err.message);
-    else router.replace("/");
+    else router.replace("/home");
   };
 
   return (

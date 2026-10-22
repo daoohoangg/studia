@@ -108,11 +108,11 @@ function SlotEditor({ draft, day, onCancel, onSaved, onDeleted, leadMinutes }: {
   );
 }
 
-function SlotCard({ slot, onEdit, onToggle }: { slot: Slot; onEdit: () => void; onToggle: () => void }) {
+function SlotCard({ slot, onEdit, onToggle, readOnly }: { slot: Slot; onEdit: () => void; onToggle: () => void; readOnly?: boolean }) {
   const done = slot.status === "done";
   return (
     <article className="sc" data-skill={slot.skill} data-done={done || undefined} onClick={(e) => e.stopPropagation()}>
-      <button type="button" className="sc-check" role="checkbox" aria-checked={done} aria-label={done ? "Bỏ đánh dấu đã học" : "Đánh dấu đã học"} onClick={onToggle}>
+      <button type="button" className="sc-check" role="checkbox" aria-checked={done} aria-label={done ? "Bỏ đánh dấu đã học" : "Đánh dấu đã học"} onClick={onToggle} disabled={readOnly}>
         {done && <Check size={14} strokeWidth={3.2} />}
       </button>
       <div className="sc-body">
@@ -124,7 +124,7 @@ function SlotCard({ slot, onEdit, onToggle }: { slot: Slot; onEdit: () => void; 
         </div>
         {slot.note && <p className="sc-note">{slot.note}</p>}
       </div>
-      <button type="button" className="icon-btn sc-edit" onClick={onEdit} aria-label={`Sửa khung giờ ${slot.title}`}><Pencil size={16} /></button>
+      {!readOnly && <button type="button" className="icon-btn sc-edit" onClick={onEdit} aria-label={`Sửa khung giờ ${slot.title}`}><Pencil size={16} /></button>}
     </article>
   );
 }
@@ -160,6 +160,8 @@ export default function DayView({ day, detail, loading, reminder, defaultStart, 
 }) {
   const today = todayIso();
   const isToday = day === today;
+  // Ngày đã qua chỉ để xem lại (ảnh, ghi chú, kết quả), không thêm hay sửa lịch.
+  const readOnly = day < today;
   const [editing, setEditing] = useState<{ hour: number; draft: Draft } | null>(null);
   const [tick, setTick] = useState(0);
   const nowRef = useRef<HTMLDivElement>(null);
@@ -210,7 +212,9 @@ export default function DayView({ day, detail, loading, reminder, defaultStart, 
             <div className="eyebrow">{isToday ? "Hôm nay · " : ""}{WEEKDAYS_LONG[weekdayIdx(day)]}</div>
             <h2 className="sec-title" style={{ marginTop: 2 }}>{prettyDate(day)}</h2>
           </div>
-          <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => open(Math.floor(toMin(defaultStart) / 60), newDraft(defaultStart))}><Plus size={16} /> Thêm khung giờ</button>
+          {readOnly
+            ? <span className="meta">Ngày đã qua · chỉ xem</span>
+            : <button type="button" className="st-btn st-btn-primary st-btn-sm" onClick={() => open(Math.floor(toMin(defaultStart) / 60), newDraft(defaultStart))}><Plus size={16} /> Thêm khung giờ</button>}
         </header>
 
         <div className="dv-tiles" aria-label="Tóm tắt ngày">
@@ -228,16 +232,16 @@ export default function DayView({ day, detail, loading, reminder, defaultStart, 
             return (
               <div key={h} className="hr" role="listitem" data-now={isNow || undefined}>
                 <div className="hr-t num">{pad(h)}:00</div>
-                <div className="hr-body" onClick={() => !editing && open(h, newDraft(`${pad(h)}:00`))}>
+                <div className="hr-body" onClick={() => !readOnly && !editing && open(h, newDraft(`${pad(h)}:00`))}>
                   {isNow && <div ref={nowRef} className="hr-now" style={{ top: `${(nowMin % 60) / 60 * 100}%` }} aria-label={`Bây giờ là ${pad(Math.floor(nowMin / 60))}:${pad(nowMin % 60)}`}><i /></div>}
                   {here.map((s) =>
                     editHere && editing?.draft.id === s.id ? null : (
-                      <SlotCard key={s.id} slot={s}
+                      <SlotCard key={s.id} slot={s} readOnly={readOnly}
                         onEdit={() => open(h, { id: s.id, title: s.title, skill: s.skill, start: s.start, end: s.end, note: s.note, remind: s.remind })}
                         onToggle={() => toggleSlot(s)} />
                     ))}
                   {editHere && <SlotEditor key={editing!.draft.id || "new"} draft={editing!.draft} day={day} leadMinutes={lead} onCancel={() => setEditing(null)} onSaved={done} onDeleted={done} />}
-                  {!here.length && !editHere && <span className="hr-add"><Plus size={14} /> Thêm ghi chú cho giờ này</span>}
+                  {!readOnly && !here.length && !editHere && <span className="hr-add"><Plus size={14} /> Thêm ghi chú cho giờ này</span>}
                 </div>
               </div>
             );
@@ -264,7 +268,7 @@ export default function DayView({ day, detail, loading, reminder, defaultStart, 
                       <div className="dt-name">{t.topic_name}</div>
                       <div className="meta">{t.duration_min} phút · {STATUS_LABEL[t.status] || t.status}</div>
                     </div>
-                    {!ok && (
+                    {!ok && !readOnly && (
                       <span className="row" style={{ gap: 2 }}>
                         <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => planTask(t)}>Xếp giờ</button>
                         {t.status !== "skipped" && <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setTask(i, "skipped")}>Bỏ qua</button>}

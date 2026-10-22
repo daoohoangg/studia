@@ -170,7 +170,7 @@ export default function Landing() {
                   <span className="lp-av" aria-hidden="true">{user.name.trim().charAt(0).toUpperCase()}</span>
                   <span className="lp-uname">{user.name}</span>
                 </Link>
-                <Link className="lp-btn lp-btn-primary lp-btn-sm" href="/">Vào học</Link>
+                <Link className="lp-btn lp-btn-primary lp-btn-sm" href="/home">Vào học</Link>
               </>
             ) : (
               <>
@@ -196,7 +196,7 @@ export default function Landing() {
               Mỗi ngày bạn chỉ cần mở app và làm vài nhiệm vụ nhỏ.
             </p>
             <div className="lp-cta">
-              <Link className="lp-btn lp-btn-accent lp-btn-lg" href={loggedIn ? "/" : "/signup"}>{loggedIn ? "Vào học ngay" : "Học thử miễn phí"} <ArrowRight size={20} aria-hidden="true" /></Link>
+              <Link className="lp-btn lp-btn-accent lp-btn-lg" href={loggedIn ? "/home" : "/signup"}>{loggedIn ? "Vào học ngay" : "Học thử miễn phí"} <ArrowRight size={20} aria-hidden="true" /></Link>
               <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#thu-vien">Xem Studia làm được gì</a>
             </div>
             <div className="lp-trust">
@@ -522,7 +522,7 @@ export default function Landing() {
               <h2>Ngày học đầu tiên của bạn đang chờ.</h2>
               <p>Tạo tài khoản, chọn band mục tiêu, tải cuốn sách đầu tiên. Ba phút là xong.</p>
               <div className="lp-cta" style={{ justifyContent: "center" }}>
-                <Link className="lp-btn lp-btn-accent lp-btn-lg" href={loggedIn ? "/" : "/signup"}>{loggedIn ? "Vào học ngay" : "Học thử miễn phí"} <ArrowRight size={20} aria-hidden="true" /></Link>
+                <Link className="lp-btn lp-btn-accent lp-btn-lg" href={loggedIn ? "/home" : "/signup"}>{loggedIn ? "Vào học ngay" : "Học thử miễn phí"} <ArrowRight size={20} aria-hidden="true" /></Link>
                 {!loggedIn && <Link className="lp-btn lp-btn-lg" href="/login" style={{ color: "var(--on-navy)", borderColor: "color-mix(in srgb, var(--on-navy) 40%, transparent)" }}>Mình đã có tài khoản</Link>}
               </div>
             </div>

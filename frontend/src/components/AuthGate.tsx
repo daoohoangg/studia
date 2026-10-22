@@ -32,7 +32,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (AUTH_DISABLED) {
-      if (isPublic && !isAuthCallback) router.replace("/");
+      if (isPublic && !isAuthCallback) router.replace("/home");
       return;
     }
     if (session === undefined || isAuthCallback) return;
@@ -50,7 +50,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       try { next = sessionStorage.getItem("studia-next"); sessionStorage.removeItem("studia-next"); } catch {}
       if (next && next.startsWith("/") && !next.startsWith("//")) { router.replace(next); return; }
     }
-    if (session && isPublic) router.replace("/");
+    if (session && (isPublic || pathname === "/")) router.replace("/home");
   }, [session, isPublic, isOpen, isAuthCallback, pathname, router]);
 
   if (AUTH_DISABLED) return <>{children}</>;

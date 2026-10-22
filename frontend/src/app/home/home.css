@@ -42,7 +42,11 @@
   background: rgba(255, 255, 255, .13); border: 1px solid rgba(255, 255, 255, .22); backdrop-filter: blur(10px);
   transition: transform var(--dur-base) var(--ease-spring);
 }
-.hm-chip:hover { transform: translateY(-4px) rotate(-1.5deg); }
+.hm-chip { display: block; text-decoration: none; color: #fff; }
+.hm-chip:hover { transform: translateY(-4px); background: rgba(255, 255, 255, .22); }
+.hm-chip:focus-visible { outline: 2px solid #ffe27a; outline-offset: 2px; }
+.hm-chip b svg { vertical-align: -3px; }
+.hm-chips { display: flex; gap: 8px; width: 100%; justify-content: center; }
 .hm-chip b { display: block; font: 750 32px/36px var(--font-display); font-variant-numeric: tabular-nums; }
 .hm-chip span { font-size: 12.5px; color: rgba(255, 255, 255, .78); }
 .hm-flame { display: inline-block; color: #ffb257; animation: vb-flame 1.6s ease-in-out infinite; transform-origin: 50% 80%; }
@@ -53,13 +57,19 @@
 
 /* Linh vật + lời nhắn */
 .hm-mascot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.hm-mascot .hm-chip { min-width: 0; padding: 6px 16px; border-radius: 99px; }
+.hm-mascot .hm-chip { min-width: 0; flex: 1 1 0; padding: 8px 14px; border-radius: 18px; white-space: nowrap; }
 .hm-mascot .hm-chip b { font-size: 22px; line-height: 26px; }
 .hm-say { margin-top: 14px; max-width: 46ch; padding: 10px 14px; border-radius: 16px 16px 16px 4px; font: 500 14.5px/21px var(--font-sans); color: #fff; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .22); backdrop-filter: blur(6px); }
 
 /* Câu nói, từ vựng, nhật ký */
-.hm-daily { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
-.hm-journal { grid-column: 1 / -1; }
+/* Mỗi hàng chia cột đều nhau và các thẻ trong hàng cao bằng nhau */
+.hm-trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.hm-trio > * { min-width: 0; }
+.hm-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.hm-split.one { grid-template-columns: minmax(0, 1fr); }
+.hm-split > * { min-width: 0; }
+.hm-col { display: flex; flex-direction: column; gap: 16px; }
+.hm-col > .st-card { flex: 1; }
 .hm-quote { padding: 22px; border-radius: var(--radius-lg, 20px); background: linear-gradient(150deg, #fff4d6, #ffe0c2); color: #3b2a14; display: flex; flex-direction: column; gap: 8px; }
 .hm-quote .eyebrow { color: #a8620f; }
 .hm-quote blockquote { margin: 0; font: 650 clamp(18px, 2vw, 22px)/1.35 var(--font-display); }
@@ -79,11 +89,12 @@
 .hm-speak:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .hm-jdone { display: flex; align-items: center; gap: 16px; }
 .hm-jdone b { font: 650 16px/22px var(--font-sans); }
-.hm-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.hm-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 
 @media (max-width: 860px) {
   .hm-hero { grid-template-columns: minmax(0, 1fr); }
-  .hm-daily { grid-template-columns: minmax(0, 1fr); }
+  .hm-trio, .hm-split { grid-template-columns: minmax(0, 1fr); }
+  .hm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hm-side { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) {

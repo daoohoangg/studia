@@ -38,14 +38,14 @@ function AuthCallbackContent() {
         // Lấy session hiện tại
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          if (active) router.replace("/");
+          if (active) router.replace("/home");
           return;
         }
 
         // Lắng nghe sự kiện đăng nhập nếu phiên đang xử lý
         const { data: sub } = supabase.auth.onAuthStateChange((event, currentSession) => {
           if (currentSession && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION")) {
-            if (active) router.replace("/");
+            if (active) router.replace("/home");
           }
         });
 
@@ -54,7 +54,7 @@ function AuthCallbackContent() {
           if (!active) return;
           const { data } = await supabase.auth.getSession();
           if (data.session) {
-            router.replace("/");
+            router.replace("/home");
           } else {
             router.replace("/login");
           }

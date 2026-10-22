@@ -16,7 +16,7 @@ export default function TargetCard({ profile, placement, last7Minutes, loading }
 
   if (!profile) {
     return (
-      <section className="tg tg-empty st-card" aria-labelledby="tg-h">
+      <section id="muc-tieu" className="tg tg-empty st-card" aria-labelledby="tg-h">
         <span className="tile" aria-hidden="true"><Target size={20} strokeWidth={1.75} /></span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 id="tg-h" className="heading-3">Chưa có mục tiêu học</h2>
@@ -38,7 +38,7 @@ export default function TargetCard({ profile, placement, last7Minutes, loading }
   const examLabel = hasExam ? parse(profile.examDate).toLocaleDateString("vi-VN", { day: "numeric", month: "long", year: "numeric" }) : "";
 
   return (
-    <section className="tg st-card-navy" aria-labelledby="tg-h">
+    <section id="muc-tieu" className="tg st-card-navy" aria-labelledby="tg-h">
       <div className="tg-main">
         <div className="tg-top">
           <span className="eyebrow tg-eyebrow">Mục tiêu của bạn</span>

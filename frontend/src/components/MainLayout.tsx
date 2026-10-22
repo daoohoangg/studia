@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Home, BarChart3, BookOpen, CalendarDays, Layers, Mic,
-  PenLine, Target, FlaskConical, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon,
+  PenLine, Target, FlaskConical, Headphones, AudioLines, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon,
   NotebookPen, ChevronRight, LayoutGrid, Users, CreditCard, Package, Library, Sparkles, Zap, Settings, SlidersHorizontal, Megaphone,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -29,7 +29,7 @@ type NavItem = { href: string; label: string; icon: LucideIcon; also?: string[] 
 // Mỗi mục gộp 2 màn hình liên quan; chuyển qua lại bằng thanh tab trong trang (SectionTabs).
 const navGroups: NavItem[][] = [
   [
-    { href: "/", label: "Hôm nay", icon: Home },
+    { href: "/home", label: "Hôm nay", icon: Home },
     { href: "/dashboard", label: "Tiến độ", icon: BarChart3, also: ["/knowledge-map"] },
     { href: "/books", label: "Thư viện sách", icon: BookOpen },
     { href: "/plan", label: "Lịch học", icon: CalendarDays },
@@ -40,7 +40,9 @@ const navGroups: NavItem[][] = [
     { href: "/flashcards", label: "Thẻ & từ vựng", icon: Layers, also: ["/vocabulary"] },
   ],
   [
-    { href: "/scenarios", label: "Luyện nói", icon: Mic, also: ["/pronunciation", "/dictation"] },
+    { href: "/scenarios", label: "Luyện nói", icon: Mic },
+    { href: "/pronunciation", label: "Shadowing", icon: AudioLines },
+    { href: "/dictation", label: "Nghe chép chính tả", icon: Headphones },
     { href: "/feedback", label: "Lỗi sai", icon: PenLine, also: ["/mistakes"] },
     { href: "/exam", label: "Thi thử IELTS", icon: Target },
     ...(SHOW_DEV_TOOLS ? [{ href: "/config-test", label: "Công cụ kiểm thử", icon: FlaskConical }] : []),
@@ -48,7 +50,7 @@ const navGroups: NavItem[][] = [
 ];
 
 const mobileTabs: NavItem[] = [
-  { href: "/", label: "Hôm nay", icon: Home },
+  { href: "/home", label: "Hôm nay", icon: Home },
   { href: "/flashcards", label: "Thẻ", icon: Layers, also: ["/vocabulary"] },
   { href: "/practice", label: "Ôn luyện", icon: Zap, also: ["/review"] },
   { href: "/scenarios", label: "Luyện nói", icon: Mic, also: ["/pronunciation", "/dictation"] },
@@ -231,7 +233,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               <div className="st-card" style={{ textAlign: "center", padding: 40 }}>
                 <h1 className="heading-2">Tính năng đang tạm tắt</h1>
                 <p className="ink2" style={{ marginTop: 6 }}>Studia đang bảo trì phần này. Bạn quay lại sau nhé, hoặc tiếp tục học các phần khác.</p>
-                <Link className="st-btn st-btn-primary" href="/" style={{ marginTop: 16 }}>Về trang Hôm nay</Link>
+                <Link className="st-btn st-btn-primary" href="/home" style={{ marginTop: 16 }}>Về trang Hôm nay</Link>
               </div>
             </div>
           ) : children}

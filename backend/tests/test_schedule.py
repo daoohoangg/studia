@@ -120,6 +120,10 @@ class ScheduleApiTestCase(unittest.TestCase):
         self.assertEqual(self.slot(skill="cooking").status_code, 422)
         self.assertEqual(self.slot(day="17/10/2026").status_code, 422)
 
+    def test_cannot_add_slot_to_past_day(self):
+        yesterday = (sched.local_today() - timedelta(days=1)).isoformat()
+        self.assertEqual(self.slot(day=yesterday).status_code, 422)
+
     def test_other_users_slot_is_hidden(self):
         slot = self.slot().json()["slot"]
         self.store.table("study_slots").update({"user_id": "someone-else"}).eq("id", slot["id"]).execute()

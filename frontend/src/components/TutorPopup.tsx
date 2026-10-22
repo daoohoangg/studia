@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plus, Send, X, Maximize2 } from "lucide-react";
-import AiIcon from "@/components/AiIcon";
 import Mascot from "@/components/mascot/Mascot";
 import { API, apiFetch } from "@/lib/api";
 import { pickMood, type Pick } from "@/lib/mascot";
@@ -118,7 +117,7 @@ export default function TutorPopup() {
 
       <button type="button" className={`tp-fab${open ? " open" : ""}`} aria-label={open ? "Đóng Coal" : "Hỏi Coal, bạn học AI"} aria-expanded={open}
         onClick={() => setOpen((o) => !o)}>
-        {open ? <X size={24} strokeWidth={2.2} /> : <AiIcon size={30} />}
+        {open ? <X size={24} strokeWidth={2.2} /> : <Mascot mood={coal?.mood ?? "hello"} wet={coal?.wet} fire={coal?.fire} size={52} still label="" />}
         {!open && <span className="tp-fab-label">Hỏi Coal</span>}
         {!open && <span className="tp-fab-ping" aria-hidden="true" />}
       </button>

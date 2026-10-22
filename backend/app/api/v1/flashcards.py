@@ -42,6 +42,48 @@ class CustomFlashcardCreate(BaseModel):
     user_id: Optional[str] = None
 
 
+class DeckCreate(BaseModel):
+    name: str
+
+
+@router.get("/decks")
+async def list_decks():
+    """Các bộ thẻ người dùng tự tạo (topic có slug deck-<user_id>-...)."""
+    uid = current_user_id()
+    supabase = get_supabase_client()
+    if not supabase:
+        return {"decks": []}
+    try:
+        rows = supabase.table("topics").select("id, name").like("slug", f"deck-{uid}-%").order("name").execute().data or []
+        return {"decks": [{"id": r["id"], "name": r["name"]} for r in rows]}
+    except Exception:
+        return {"decks": []}
+
+
+@router.post("/decks")
+async def create_deck(req: DeckCreate):
+    """Tạo bộ thẻ mới; trả về id để gắn thẻ vào bộ này."""
+    uid = current_user_id()
+    name = req.name.strip()[:80]
+    if not name:
+        raise HTTPException(status_code=422, detail="Tên bộ thẻ không được để trống")
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+    deck_id = str(uuid.uuid4())
+    try:
+        supabase.table("topics").insert({
+            "id": deck_id,
+            "name": name,
+            "slug": f"deck-{uid}-{deck_id[:8]}",
+            "description": "Bộ thẻ flashcard tự tạo bởi người dùng",
+            "difficulty_level": 1,
+        }).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi tạo bộ thẻ: {e}")
+    return {"deck": {"id": deck_id, "name": name}}
+
+
 @router.post("/custom-create")
 async def create_custom_flashcard(req: CustomFlashcardCreate):
     """

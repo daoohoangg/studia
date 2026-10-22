@@ -65,6 +65,9 @@ def summary(start: str, end: str):
     uid = current_user_id()
     db = _db()
     days = sched.day_stats(db, uid, s, e)
+    for st in days.values():
+        path = st.pop("cover_path", None)
+        st["cover"] = signed_storage_url(db, MOMENTS_BUCKET, path, MOMENT_URL_TTL) if path else None
     return {"start": s.isoformat(), "end": e.isoformat(), "days": days, "today": sched.local_today().isoformat()}
 
 
@@ -178,6 +181,8 @@ def create_slot(body: SlotIn):
     _check_times(body.start, body.end)
     if body.skill not in SKILLS:
         raise HTTPException(status_code=422, detail="Kỹ năng không hợp lệ")
+    if d < sched.local_today():
+        raise HTTPException(status_code=422, detail="Không thể thêm lịch học vào ngày đã qua")
     db = _db()
     existing = db.table("study_slots").select("id").eq("user_id", uid).eq("slot_date", d.isoformat()).execute().data or []
     if len(existing) >= 48:

@@ -50,7 +50,7 @@
 .bl-meta { font-size: 13.5px; color: var(--ink-muted); margin-top: auto; }
 
 /* ---------- bài viết ---------- */
-.bl-article { max-width: 720px; margin: 0 auto; padding: 40px 20px 24px; }
+.bl-article { max-width: 1120px; margin: 0 auto; padding: 40px 20px 24px; }
 .bl-back { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 15px; color: var(--ink-secondary); padding: 8px 0; }
 .bl-back:hover { color: var(--brand); }
 .bl-title { font: 780 clamp(30px, 4.6vw, 46px)/1.12 var(--font-display); letter-spacing: -1.3px; margin: 14px 0 12px; text-wrap: balance; }
@@ -60,7 +60,7 @@
 .bl-byline span { color: var(--ink-muted); font-size: 14px; }
 .bl-art-coal { display: flex; justify-content: center; margin: 20px 0 8px; padding: 12px; border-radius: var(--radius-xl); background: var(--brand-tint); }
 
-.bl-body { margin-top: 28px; font-family: var(--font-reading); font-size: 18px; line-height: 1.85; color: var(--ink); }
+.bl-body { margin-top: 28px; font-family: var(--font-reading); font-size: 19px; line-height: 1.85; color: var(--ink); }
 .bl-body > * + * { margin-top: 18px; }
 .bl-body h2 { font: 720 27px/1.25 var(--font-display); letter-spacing: -.6px; margin-top: 44px; scroll-margin-top: 88px; }
 .bl-body h3 { font: 700 21px/1.3 var(--font-display); margin-top: 30px; }
@@ -81,7 +81,7 @@
 .bl-says { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: var(--radius-xl); background: var(--surface); border: 1px solid var(--hairline); font-family: var(--font-sans); }
 .bl-says p { font-size: 17px; line-height: 1.65; font-weight: 500; }
 
-.bl-end { max-width: 720px; margin: 24px auto 0; padding: 0 20px; }
+.bl-end { max-width: 1120px; margin: 24px auto 0; padding: 0 20px; }
 .bl-end-card { display: flex; align-items: center; gap: 20px; padding: 24px; border-radius: var(--radius-xl); background: var(--navy); color: var(--on-navy); flex-wrap: wrap; }
 .bl-end-card h2 { font: 750 24px/1.2 var(--font-display); letter-spacing: -.5px; }
 .bl-end-card p { color: color-mix(in srgb, var(--on-navy) 80%, transparent); margin-top: 6px; line-height: 1.6; }

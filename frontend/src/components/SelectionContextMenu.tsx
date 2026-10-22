@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { apiFetch } from "@/lib/api";
-import { BookOpen, Layers, Check, X, Volume2 } from "lucide-react";
+import { BookOpen, Layers, Check, X, Volume2, Plus, Loader2 } from "lucide-react";
 
 interface DictionaryData {
   word: string;
@@ -52,7 +52,15 @@ export default function SelectionContextMenu() {
   // Flashcard form state
   const [fcFront, setFcFront] = useState("");
   const [fcBack, setFcBack] = useState("");
-  const [fcDeck, setFcDeck] = useState("IELTS Vocabulary");
+  // Bộ thẻ: "" = bộ mặc định "Từ vựng tự học"; còn lại là id bộ người dùng tự tạo
+  const [fcDeckId, setFcDeckId] = useState("");
+  const [decks, setDecks] = useState<{ id: string; name: string }[]>([]);
+  const [newDeckOpen, setNewDeckOpen] = useState(false);
+  const [newDeckName, setNewDeckName] = useState("");
+  const [deckBusy, setDeckBusy] = useState(false);
+  const [deckError, setDeckError] = useState("");
+  const [fcBackLoading, setFcBackLoading] = useState(false);
+  const fcBackTouched = useRef(false);
   const [fcSaved, setFcSaved] = useState(false);
   const [fcSaving, setFcSaving] = useState(false);
 
@@ -258,14 +266,60 @@ export default function SelectionContextMenu() {
     setShowColorPicker(false);
   };
 
-  // 3. Open Flashcard Modal
-  const handleOpenFlashcardModal = () => {
+  // 3. Open Flashcard Modal: tự điền nghĩa của chữ vừa bôi đen vào mặt sau
+  const handleOpenFlashcardModal = async () => {
+    const word = selectedText;
     setVisible(false);
     setShowColorPicker(false);
-    setFcFront(selectedText);
-    setFcBack(dictData?.meaning_vi || `Nghĩa của: ${selectedText}`);
+    setFcFront(word);
+    const known = dictData && dictData.word === word && !dictData.meaning_vi.startsWith("Nghĩa tiếng Việt của") ? dictData.meaning_vi : "";
+    setFcBack(known);
+    fcBackTouched.current = false;
     setFcSaved(false);
+    setNewDeckOpen(false);
+    setNewDeckName("");
+    setDeckError("");
     setFlashcardModalOpen(true);
+
+    apiFetch("/flashcards/decks").then(async (r) => { if (r.ok) setDecks((await r.json()).decks || []); }).catch(() => {});
+
+    if (known) return;
+    setFcBackLoading(true);
+    const quick = await fetchQuickTranslation(word, sourceSentence);
+    if (!fcBackTouched.current && !quick.meaning_vi.startsWith("Nghĩa tiếng Việt của")) setFcBack(quick.meaning_vi);
+    setFcBackLoading(false);
+    // Nghĩa sát ngữ cảnh hơn từ AI thì thay vào, trừ khi người dùng đã tự sửa
+    try {
+      const res = await apiFetch("/vocabulary/card", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ word, source_sentence: sourceSentence }),
+      });
+      if (res.ok) {
+        const ai = await res.json();
+        if (ai?.meaning_vi && !ai.meaning_vi.includes("Vui lòng tra") && !fcBackTouched.current) setFcBack(ai.meaning_vi);
+      }
+    } catch {}
+  };
+
+  const handleCreateDeck = async () => {
+    const name = newDeckName.trim();
+    if (!name) return;
+    setDeckBusy(true);
+    setDeckError("");
+    try {
+      const res = await apiFetch("/flashcards/decks", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Không tạo được bộ thẻ");
+      setDecks((d) => [...d, data.deck]);
+      setFcDeckId(data.deck.id);
+      setNewDeckOpen(false);
+      setNewDeckName("");
+    } catch (e: any) {
+      setDeckError(e.message || "Không tạo được bộ thẻ");
+    }
+    setDeckBusy(false);
   };
 
   // Save Flashcard
@@ -279,6 +333,7 @@ export default function SelectionContextMenu() {
           word: fcFront,
           meaning_vi: fcBack,
           source_sentence: sourceSentence,
+          topic_id: fcDeckId || undefined,
           create_flashcard: true,
         }),
       });
@@ -290,7 +345,7 @@ export default function SelectionContextMenu() {
       id: Date.now(),
       front: fcFront,
       back: fcBack,
-      deck: fcDeck,
+      deck: decks.find((d) => d.id === fcDeckId)?.name || "Từ vựng tự học",
       createdAt: new Date().toISOString()
     });
     localStorage.setItem("studia_user_flashcards", JSON.stringify(existing));
@@ -693,17 +748,38 @@ export default function SelectionContextMenu() {
                 {/* Select Deck */}
                 <div>
                   <label className="label-text">BỘ THẺ (DECK)</label>
-                  <select
-                    value={fcDeck}
-                    onChange={(e) => setFcDeck(e.target.value)}
-                    className="input-field"
-                    style={{ background: "var(--bg-card)" }}
-                  >
-                    <option value="IELTS Vocabulary">IELTS Vocabulary</option>
-                    <option value="Cambridge IELTS 21">Cambridge IELTS 21</option>
-                    <option value="Academic Reading Terms">Academic Reading Terms</option>
-                    <option value="Từ vựng tự học">Từ vựng tự học</option>
-                  </select>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <select
+                      value={fcDeckId}
+                      onChange={(e) => setFcDeckId(e.target.value)}
+                      className="input-field"
+                      style={{ background: "var(--bg-card)", flex: 1 }}
+                    >
+                      <option value="">Từ vựng tự học</option>
+                      {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => { setNewDeckOpen((o) => !o); setDeckError(""); }}
+                      aria-expanded={newDeckOpen}
+                      style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "0 14px", borderRadius: "10px", border: "1.5px solid var(--border-control)", background: "transparent", color: "var(--text-primary)", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}
+                    ><Plus size={16} strokeWidth={2.2} /> Bộ mới</button>
+                  </div>
+                  {newDeckOpen && (
+                    <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+                      <input
+                        type="text" autoFocus maxLength={80} placeholder="Tên bộ thẻ mới, ví dụ: Từ vựng Reading"
+                        value={newDeckName} onChange={(e) => setNewDeckName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateDeck(); } }}
+                        className="input-field" style={{ background: "var(--bg-card)", flex: 1 }}
+                      />
+                      <button
+                        type="button" onClick={handleCreateDeck} disabled={deckBusy || !newDeckName.trim()}
+                        style={{ padding: "0 16px", borderRadius: "10px", border: "none", background: "var(--primary)", color: "var(--on-brand)", fontWeight: 700, cursor: "pointer", opacity: deckBusy || !newDeckName.trim() ? 0.6 : 1 }}
+                      >{deckBusy ? "Đang tạo…" : "Tạo bộ"}</button>
+                    </div>
+                  )}
+                  {deckError && <div role="alert" style={{ color: "var(--danger)", fontSize: "0.8rem", marginTop: "6px" }}>{deckError}</div>}
                 </div>
 
                 {/* Front */}
@@ -720,11 +796,12 @@ export default function SelectionContextMenu() {
 
                 {/* Back */}
                 <div>
-                  <label className="label-text">MẶT SAU (NGHĨA & VÍ DỤ)</label>
+                  <label className="label-text">MẶT SAU (NGHĨA & VÍ DỤ){fcBackLoading && <Loader2 size={12} className="spin" style={{ marginLeft: 6, verticalAlign: -1 }} aria-label="Đang dịch" />}</label>
                   <textarea
                     rows={3}
                     value={fcBack}
-                    onChange={(e) => setFcBack(e.target.value)}
+                    placeholder={fcBackLoading ? "Đang tra nghĩa…" : "Nhập nghĩa của từ"}
+                    onChange={(e) => { fcBackTouched.current = true; setFcBack(e.target.value); }}
                     className="input-field"
                     style={{ background: "var(--bg-card)", resize: "vertical" }}
                   />

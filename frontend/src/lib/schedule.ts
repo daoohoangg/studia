@@ -19,7 +19,7 @@ export type DayStat = {
   tasks_total: number; tasks_done: number; plan_status: string | null;
   minutes: number; minutes_planned: number;
   slots: number; slots_done: number; moments: number; attempts: number;
-  active: boolean; labels: string[];
+  active: boolean; labels: string[]; cover?: string | null;
 };
 
 export type Slot = {

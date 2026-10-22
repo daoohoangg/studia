@@ -114,7 +114,10 @@ def day_stats(db, uid: str, start: date, end: date) -> Dict[str, Dict[str, Any]]
             d["minutes"] += slot_minutes(slot)
 
     for m in _rows(db, "study_moments", uid, "moment_date", start, end):
-        at(str(m.get("moment_date"))[:10])["moments"] += 1
+        d = at(str(m.get("moment_date"))[:10])
+        d["moments"] += 1
+        if m.get("path") and not d.get("cover_path"):
+            d["cover_path"] = m["path"]  # ảnh đầu tiên làm hình nền ô lịch
 
     try:
         attempts = (db.table("question_attempts").select("created_at").eq("user_id", uid)

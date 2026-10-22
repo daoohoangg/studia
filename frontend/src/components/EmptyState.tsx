@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Mascot, { type Mood } from "@/components/mascot/Mascot";
 
 type Action = { label: string; href?: string; onClick?: () => void };
 
@@ -11,6 +12,8 @@ interface EmptyStateProps {
   secondary?: Action;
   /** Nhỏ gọn hơn, dùng bên trong một thẻ khác. */
   compact?: boolean;
+  /** Tâm trạng của Coal trên trang trống (mặc định: vẫy chào). */
+  mood?: Mood;
 }
 
 function ActionButton({ action, kind }: { action: Action; kind: "btn-primary" | "btn-secondary" }) {
@@ -20,20 +23,13 @@ function ActionButton({ action, kind }: { action: Action; kind: "btn-primary" | 
   return <button type="button" className={kind} onClick={action.onClick}>{action.label}</button>;
 }
 
-export default function EmptyState({ title, description, steps, primary, secondary, compact }: EmptyStateProps) {
+export default function EmptyState({ title, description, steps, primary, secondary, compact, mood = "hello" }: EmptyStateProps) {
   return (
     <div
       className={compact ? undefined : "glass-panel fade-in-up"}
       style={{ padding: compact ? "24px 16px" : "48px 32px", textAlign: "center" }}
     >
-      {!compact && (
-        <svg width="96" height="72" viewBox="0 0 96 72" fill="none" aria-hidden="true" style={{ display: "block", margin: "0 auto 16px" }}>
-          <path d="M8 20A16 16 0 0 1 24 4h38a4 4 0 0 1 4 4v28H24A16 16 0 0 1 8 20z" style={{ fill: "var(--brand-tint)" }} />
-          <path d="M30 40h44a14 14 0 0 1 0 28H34a4 4 0 0 1-4-4z" style={{ fill: "var(--accent-tint)" }} />
-          <path d="M22 20h30" style={{ stroke: "var(--brand)" }} strokeWidth="3" strokeLinecap="round" strokeDasharray="2 7" />
-          <path d="M44 54h28" style={{ stroke: "var(--accent-strong)" }} strokeWidth="3" strokeLinecap="round" strokeDasharray="2 7" />
-        </svg>
-      )}
+      {!compact && <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><Mascot mood={mood} size={110} /></div>}
       <h2 style={{ fontSize: compact ? "1.05rem" : "1.4rem", marginBottom: 8 }}>{title}</h2>
       {description && (
         <p style={{

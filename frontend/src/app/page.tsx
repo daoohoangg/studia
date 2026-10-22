@@ -9,6 +9,7 @@ import { useAccount, useDisplayName } from "@/lib/account";
 import Mascot, { MOODS } from "@/components/mascot/Mascot";
 import JournalForm from "@/components/journal/JournalForm";
 import { pickMood } from "@/lib/mascot";
+import { POSTS } from "@/lib/blog";
 import { quoteOfDay, wordOfDay } from "@/lib/daily";
 import { fetchStreak, todayIso, type Streak } from "@/lib/schedule";
 import { FEELINGS, useJournal } from "@/lib/journal";
@@ -126,8 +127,12 @@ export default function HomePage() {
   // ?mood=sad|fire|... trong URL để xem thử từng biểu cảm của linh vật
   const preview = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("mood") : null;
   const base = pickMood(streakInfo);
-  const mascot = justSaved ? { mood: "love" as const, line: "Cảm ơn bạn đã kể cho mình nghe. Nghỉ ngơi thật tốt nhé!" }
-    : preview && (MOODS as string[]).includes(preview) ? { mood: preview as typeof MOODS[number], line: base.line } : base;
+  const readPost = POSTS[Math.floor(Date.now() / 86400000) % POSTS.length];
+  // ?mood=sad&wet=3 hoặc ?mood=fire&fire=4 để xem thử từng trạng thái của Coal
+  const qp = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const lvl = (k: string, d: 0 | 1 | 2 | 3 | 4): 0 | 1 | 2 | 3 | 4 => { const v = Number(qp?.get(k)); return v >= 0 && v <= 4 && qp?.has(k) ? (Math.round(v) as 0 | 1 | 2 | 3 | 4) : d; };
+  const mascot = justSaved ? { mood: "love" as const, line: "Cảm ơn bạn đã kể cho mình nghe. Nghỉ ngơi thật tốt nhé!", wet: 0 as const, fire: 0 as const }
+    : preview && (MOODS as string[]).includes(preview) ? { mood: preview as typeof MOODS[number], line: base.line, wet: lvl("wet", 0), fire: lvl("fire", preview === "fire" ? 3 : 0) } : base;
 
   if (loading) {
     return (
@@ -176,7 +181,7 @@ export default function HomePage() {
         </div>
         <div className="hm-side">
           <div className="hm-mascot">
-            <Mascot mood={mascot.mood} size={132} />
+            <Mascot mood={mascot.mood} wet={mascot.wet} fire={mascot.fire} size={148} />
             <div className="hm-chip"><b><span className="hm-flame"><Flame size={20} strokeWidth={2.2} /></span> {streak}</b><span>ngày liên tiếp</span></div>
           </div>
           {tasks.length > 0 && (
@@ -208,6 +213,20 @@ export default function HomePage() {
           <p className="hm-word-vi">{word.vi}</p>
           <p className="hm-word-ex" lang="en">“{word.example}”</p>
           <p className="meta">{word.exampleVi}</p>
+        </section>
+
+        <section className="st-card" aria-labelledby="rd-h">
+          <div className="sec-head" style={{ marginBottom: 8 }}>
+            <h2 id="rd-h" className="eyebrow">Coal gợi ý đọc</h2>
+            <Link className="link" href="/blog">Xem blog</Link>
+          </div>
+          <Link href={`/blog/${readPost.slug}`} style={{ display: "flex", gap: 12, alignItems: "center", textDecoration: "none", color: "inherit" }}>
+            <Mascot mood={readPost.coal.mood} fire={readPost.coal.fire} wet={readPost.coal.wet} size={76} still label="" />
+            <span>
+              <b style={{ display: "block", font: "650 16px/22px var(--font-sans)" }}>{readPost.title}</b>
+              <span className="meta">{readPost.tag} · {readPost.readMin} phút đọc</span>
+            </span>
+          </Link>
         </section>
 
         <section className="st-card hm-journal" aria-labelledby="jn-h">

@@ -19,7 +19,7 @@ export default function StreakCard({ streak, loading }: { streak: Streak | null;
   return (
     <section className="sk st-card" aria-labelledby="sk-h" data-state={at_risk ? "risk" : today_done ? "ok" : "idle"}>
       <div className="sk-head">
-        <Mascot mood={pickMood(streak).mood} size={72} />
+        <Mascot {...(({ mood, wet, fire }) => ({ mood, wet, fire }))(pickMood(streak))} size={84} />
         <div>
           <h2 id="sk-h" className="sk-num num"><b>{current}</b> <span>ngày liên tiếp</span></h2>
           <p className="sk-msg">{msg}</p>

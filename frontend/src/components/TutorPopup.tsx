@@ -5,7 +5,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plus, Send, X, Maximize2 } from "lucide-react";
 import AiIcon from "@/components/AiIcon";
+import Mascot from "@/components/mascot/Mascot";
 import { API, apiFetch } from "@/lib/api";
+import { pickMood, type Pick } from "@/lib/mascot";
+import { fetchStreak } from "@/lib/schedule";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -33,11 +36,17 @@ export default function TutorPopup() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Coal đổi dáng theo streak của bạn (cháy khi học đều, ướt khi bỏ học lâu)
+  const [coal, setCoal] = useState<Pick | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, [messages, loading]);
   useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 120); }, [open]);
+  useEffect(() => {
+    if (!open || coal) return;
+    fetchStreak().then((s) => setCoal(pickMood(s))).catch(() => setCoal(pickMood(null)));
+  }, [open, coal]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -72,11 +81,11 @@ export default function TutorPopup() {
   return (
     <>
       {open && (
-        <section className="tp-panel" role="dialog" aria-label="Trợ lý AI" aria-modal="false">
+        <section className="tp-panel" role="dialog" aria-label="Coal, bạn học AI" aria-modal="false">
           <header className="tp-head">
-            <span className="tp-avatar" aria-hidden="true"><AiIcon size={20} /></span>
+            <span className="tp-avatar" aria-hidden="true" style={{ background: "transparent", overflow: "visible" }}><Mascot mood={coal?.mood ?? "hello"} wet={coal?.wet} fire={coal?.fire} size={40} still={!loading} talking={loading} label="" /></span>
             <div style={{ minWidth: 0 }}>
-              <b style={{ font: "650 15px/20px var(--font-sans)" }}>Studia AI</b>
+              <b style={{ font: "650 15px/20px var(--font-sans)" }}>Coal · bạn học AI</b>
               <div className="meta">{hasCtx ? "Đang bám theo sách/bài bạn mở" : "Hỏi về ngữ pháp, từ vựng, cách làm bài"}</div>
             </div>
             <span style={{ flex: 1 }} />
@@ -88,7 +97,8 @@ export default function TutorPopup() {
           <div className="tp-list" ref={listRef} aria-live="polite">
             {messages.length === 0 ? (
               <div className="stack" style={{ gap: 8 }}>
-                <p className="ink2" style={{ fontSize: 14.5 }}>Hi, mình là Studia AI. Bạn đang vướng chỗ nào?</p>
+                <div style={{ display: "flex", justifyContent: "center" }}><Mascot mood={coal?.mood ?? "hello"} wet={coal?.wet} fire={coal?.fire} size={104} /></div>
+                <p className="ink2" style={{ fontSize: 14.5 }}>{coal?.line ?? "Hi, mình là Coal, cục than nhỏ muốn thành kim cương."} Bạn đang vướng chỗ nào?</p>
                 {SUGGESTIONS.map((s) => <button key={s} type="button" className="tp-sugg" onClick={() => send(s)}>{s}</button>)}
               </div>
             ) : messages.map((m, i) => (
@@ -98,7 +108,7 @@ export default function TutorPopup() {
           </div>
 
           <form className="tp-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
-            <textarea ref={inputRef} rows={1} value={input} placeholder="Hỏi mình bất cứ điều gì…" aria-label="Câu hỏi cho trợ lý"
+            <textarea ref={inputRef} rows={1} value={input} placeholder="Hỏi Coal bất cứ điều gì…" aria-label="Câu hỏi cho trợ lý"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
             <button className="st-btn st-btn-primary st-btn-sm" type="submit" disabled={loading || !input.trim()} aria-label="Gửi"><Send size={16} strokeWidth={2} /></button>
@@ -106,10 +116,10 @@ export default function TutorPopup() {
         </section>
       )}
 
-      <button type="button" className={`tp-fab${open ? " open" : ""}`} aria-label={open ? "Đóng trợ lý AI" : "Mở trợ lý AI"} aria-expanded={open}
+      <button type="button" className={`tp-fab${open ? " open" : ""}`} aria-label={open ? "Đóng Coal" : "Hỏi Coal, bạn học AI"} aria-expanded={open}
         onClick={() => setOpen((o) => !o)}>
         {open ? <X size={24} strokeWidth={2.2} /> : <AiIcon size={30} />}
-        {!open && <span className="tp-fab-label">Hỏi Studia</span>}
+        {!open && <span className="tp-fab-label">Hỏi Coal</span>}
         {!open && <span className="tp-fab-ping" aria-hidden="true" />}
       </button>
     </>

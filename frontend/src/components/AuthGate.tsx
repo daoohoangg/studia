@@ -19,7 +19,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
-  const isOpen = OPEN_PATHS.includes(pathname);
+  const isOpen = OPEN_PATHS.includes(pathname) || pathname === "/blog" || pathname.startsWith("/blog/");
   const isPublic = PUBLIC_PATHS.includes(pathname);
   const isAuthCallback = pathname.startsWith("/auth/callback");
 

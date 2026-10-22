@@ -151,8 +151,12 @@ def streak_from_days(active: Iterable[date], today: date) -> Dict[str, Any]:
         prev = d
 
     next_milestone = next((m for m in MILESTONES if m > current), None)
+    # Số ngày kể từ lần học gần nhất (0 = hôm nay). None = chưa có ngày học nào trong khoảng đã xét.
+    past = [d for d in days if d <= today]
+    days_since_active = (today - max(past)).days if past else None
     return {
         "current": current,
+        "days_since_active": days_since_active,
         "longest": max(longest, current),
         "today_done": today in days,
         "at_risk": current > 0 and today not in days,

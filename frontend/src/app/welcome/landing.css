@@ -411,3 +411,12 @@ button.lp-pick.hot.on { border-color: var(--accent); box-shadow: 0 0 0 4px color
 }
 @media (prefers-reduced-motion: reduce) { .lp-hero-win { transform: none; } .lp-slide { transition: none; } .lp-bands .bar i { transition: none; } }
 .lp-hero-win .lp-tag { white-space: nowrap; }
+
+/* ---------- Coal ---------- */
+.lp-coal-row { display: flex; flex-wrap: wrap; gap: 12px 8px; justify-content: space-between; margin-top: 36px; padding: 20px 12px; border-radius: 28px; background: var(--surface); border: 1px solid var(--hairline); }
+.lp-coal-row + .lp-coal-row { margin-top: 16px; background: var(--brand-tint); border-color: transparent; }
+.lp-coal-row figure { margin: 0; flex: 1 1 150px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.lp-coal-row figcaption { text-align: center; font-size: 14.5px; line-height: 1.4; color: var(--ink-secondary); }
+.lp-coal-row figcaption b { display: block; font-weight: 650; color: var(--ink); }
+.lp-links a { white-space: nowrap; }
+@media (max-width: 1180px) { .lp-links a { padding: 10px 9px; font-size: 15px; } .lp-links { margin-left: 4px; } }

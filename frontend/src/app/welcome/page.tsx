@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import AiIcon from "@/components/AiIcon";
+import Mascot from "@/components/mascot/Mascot";
 import ThemeToggle from "@/components/ThemeToggle";
 import Pricing from "./Pricing";
 import Numbers from "./Numbers";
@@ -157,7 +158,9 @@ export default function Landing() {
             <a href="#ghi-nho">Ghi nhớ</a>
             <a href="#thi-thu">Thi thử</a>
             <a href="#ai">Studia AI</a>
+            <a href="#coal">Coal</a>
             <a href="#goi">Gói</a>
+            <Link href="/blog">Blog</Link>
           </nav>
           <div className="lp-nav-cta">
             <div style={{ width: 44 }}><ThemeToggle compact /></div>
@@ -469,6 +472,35 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ───── Coal ───── */}
+      <section className="lp-section" id="coal">
+        <div className="lp-wrap">
+          <Reveal>
+            <span className="lp-eyebrow">Người bạn AI</span>
+            <h2 className="lp-h2">Gặp Coal, <span className="lp-hl">cục than muốn thành kim cương</span>.</h2>
+            <p className="lp-lead">Coal học cùng bạn mỗi ngày: trả lời câu hỏi, nhắc giờ học và đổi dáng theo streak của bạn. Bạn học đều thì Coal bốc lửa, bạn vắng lâu thì Coal ướt, nhưng không bao giờ trách bạn.</p>
+          </Reveal>
+          <Reveal delay={80}>
+            <div className="lp-coal-row" role="group" aria-label="Coal cháy dần khi streak dài">
+              {([[0, "1–2 ngày"], [1, "3 ngày"], [2, "7 ngày"], [3, "14 ngày"], [4, "30 ngày"]] as const).map(([f, label]) => (
+                <figure key={f}><Mascot mood={f >= 2 ? "fire" : "happy"} fire={f} size={150} label={`Coal, streak ${label}`} /><figcaption><b>{label}</b>{f === 4 ? "cháy cả người" : f === 0 ? "ngọn lửa nhỏ" : f === 3 ? "đống lửa quanh người" : "lửa lớn dần"}</figcaption></figure>
+              ))}
+            </div>
+            <div className="lp-coal-row" role="group" aria-label="Coal ướt dần khi bỏ học lâu">
+              {([[1, "1–2 ngày", "sleepy"], [2, "3–6 ngày", "sad"], [3, "7–13 ngày", "lost"], [4, "14 ngày", "lost"]] as const).map(([w, label, mood]) => (
+                <figure key={w}><Mascot mood={mood} wet={w} size={150} label={`Coal, vắng ${label}`} /><figcaption><b>Vắng {label}</b>{w === 1 ? "ướt nhẹ" : w === 2 ? "ướt cả người" : w === 3 ? "ướt sũng, run" : "ngập nước"}</figcaption></figure>
+              ))}
+            </div>
+          </Reveal>
+          <Reveal delay={120}>
+            <div className="lp-cta" style={{ marginTop: 28 }}>
+              <Link className="lp-btn lp-btn-primary lp-btn-lg" href="/blog/coal-la-ai">Đọc câu chuyện của Coal <ArrowRight size={20} aria-hidden="true" /></Link>
+              <Link className="lp-btn lp-btn-ghost lp-btn-lg" href="/blog">Xem blog học tập</Link>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
       {/* ───── Gói ───── */}
       <section className="lp-section lp-alt" id="goi">
         <div className="lp-wrap" style={{ textAlign: "center" }}>
@@ -500,7 +532,7 @@ export default function Landing() {
 
       <footer className="lp-wrap lp-foot">
         <Logo height={26} href="/welcome" />
-        <span>© {new Date().getFullYear()} Studia · Luyện IELTS cho người Việt</span>
+        <span>© {new Date().getFullYear()} Studia · Luyện IELTS cho người Việt · <Link href="/blog" style={{ textDecoration: "underline" }}>Blog của Coal</Link></span>
       </footer>
     </div>
   );

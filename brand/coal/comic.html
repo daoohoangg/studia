@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coal · linh vật của Studia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root { --cream:#fdf9ef; --ink:#2b2233; --ink2:#5b5166; --card:#fff; --line:#e6dfd0; --brand:#2344c9; --ember:#ff6a2b; }
+  @media (prefers-color-scheme: dark) { :root { --cream:#17141c; --ink:#f4efe6; --ink2:#c9c1d1; --card:#221e29; --line:#38323f; --brand:#8fa8ff; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--cream); color:var(--ink); font:400 16px/1.6 'Be Vietnam Pro','Segoe UI',Arial,sans-serif; }
+  main { max-width:1120px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:40px; line-height:1.1; margin:0 0 6px; letter-spacing:-1px; }
+  h2 { font-size:24px; margin:40px 0 4px; letter-spacing:-.3px; }
+  p.sub { margin:0 0 16px; color:var(--ink2); }
+  .stage { background:var(--card); border:3px solid var(--ink); border-radius:24px; overflow:hidden; touch-action:manipulation; cursor:pointer; }
+  .stage svg { display:block; width:100%; height:auto; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 0; align-items:center; }
+  .bar .label { font-weight:600; color:var(--ink2); margin-right:4px; }
+  button { font:600 14px/1 'Be Vietnam Pro','Segoe UI',sans-serif; color:var(--ink); background:var(--card); border:2px solid var(--ink); border-radius:999px; padding:10px 14px; cursor:pointer; }
+  button:hover { background:#fff3c4; color:#2b2233; }
+  button[aria-pressed="true"] { background:var(--ink); color:var(--cream); }
+  button:focus-visible { outline:3px solid var(--brand); outline-offset:2px; }
+  .hint { color:var(--ink2); font-size:14px; margin:10px 0 0; }
+  kbd { border:1.5px solid var(--ink2); border-bottom-width:3px; border-radius:6px; padding:0 6px; font:600 13px 'Be Vietnam Pro',sans-serif; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr)); gap:16px; margin-top:16px; }
+  .grid figure { margin:0; }
+  .grid svg { display:block; width:100%; height:auto; border-radius:18px; }
+  .dl { margin-top:10px; display:flex; gap:12px; flex-wrap:wrap; }
+  .dl a { color:var(--brand); font-weight:600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Coal</h1>
+  <p class="sub">Cục than nhỏ muốn thành kim cương. Càng bị ép, càng sáng. Linh vật của Studia.</p>
+
+  <h2>Coal chuyển động</h2>
+  <p class="sub">Bấm vào sân khấu để Coal đi tới đó, hoặc dùng phím mũi tên. Bấm vào Coal để làm Coal giật mình.</p>
+  <div class="stage" id="stage" aria-label="Sân khấu của Coal">
+    <svg id="stageSvg" viewBox="0 0 960 400" role="img" aria-label="Coal đứng trên sân khấu">
+      <rect width="960" height="400" fill="#fff3d6"/>
+      <circle cx="840" cy="70" r="40" fill="#ffd36e" stroke="#2b2233" stroke-width="4"/>
+      <path d="M0 338Q240 328 480 338T960 336V400H0Z" fill="#f1e2c4"/>
+      <path d="M20 338Q240 330 480 338T940 336" stroke="#2b2233" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <g id="pos"><g id="mount"></g></g>
+    </svg>
+  </div>
+
+  <div class="bar" role="group" aria-label="Cảm xúc">
+    <span class="label">Cảm xúc</span>
+    <button type="button" data-mood="idle" aria-pressed="true">Bình thường</button>
+    <button type="button" data-mood="happy" aria-pressed="false">Vui</button>
+    <button type="button" data-mood="joy" aria-pressed="false">Phấn khích</button>
+    <button type="button" data-mood="proud" aria-pressed="false">Tự hào</button>
+    <button type="button" data-mood="focus" aria-pressed="false">Tập trung</button>
+    <button type="button" data-mood="surprised" aria-pressed="false">Ngạc nhiên</button>
+    <button type="button" data-mood="worried" aria-pressed="false">Lo lắng</button>
+    <button type="button" data-mood="sad" aria-pressed="false">Buồn</button>
+    <button type="button" data-mood="sleepy" aria-pressed="false">Buồn ngủ</button>
+  </div>
+  <div class="bar" role="group" aria-label="Phụ kiện và hành động">
+    <span class="label">Thêm</span>
+    <button type="button" id="tGlasses" aria-pressed="false">Kính</button>
+    <button type="button" id="tPhones" aria-pressed="false">Tai nghe</button>
+    <button type="button" id="tWave" aria-pressed="false">Vẫy tay</button>
+    <button type="button" id="tAuto" aria-pressed="false">Tự diễn</button>
+  </div>
+  <p class="hint">Phím tắt: <kbd>←</kbd> <kbd>→</kbd> đi · <kbd>1</kbd>–<kbd>9</kbd> đổi cảm xúc. Lõi than trên bụng sáng hay tối theo tâm trạng của Coal.</p>
+
+  <h2>Truyện: Coal và bài nghe chép đầu tiên</h2>
+  <p class="sub">6 khung. Các khung cũng đang chuyển động (nháy mắt, thở, đổ mưa, pháo giấy).</p>
+  <div class="grid" id="grid"></div>
+  <div class="dl" id="dl"></div>
+</main>
+
+<script src="coal.js"></script>
+<script>
+(function () {
+  const Coal = window.Coal;
+  const style = document.createElement('style'); style.textContent = Coal.CSS; document.head.appendChild(style);
+
+  /* ---- 6 khung truyện ---- */
+  const grid = document.getElementById('grid'), dl = document.getElementById('dl');
+  for (let n = 1; n <= Coal.panelCount; n++) {
+    const fig = document.createElement('figure');
+    fig.innerHTML = Coal.panel(n).replace(/<style>[\s\S]*?<\/style>/, '').replace('width="1080" height="1080"', '');
+    grid.appendChild(fig);
+    const id = String(n).padStart(2, '0');
+    dl.insertAdjacentHTML('beforeend', `<a href="panels/coal-${id}.png" download>Khung ${n} (PNG)</a><a href="panels/coal-${id}.svg" download>SVG</a>`);
+  }
+
+  /* ---- sân khấu ---- */
+  const MOODS = ['idle', 'happy', 'joy', 'proud', 'focus', 'surprised', 'worried', 'sad', 'sleepy'];
+  const S = { x: 200, target: 200, mood: 'idle', glasses: false, phones: false, wave: false, walking: false, look: 0, auto: false };
+  const SCALE = 1.7, MIN = 90, MAX = 870;
+  const pos = document.getElementById('pos'), mount = document.getElementById('mount');
+  const svg = document.getElementById('stageSvg');
+
+  function render() {
+    mount.innerHTML = Coal.coal({
+      mood: S.mood, glasses: S.glasses, headphones: S.phones, walking: S.walking,
+      armL: S.walking ? 'down' : 'down', armR: S.wave ? 'wave' : 'down', look: [S.look, 0], uid: 'stg',
+    });
+  }
+  function place() { pos.setAttribute('transform', `translate(${S.x - 100 * SCALE} ${338 - 200 * SCALE}) scale(${SCALE})`); }
+
+  function setMood(m) {
+    S.mood = m; render();
+    document.querySelectorAll('[data-mood]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mood === m)));
+  }
+
+  /* chạy mỗi khung hình: di chuyển và bật/tắt hoạt ảnh đi bộ */
+  let last = performance.now();
+  function tick(t) {
+    const dt = Math.min(0.1, (t - last) / 1000); last = t;
+    const dx = S.target - S.x;
+    const moving = Math.abs(dx) > 3;
+    if (moving) {
+      S.x += Math.sign(dx) * Math.min(Math.abs(dx), 230 * dt);
+      const look = Math.sign(dx);
+      if (!S.walking || S.look !== look) { S.walking = true; S.look = look; render(); }
+    } else if (S.walking) { S.walking = false; S.look = 0; render(); }
+    place();
+  }
+
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const clamp = (v) => Math.max(MIN, Math.min(MAX, v));
+  const toStageX = (ev) => { const r = svg.getBoundingClientRect(); return clamp(((ev.clientX - r.left) / r.width) * 960); };
+
+  document.getElementById('stage').addEventListener('click', (ev) => {
+    const x = toStageX(ev);
+    if (Math.abs(x - S.x) < 60 * SCALE * 0.6) {           // bấm trúng Coal: giật mình rồi trở lại
+      const prev = S.mood; setMood('surprised'); setTimeout(() => setMood(prev), 900);
+    } else S.target = reduce ? x : x, (reduce && (S.x = x));
+  });
+
+  addEventListener('keydown', (e) => {
+    if (e.target.closest && e.target.closest('input,textarea,select')) return;
+    if (e.key === 'ArrowLeft') { S.target = clamp(S.target - 140); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { S.target = clamp(S.target + 140); e.preventDefault(); }
+    else if (/^[1-9]$/.test(e.key)) setMood(MOODS[Number(e.key) - 1]);
+  });
+
+  document.querySelectorAll('[data-mood]').forEach((b) => b.addEventListener('click', () => { stopAuto(); setMood(b.dataset.mood); }));
+  const toggle = (id, key) => {
+    const el = document.getElementById(id);
+    el.addEventListener('click', () => { S[key] = !S[key]; el.setAttribute('aria-pressed', String(S[key])); render(); });
+  };
+  toggle('tGlasses', 'glasses'); toggle('tPhones', 'phones'); toggle('tWave', 'wave');
+
+  /* tự diễn: đổi cảm xúc và đi quanh sân khấu */
+  let autoTimer = null, ai = 0;
+  const tAuto = document.getElementById('tAuto');
+  function stopAuto() { clearInterval(autoTimer); autoTimer = null; S.auto = false; tAuto.setAttribute('aria-pressed', 'false'); }
+  tAuto.addEventListener('click', () => {
+    if (S.auto) { stopAuto(); return; }
+    S.auto = true; tAuto.setAttribute('aria-pressed', 'true');
+    const step = () => { ai = (ai + 1) % MOODS.length; setMood(MOODS[ai]); S.target = clamp(120 + Math.random() * 720); };
+    step(); autoTimer = setInterval(step, 2600);
+  });
+
+  render(); place(); setInterval(() => tick(performance.now()), 16);
+})();
+</script>
+</body>
+</html>

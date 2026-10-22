@@ -54,6 +54,12 @@ class StreakMathTestCase(unittest.TestCase):
         self.assertEqual(s["current"], 0)
         self.assertEqual(s["longest"], 5)
 
+    def test_days_since_active(self):
+        self.assertEqual(sched.streak_from_days(self.days(0, 1), self.today)["days_since_active"], 0)
+        self.assertEqual(sched.streak_from_days(self.days(1, 2), self.today)["days_since_active"], 1)
+        self.assertEqual(sched.streak_from_days(self.days(20, 21, 22), self.today)["days_since_active"], 20)
+        self.assertIsNone(sched.streak_from_days([], self.today)["days_since_active"])
+
 
 class ScheduleApiTestCase(unittest.TestCase):
     def setUp(self):

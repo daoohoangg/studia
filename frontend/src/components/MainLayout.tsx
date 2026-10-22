@@ -15,6 +15,7 @@ import TutorPopup from "@/components/TutorPopup";
 import NavProgress from "@/components/NavProgress";
 import Logo from "@/components/Logo";
 import SiteBanner from "@/components/SiteBanner";
+import RouteTitle from "@/components/RouteTitle";
 import { featureForPath, featureOn, useSiteConfig } from "@/lib/siteConfig";
 import { supabase } from "@/lib/supabase";
 import { useAccount, clearAccount, useDisplayName } from "@/lib/account";
@@ -112,14 +113,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     try { localStorage.setItem("studia_sidebar_collapsed", String(nextState)); } catch {}
   };
 
-  if (BARE_PATHS.includes(pathname)) {
-    return <AuthGate>{children}</AuthGate>;
+  if (BARE_PATHS.includes(pathname) || pathname === "/blog" || pathname.startsWith("/blog/")) {
+    return <><RouteTitle /><AuthGate>{children}</AuthGate></>;
   }
 
   const cls = (...parts: (string | false)[]) => parts.filter(Boolean).join(" ");
 
   return (
     <AuthGate>
+      <RouteTitle />
       <div style={{ display: "flex", minHeight: "100vh" }}>
         {/* Menu ngữ cảnh khi bôi đen chữ */}
         <SelectionContextMenu />

@@ -137,7 +137,7 @@ function TutorContent() {
         <header className="row" style={{ gap: 12, padding: "14px 20px", borderBottom: "1px solid var(--hairline)" }}>
           <span className="tile" style={{ background: "var(--brand-tint)" }} aria-hidden="true"><Logo variant="mark" height={24} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ font: "650 16px/22px var(--font-sans)" }}>Trợ lý AI Studia</h1>
+            <h1 style={{ font: "650 16px/22px var(--font-sans)" }}>Coal · bạn học AI của bạn</h1>
             <div className="meta">{docId ? "Trả lời dựa trên tài liệu bạn chọn, kèm trích dẫn" : "Hỏi đáp tổng quát về tiếng Anh và IELTS"}</div>
           </div>
           {(docId || topicId) && <span className="st-badge st-badge-brand">{topicId ? "Theo chủ đề" : "Theo tài liệu"}</span>}

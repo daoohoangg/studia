@@ -40,7 +40,7 @@ export type DayDetail = {
 };
 
 export type Streak = {
-  current: number; longest: number; today_done: boolean; at_risk: boolean; total_days: number;
+  current: number; days_since_active?: number | null; longest: number; today_done: boolean; at_risk: boolean; total_days: number;
   next_milestone: number | null; to_next_milestone: number;
   week: { date: string; active: boolean; minutes: number }[]; today: string;
 };

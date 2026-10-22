@@ -27,8 +27,10 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
+      # PDFium dựng hình học dòng chữ theo phông hệ thống; không có phông thì bộ tách khối/dựng đề lệch so với máy dev
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-liberation && fc-list | wc -l
       - run: pip install -r requirements-dev.txt
-      - run: pytest -q
+      - run: pytest -q --tb=short
 
   build-push:
     if: github.event_name != 'pull_request'

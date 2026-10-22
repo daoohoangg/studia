@@ -361,7 +361,7 @@ _LOCAL_URL_SECRET = secrets.token_bytes(32)
 def resolve_storage_path(bucket_name: str, path: str) -> str:
     """Đường dẫn tuyệt đối của object, chặn mọi đường dẫn thoát khỏi thư mục bucket."""
     bucket_dir = os.path.realpath(os.path.join(STORAGE_DIR, bucket_name))
-    full_path = os.path.realpath(os.path.join(bucket_dir, path.replace("/", os.sep)))
+    full_path = os.path.realpath(os.path.join(bucket_dir, path.replace("\\", "/").replace("/", os.sep)))
     if os.path.commonpath([bucket_dir, full_path]) != bucket_dir or full_path == bucket_dir:
         raise ValueError(f"Invalid storage path: {path}")
     return full_path

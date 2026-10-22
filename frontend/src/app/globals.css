@@ -1106,7 +1106,7 @@ mark.studia-hl-purple { background-color: #e9d5ff !important; color: #6b21a8 !im
 
 /* ===================== APP SHELL (MainLayout) ===================== */
 .app-sidebar {
-  --nav-h: clamp(28px, 4.3vh, 40px);
+  --nav-h: clamp(26px, 4vh, 40px);
   position: fixed;
   top: 0; left: 0;
   height: 100vh;
@@ -1117,8 +1117,8 @@ mark.studia-hl-purple { background-color: #e9d5ff !important; color: #6b21a8 !im
   padding: clamp(10px, 2vh, 20px) 12px clamp(8px, 1.6vh, 16px);
   background: var(--surface);
   border-right: 1px solid var(--hairline);
-  overflow-x: hidden;
-  overflow-y: auto;
+  /* Khoá cứng: thanh điều hướng không cuộn; chiều cao mục co theo chiều cao màn hình (--nav-h) để luôn vừa khung */
+  overflow: hidden;
   z-index: 50;
   transition: width var(--dur-base) var(--ease-in-out), box-shadow var(--dur-base), background-color var(--dur-base);
 }
@@ -1140,7 +1140,6 @@ mark.studia-hl-purple { background-color: #e9d5ff !important; color: #6b21a8 !im
 .nav-group + .nav-group { margin-top: clamp(2px, 0.8vh, 6px); padding-top: clamp(2px, 0.8vh, 6px); border-top: 1px solid var(--hairline); }
 .sidebar-foot { margin-top: auto; padding-top: clamp(4px, 1vh, 10px); display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--hairline); }
 .nav-button { background: none; border: none; cursor: pointer; width: 100%; font-family: inherit; }
-.nav-collapse { color: var(--ink-muted); }
 .sidebar-user { display: flex; align-items: center; gap: 10px; padding: 4px 8px; min-height: var(--nav-h); overflow: hidden; }
 .sidebar-avatar { flex-shrink: 0; width: 24px; height: 24px; margin: 0 2px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-tint); color: var(--brand); font: 650 12px/1 var(--font-sans); }
 .sidebar-user-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.2; }

@@ -25,6 +25,7 @@ FEATURES: dict[str, tuple[str, str]] = {
     "pronunciation": ("Luyện phát âm", "Đọc theo câu mẫu, chấm từng từ"),
     "scenarios": ("Hội thoại tình huống", "Nói chuyện với trợ lý AI (tốn lượt gọi AI)"),
     "tutor": ("Gia sư AI", "Hỏi đáp và bôi đen chữ để giải thích (tốn lượt gọi AI)"),
+    "writing": ("Chấm Writing", "Chấm Task 1/2 theo 4 tiêu chí band, sửa lỗi từng câu (tốn lượt gọi AI)"),
     "exam": ("Thi thử IELTS", "Thư viện đề, làm bài và chấm"),
     "flashcards": ("Thẻ & từ vựng", "Flashcard, sổ từ vựng"),
     "practice": ("Ôn luyện", "Câu hỏi ôn tập, ôn theo lịch lặp lại"),

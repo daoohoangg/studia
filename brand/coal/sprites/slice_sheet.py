@@ -8,7 +8,7 @@ import os
 from collections import deque
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "coal-sheet.webp")
@@ -137,6 +137,70 @@ def despeckle(rgba: np.ndarray) -> np.ndarray:
     return rgba
 
 
+SCALE = 3
+
+
+def refine(img, scale=SCALE):
+    """RGBA 1x -> RGBA phóng lớn `scale` lần, viền sắc: bỏ quầng xám ở rìa, giữ bóng đổ mềm dưới chân."""
+    w, h = img.size
+    a = np.asarray(img).astype(np.float32)
+    # phóng lớn trên ảnh nhân alpha để rìa trong suốt không kéo màu đen vào viền
+    pm = a[..., :3] * (a[..., 3:4] / 255.0)
+    big = lambda arr, mode: np.asarray(Image.fromarray(arr).resize((w * scale, h * scale), mode)).astype(np.float32)
+    pmb = np.stack([big(np.clip(pm[..., i], 0, 255).astype(np.uint8), Image.LANCZOS) for i in range(3)], axis=2)
+    al = big(a[..., 3].astype(np.uint8), Image.LANCZOS) / 255.0
+    al = np.clip(al, 0, 1)
+
+    solid = al >= 0.92
+    # khoảng cách tới phần đặc (xấp xỉ bằng dilate lặp)
+    ring_px = 2 * scale
+    near = solid.copy()
+    reach = np.zeros(al.shape, dtype=np.int32)
+    cur = solid.copy()
+    for i in range(1, ring_px + 1):
+        p = np.pad(cur, 1)
+        nxt = p[1:-1, 1:-1] | p[:-2, 1:-1] | p[2:, 1:-1] | p[1:-1, :-2] | p[1:-1, 2:]
+        reach[nxt & ~cur] = i
+        cur = nxt
+    in_ring = cur & ~solid                     # trong vòng 2px (ảnh gốc) quanh phần đặc
+
+    # màu: phần đặc dùng màu thật; vùng viền lấy màu của điểm đặc gần nhất (hết quầng xám)
+    col = np.where(al[..., None] > 1e-3, pmb / np.maximum(al[..., None], 1e-3), 0)
+    col = np.clip(col, 0, 255)
+    filled = solid.copy()
+    cfill = np.where(solid[..., None], col, 0).astype(np.float32)
+    for _ in range(ring_px):
+        p = np.pad(filled, 1)
+        cnt = np.zeros(al.shape, dtype=np.float32)
+        acc = np.zeros(al.shape + (3,), dtype=np.float32)
+        pc = np.pad(cfill, ((1, 1), (1, 1), (0, 0)))
+        pf = np.pad(filled, 1)
+        for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            f = pf[1 + dy:1 + dy + al.shape[0], 1 + dx:1 + dx + al.shape[1]]
+            c = pc[1 + dy:1 + dy + al.shape[0], 1 + dx:1 + dx + al.shape[1]]
+            cnt += f
+            acc += c * f[..., None]
+        new = (~filled) & (cnt > 0)
+        cfill = np.where(new[..., None], acc / np.maximum(cnt, 1)[..., None], cfill)
+        filled |= new
+    rgb = np.where(in_ring[..., None], cfill, col)
+
+    # alpha: trong vòng viền, siết bằng smoothstep để rìa sắc; xa nhân vật (bóng đổ) giữ nguyên
+    lo, hi = 0.45, 0.8
+    t = np.clip((al - lo) / (hi - lo), 0, 1)
+    t = t * t * (3 - 2 * t)
+    out_a = np.where(in_ring, t, al)
+
+    # làm mịn rìa nhẹ để không răng cưa
+    out = np.dstack([np.clip(rgb, 0, 255), out_a * 255]).astype(np.uint8)
+    im = Image.fromarray(out, "RGBA")
+    r, g, b, aa = im.split()
+    aa = aa.filter(ImageFilter.GaussianBlur(0.6))
+    rgbim = Image.merge("RGB", (r, g, b)).filter(ImageFilter.UnsharpMask(radius=1.5, percent=60, threshold=2))
+    rr, gg, bb = rgbim.split()
+    return Image.merge("RGBA", (rr, gg, bb, aa))
+
+
 sprites = {}
 for r, (y0, y1) in enumerate(ROWS):
     for c, (x0, x1) in enumerate(COLS):
@@ -159,19 +223,21 @@ for name, (rgba, x0, x1, y0, y1) in sprites.items():
     ox = (CW - cutimg.width) // 2
     oy = CH - cutimg.height - 6
     canvas.paste(cutimg, (ox, oy), cutimg)
-    canvas.save(OUT + name + ".webp", "WEBP", quality=92, alpha_quality=100, method=6)
+    # phóng 3 lần và làm sắc viền: ảnh gốc nhỏ nên hiển thị lớn trên màn hình retina sẽ bị mờ rìa
+    canvas = refine(canvas)
+    canvas.save(OUT + name + ".webp", "WEBP", quality=90, alpha_quality=100, method=6)
     print(name, cutimg.size, os.path.getsize(OUT + name + ".webp"))
 
 # bảng xem thử trên nền sáng và nền tối
 names = [n for row in NAMES for n in row]
 cols = 5
-sheet = Image.new("RGB", (CW * cols, CH * 5 * 2 // 1), (246, 244, 235))
-sheet = Image.new("RGB", (CW * cols, CH * 5), (246, 244, 235))
+CWS, CHS = CW * SCALE, CH * SCALE
+sheet = Image.new("RGB", (CWS * cols, CHS * 5), (246, 244, 235))
 for i, n in enumerate(names):
     sp = Image.open(OUT + n + ".webp").convert("RGBA")
     bgc = (246, 244, 235) if (i // cols) % 2 == 0 else (11, 16, 34)
-    tile = Image.new("RGB", (CW, CH), bgc)
+    tile = Image.new("RGB", (CWS, CHS), bgc)
     tile.paste(sp, (0, 0), sp)
-    sheet.paste(tile, ((i % cols) * CW, (i // cols) * CH))
+    sheet.paste(tile, ((i % cols) * CWS, (i // cols) * CHS))
 sheet.save(os.path.join(HERE, "sprite_check.png"))
 print("done")

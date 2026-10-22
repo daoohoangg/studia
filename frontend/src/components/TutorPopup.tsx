@@ -117,7 +117,7 @@ export default function TutorPopup() {
 
       <button type="button" className={`tp-fab${open ? " open" : ""}`} aria-label={open ? "Đóng Coal" : "Hỏi Coal, bạn học AI"} aria-expanded={open}
         onClick={() => setOpen((o) => !o)}>
-        {open ? <X size={24} strokeWidth={2.2} /> : <Mascot mood={coal?.mood ?? "hello"} wet={coal?.wet} fire={coal?.fire} size={52} still label="" />}
+        {open ? <X size={24} strokeWidth={2.2} /> : <Mascot mood={coal?.mood ?? "hello"} wet={coal?.wet} fire={coal?.fire} size={64} still label="" />}
         {!open && <span className="tp-fab-label">Hỏi Coal</span>}
         {!open && <span className="tp-fab-ping" aria-hidden="true" />}
       </button>

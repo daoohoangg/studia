@@ -19,6 +19,7 @@ export const FEATURE_PATHS: Record<string, string[]> = {
   dictation: ["/dictation"],
   pronunciation: ["/pronunciation"],
   scenarios: ["/scenarios"],
+  writing: ["/writing"],
   tutor: ["/tutor"],
   exam: ["/exam"],
   flashcards: ["/flashcards", "/vocabulary"],

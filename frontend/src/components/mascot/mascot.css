@@ -1,7 +1,7 @@
 /* Linh vật Coal: ảnh tĩnh nên mọi chuyển động làm bằng CSS. Tất cả tắt khi người dùng chọn giảm chuyển động. */
 .mc { display: block; position: relative; flex-shrink: 0; }
 .mc-img { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; pointer-events: none;
-  transform-origin: 50% 100%; will-change: transform;
+  transform-origin: 50% 100%;
   animation: mc-pop .38s cubic-bezier(.3, 1.6, .5, 1) both, mc-bob 3.2s ease-in-out .38s infinite; }
 
 /* ---- chuyển động theo cảm xúc / tư thế ---- */
@@ -32,7 +32,7 @@
 @keyframes mc-glow-strong { from { filter: drop-shadow(0 0 8px rgba(242, 97, 31, .45)); } to { filter: drop-shadow(0 0 22px rgba(255, 140, 40, .85)); } }
 
 /* ---- tĩnh: dùng ở danh sách nhỏ (nhật ký) ---- */
-.mc-still .mc-img { animation: none !important; will-change: auto; }
+.mc-still .mc-img { animation: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
   .mc .mc-img { animation: none !important; }

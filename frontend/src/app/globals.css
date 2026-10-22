@@ -1354,12 +1354,16 @@ html[data-motion="reduce"] *, html[data-motion="reduce"] *::before, html[data-mo
 @media (prefers-reduced-motion: reduce) { .tp-fab svg, .tp-fab-ping { animation: none !important; } }
 [data-theme="dark"] .tp-fab { background: linear-gradient(135deg, #3b5bdb, #1b2a5e); }
 /* Nhãn "Hỏi Studia" thu gọn sau vài giây để nút nổi đỡ che nội dung */
-.tp-fab:not(.open) .tp-fab-label { overflow: hidden; white-space: nowrap; max-width: 120px; animation: tp-label 0.5s 7s var(--ease-in-out) forwards; }
+.tp-fab:not(.open) .tp-fab-label { overflow: hidden; white-space: nowrap; max-width: 120px; }
 @keyframes tp-label { to { max-width: 0; opacity: 0; margin-left: -10px; } }
 .tp-fab:not(.open) { animation: tp-pad 0.5s 7s var(--ease-in-out) forwards; }
 @keyframes tp-pad { to { padding: 0 16px; } }
 
-/* Nút hỏi Coal: Coal đứng ngay trên nút thay cho biểu tượng AI */
-.tp-fab:not(.open) { padding: 0 20px 0 6px; }
-.tp-fab .mc { flex-shrink: 0; margin-top: -14px; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .25)); }
-@media (max-width: 860px) { .tp-fab:not(.open) { padding: 0 8px; } }
+/* Nút hỏi Coal: chỉ có Coal, không có hình khối nền; nhãn "Hỏi Coal" là một bong bóng nhỏ cạnh Coal */
+.tp-fab:not(.open) { background: none; box-shadow: none; border-radius: 0; height: auto; min-width: 0; padding: 0; gap: 4px; align-items: flex-end; animation: none; }
+.tp-fab:not(.open):hover { transform: translateY(-3px); }
+.tp-fab:not(.open) .tp-fab-ping { display: none; }
+.tp-fab .mc { flex-shrink: 0; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, .28)); }
+.tp-fab:not(.open) .tp-fab-label { align-self: center; padding: 8px 12px; border-radius: 999px; background: var(--brand); color: var(--on-brand); box-shadow: var(--shadow-md); animation: tp-label-bubble 0.5s 7s var(--ease-in-out) forwards; }
+@keyframes tp-label-bubble { to { max-width: 0; padding: 0; opacity: 0; margin-left: -4px; } }
+@media (max-width: 860px) { .tp-fab:not(.open) { right: 12px; } }

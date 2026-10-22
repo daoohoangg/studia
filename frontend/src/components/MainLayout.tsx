@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Home, BarChart3, BookOpen, CalendarDays, Layers, Mic,
-  PenLine, Target, FlaskConical, Headphones, AudioLines, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon,
+  PenLine, Target, FlaskConical, Headphones, AudioLines, FileText, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon,
   NotebookPen, ChevronRight, LayoutGrid, Users, CreditCard, Package, Library, Sparkles, Zap, Settings, SlidersHorizontal, Megaphone,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -43,6 +43,7 @@ const navGroups: NavItem[][] = [
     { href: "/scenarios", label: "Luyện nói", icon: Mic },
     { href: "/pronunciation", label: "Shadowing", icon: AudioLines },
     { href: "/dictation", label: "Nghe chép chính tả", icon: Headphones },
+    { href: "/writing", label: "Chấm Writing", icon: FileText },
     { href: "/feedback", label: "Lỗi sai", icon: PenLine, also: ["/mistakes"] },
     { href: "/exam", label: "Thi thử IELTS", icon: Target },
     ...(SHOW_DEV_TOOLS ? [{ href: "/config-test", label: "Công cụ kiểm thử", icon: FlaskConical }] : []),

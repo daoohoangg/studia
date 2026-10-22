@@ -33,9 +33,9 @@ export default function BooksPage() {
   const [title, setTitle] = useState("");
   const [textContent, setTextContent] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [backgroundNotice, setBackgroundNotice] = useState<string | null>(null);
+  const [noticeError, setNoticeError] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { account, isAdmin } = useAccount();
@@ -85,49 +85,56 @@ export default function BooksPage() {
     else window.alert("Không xử lý lại được tài liệu này.");
   };
 
-  const handleUpload = async (e: React.FormEvent) => {
+  // Bấm "Tải lên và phân tích": kiểm tra nhanh rồi đóng modal ngay, việc tải tệp và xử lý chạy ở nền.
+  const handleUpload = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    const name = title.trim();
+    if (!name) return;
+    const file = uploadMode === "pdf" ? pdfFile : null;
+    const text = textContent;
+    if (uploadMode === "pdf" && !file) { setUploadMsg({ type: "error", text: "Hãy chọn tệp PDF hoặc DOCX" }); return; }
+    if (uploadMode === "text" && !text.trim()) { setUploadMsg({ type: "error", text: "Hãy nhập nội dung tài liệu" }); return; }
+    const share = isAdmin && shareUpload;
 
-    setUploading(true);
+    setShowUpload(false);
     setUploadMsg(null);
-    try {
-      let res: Response;
-      if (uploadMode === "pdf" && pdfFile) {
-        const fd = new FormData();
-        fd.append("file", pdfFile);
-        fd.append("title", title);
-        if (isAdmin && shareUpload) fd.append("shared", "true");
-        res = await apiFetch(`${API}/documents/upload-file`, { method: "POST", body: fd });
-      } else {
-        if (!textContent.trim()) { setUploadMsg({ type: "error", text: "Hãy nhập nội dung tài liệu" }); setUploading(false); return; }
-        res = await apiFetch(`${API}/documents/upload`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, source_type: "text", raw_content: textContent, shared: isAdmin && shareUpload })
-        });
+    setTitle(""); setTextContent(""); setPdfFile(null);
+    setNoticeError(false);
+    setBackgroundNotice(`Đang tải lên "${name}"… Bạn có thể tiếp tục dùng app, hệ thống sẽ xử lý ở nền.`);
+
+    (async () => {
+      try {
+        let res: Response;
+        if (file) {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("title", name);
+          if (share) fd.append("shared", "true");
+          res = await apiFetch(`${API}/documents/upload-file`, { method: "POST", body: fd });
+        } else {
+          res = await apiFetch(`${API}/documents/upload`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: name, source_type: "text", raw_content: text, shared: share }),
+          });
+        }
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 402) {
+          setBackgroundNotice(null); setShowLimit(true); refreshAccount();
+        } else if (res.ok) {
+          refreshAccount();
+          fetchBooks();
+          setBackgroundNotice(`Đã nhận "${name}". Hệ thống đang phân tích ở nền, bạn có thể mở đọc ngay khi sách xuất hiện.`);
+          setTimeout(() => setBackgroundNotice((n) => (n && n.startsWith("Đã nhận") ? null : n)), 6000);
+        } else {
+          setNoticeError(true);
+          setBackgroundNotice(`Không tải lên được "${name}": ${typeof data.detail === "string" ? data.detail : "Upload thất bại"}`);
+        }
+      } catch {
+        setNoticeError(true);
+        setBackgroundNotice(`Không tải lên được "${name}": không kết nối được, vui lòng thử lại sau.`);
       }
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 402) {
-        setShowUpload(false); setShowLimit(true); refreshAccount();
-        setUploading(false);
-        return;
-      }
-      if (res.ok) {
-        refreshAccount();
-        // Đóng ngay popup modal để người dùng không phải chờ
-        setShowUpload(false);
-        setBackgroundNotice(`Đã nhận tệp "${title}"! Hệ thống đang xử lý ở nền, bạn có thể tiếp tục dùng app.`);
-        setTitle(""); setTextContent(""); setPdfFile(null); setUploadMsg(null);
-        fetchBooks();
-        setTimeout(() => setBackgroundNotice(null), 6000);
-      } else {
-        setUploadMsg({ type: "error", text: typeof data.detail === "string" ? data.detail : "Upload thất bại" });
-      }
-    } catch (err) {
-      setUploadMsg({ type: "error", text: "Không thể kết nối. Vui lòng thử lại sau." });
-    }
-    setUploading(false);
+    })();
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -194,8 +201,8 @@ export default function BooksPage() {
       )}
 
       {activeTab === "mine" && (backgroundNotice || processingBook) && (
-        <div role="status" className="st-enter" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: "var(--radius-md)", background: "var(--brand-tint)", color: "var(--ink)" }}>
-          <span className="st-spinner" style={{ color: "var(--brand)" }} aria-hidden="true" />
+        <div role={noticeError ? "alert" : "status"} className="st-enter" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: "var(--radius-md)", background: noticeError ? "var(--danger-tint, var(--warning-tint))" : "var(--brand-tint)", color: "var(--ink)" }}>
+          {!noticeError && <span className="st-spinner" style={{ color: "var(--brand)" }} aria-hidden="true" />}
           <span style={{ flex: 1 }}>
             {backgroundNotice || <><b style={{ fontWeight: 600 }}>{processingBook.title}</b> đang được phân tích — bạn vẫn có thể đọc ngay trong lúc chờ.</>}
           </span>
@@ -365,9 +372,7 @@ export default function BooksPage() {
                 <div role="alert" style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", background: uploadMsg.type === "success" ? "var(--success-tint)" : "var(--danger-tint)", color: uploadMsg.type === "success" ? "var(--success)" : "var(--danger)", fontSize: 14 }}>{uploadMsg.text}</div>
               )}
 
-              <button type="submit" className="st-btn st-btn-primary st-btn-lg st-btn-block" disabled={uploading} aria-busy={uploading || undefined}>
-                {uploading ? <><span className="st-spinner" /> Đang tải lên…</> : "Tải lên và phân tích"}
-              </button>
+              <button type="submit" className="st-btn st-btn-primary st-btn-lg st-btn-block">Tải lên và phân tích</button>
             </form>
           </div>
         </div>

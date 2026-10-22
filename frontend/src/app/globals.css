@@ -1337,7 +1337,6 @@ html[data-motion="reduce"] *, html[data-motion="reduce"] *::before, html[data-mo
 .tp-input textarea:focus { outline: none; border-color: var(--brand); box-shadow: var(--focus-ring); }
 @media (max-width: 767px) {
   .tp-fab { right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); height: 52px; min-width: 52px; padding: 0 14px; }
-  .tp-fab-label { display: none; }
   .tp-fab.open { width: 52px; }
   .tp-panel { right: 8px; left: 8px; width: auto; max-width: none; bottom: calc(146px + env(safe-area-inset-bottom)); height: min(560px, calc(100vh - 220px)); }
 }
@@ -1354,16 +1353,12 @@ html[data-motion="reduce"] *, html[data-motion="reduce"] *::before, html[data-mo
 @media (prefers-reduced-motion: reduce) { .tp-fab svg, .tp-fab-ping { animation: none !important; } }
 [data-theme="dark"] .tp-fab { background: linear-gradient(135deg, #3b5bdb, #1b2a5e); }
 /* Nhãn "Hỏi Studia" thu gọn sau vài giây để nút nổi đỡ che nội dung */
-.tp-fab:not(.open) .tp-fab-label { overflow: hidden; white-space: nowrap; max-width: 120px; }
-@keyframes tp-label { to { max-width: 0; opacity: 0; margin-left: -10px; } }
 .tp-fab:not(.open) { animation: tp-pad 0.5s 7s var(--ease-in-out) forwards; }
 @keyframes tp-pad { to { padding: 0 16px; } }
 
-/* Nút hỏi Coal: chỉ có Coal, không có hình khối nền; nhãn "Hỏi Coal" là một bong bóng nhỏ cạnh Coal */
+/* Nút hỏi Coal: chỉ có Coal, không có hình khối nền và không có nhãn chữ */
 .tp-fab:not(.open) { background: none; box-shadow: none; border-radius: 0; height: auto; min-width: 0; padding: 0; gap: 4px; align-items: flex-end; animation: none; }
 .tp-fab:not(.open):hover { transform: translateY(-3px); }
 .tp-fab:not(.open) .tp-fab-ping { display: none; }
 .tp-fab .mc { flex-shrink: 0; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, .28)); }
-.tp-fab:not(.open) .tp-fab-label { align-self: center; padding: 8px 12px; border-radius: 999px; background: var(--brand); color: var(--on-brand); box-shadow: var(--shadow-md); animation: tp-label-bubble 0.5s 7s var(--ease-in-out) forwards; }
-@keyframes tp-label-bubble { to { max-width: 0; padding: 0; opacity: 0; margin-left: -4px; } }
 @media (max-width: 860px) { .tp-fab:not(.open) { right: 12px; } }

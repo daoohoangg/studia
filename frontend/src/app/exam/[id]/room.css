@@ -19,3 +19,133 @@
 
 .practice-hint { position: fixed; top: 68px; left: 50%; transform: translateX(-50%); z-index: 95; display: flex; align-items: center; gap: 14px; width: min(640px, calc(100vw - 32px)); padding: 10px 16px; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--accent); color: var(--ink); font-size: 13.5px; line-height: 19px; box-shadow: var(--shadow-lg); }
 .practice-hint button { margin-left: auto; flex-shrink: 0; border: 0; background: transparent; color: var(--brand); font: 600 13px/1 var(--font-sans); cursor: pointer; }
+
+/* ===== Bố cục phòng thi (desktop): thay cho style inline cũ, giá trị giữ nguyên ===== */
+.room-root { background: var(--canvas); min-height: 100vh; }
+.room-root .exam-listening-layout, .room-root .exam-reading-layout { height: var(--layout-h, calc(100vh - 56px - 60px)); }
+.room-root .exam-audio-pane, .room-root .exam-passage-pane { width: var(--split, auto); }
+.room-root .exam-questions-pane { width: var(--qw, auto); }
+.room-tabs, .exam-header-now { display: none; }
+.room-l-parts { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.room-l-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.room-l-wave { display: flex; align-items: center; gap: 2px; height: 40px; margin-bottom: 14px; }
+.room-l-prevnext { display: flex; gap: 8px; margin-top: auto; }
+.room-audio-row { display: flex; align-items: center; justify-content: space-between; }
+.room-audio-btn { padding: 10px 22px; font-size: .85rem; }
+.room-audio-note { font-size: .7rem; color: var(--ink-muted); }
+.room-w-tasktabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.room-w-scale { display: flex; justify-content: space-between; margin-top: 4px; }
+.room-modal-actions button { font-size: .88rem; }
+
+/* ===== Phòng thi trên điện thoại (<= 767px) ===== */
+@media (max-width: 767px) {
+  .room-root { --room-header-h: 52px; --room-nav-h: 56px; --room-tabs-h: 48px; }
+  .room-root {
+    display: flex; flex-direction: column; box-sizing: border-box;
+    height: 100vh; height: 100dvh; min-height: 0; overflow: hidden;
+    padding-top: var(--room-header-h);
+    padding-bottom: calc(var(--room-nav-h) + env(safe-area-inset-bottom));
+  }
+  .room-root .exam-content { margin-top: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; padding-bottom: 0 !important; }
+  .room-root .exam-listening-layout, .room-root .exam-reading-layout, .room-root .exam-writing-layout { flex: 1; min-height: 0; height: auto; }
+  .room-root .exam-speaking-layout { flex: 1; min-height: 0; padding: 20px 16px; justify-content: flex-start; overflow-y: auto; }
+
+  /* Header một dòng */
+  .room-root .room-hide-sm { display: none; }
+  .room-root .exam-header { flex-wrap: nowrap; height: var(--room-header-h); padding: 0 12px; gap: 8px; }
+  .room-root .exam-header .st-btn { --_h: 44px; }
+  .room-root .exam-header-parts { display: none; }
+  .room-root .exam-header-now { display: flex; flex-direction: column; justify-content: center; gap: 2px; flex: 1; min-width: 0; }
+  .room-root .exam-header-now b { font: 600 14px/16px var(--font-sans); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .room-root .exam-header-now small { font: 500 11px/12px var(--font-sans); color: var(--ink-muted); }
+  .room-root .exam-timer { min-width: 72px; padding: 0 10px; }
+  .room-root .room-header-right { flex-shrink: 0; gap: 8px !important; }
+  .room-root .room-sp-row { flex-wrap: wrap; justify-content: center; }
+  .room-root .room-untimed { font-size: 12px; padding: 6px 8px; }
+  .room-root .room-offline { font-size: 13px !important; padding: 8px 12px !important; }
+
+  /* Khung hai tab (Reading, Writing): mỗi lúc một khung, khung kia visibility:hidden để giữ cuộn và nội dung */
+  .room-root .room-tabs { display: flex; position: absolute; top: 0; left: 0; right: 0; height: var(--room-tabs-h); background: var(--surface); z-index: 5; }
+  .room-root .room-tabs .tab { flex: 1; height: var(--room-tabs-h); font-size: 15px; padding: 0 8px; }
+  .room-root .exam-reading-layout, .room-root .exam-writing-layout { display: block; position: relative; overflow: hidden; }
+  .room-root .exam-reading-layout .exam-passage-pane, .room-root .exam-reading-layout .exam-questions-pane,
+  .room-root .exam-writing-layout .exam-prompt-pane, .room-root .exam-writing-layout .exam-editor-pane {
+    position: absolute; top: var(--room-tabs-h); left: 0; right: 0; bottom: 0; width: auto; overscroll-behavior: contain;
+  }
+  .room-root .exam-reading-layout[data-tab="passage"] .exam-questions-pane,
+  .room-root .exam-reading-layout[data-tab="questions"] .exam-passage-pane,
+  .room-root .exam-writing-layout[data-tab="prompt"] .exam-editor-pane,
+  .room-root .exam-writing-layout[data-tab="write"] .exam-prompt-pane { visibility: hidden; pointer-events: none; }
+  .room-root .exam-splitter-handle { display: none; }
+
+  /* Listening: thanh audio dính trên, danh sách câu hỏi một cột */
+  .room-root .exam-listening-layout { flex-direction: column; }
+  .room-root .exam-audio-pane { width: auto; flex: none; position: relative; z-index: 6; padding: 8px 12px; gap: 8px; overflow: visible; border-bottom: 1px solid var(--hairline); }
+  .room-root .room-l-parts, .room-root .room-l-title, .room-root .room-l-wave, .room-root .room-l-guide,
+  .room-root .room-l-prevnext, .room-root .room-l-showleft { display: none; }
+  .room-root .audio-player-exam { padding: 0; border: 0; background: transparent; }
+  .room-root .room-audio-row { gap: 8px; }
+  .room-root .room-audio-btn { flex: 1; min-height: 48px; font-size: 16px; padding: 0 16px; justify-content: center; white-space: nowrap; }
+  .room-root .room-audio-note { font-size: 12px; white-space: nowrap; }
+  .room-root .exam-listening-layout .exam-questions-pane { width: auto; flex: 1; min-height: 0; padding: 0 12px 16px; overscroll-behavior: contain; }
+  .room-root .exam-reading-layout .exam-questions-pane { padding: 0 12px 16px; }
+
+  /* Chip Part/Passage hai dòng, dính trên cùng khung câu hỏi */
+  .room-root .exam-part-header { top: 0; margin: 0 -12px 12px; padding: 8px 12px; }
+  .room-root .room-chips { flex: 1; gap: 6px !important; }
+  .room-root .room-chips button { flex: 1; min-height: 44px; padding: 0 4px !important; font-size: 13px !important; }
+  .room-root .room-chip-range { display: block; font-size: 11px; font-weight: 500; }
+  .room-root .room-qcard { padding: 14px !important; }
+
+  /* Reading: thanh công cụ bài đọc */
+  .room-root .exam-passage-pane { padding: 12px 16px 24px; }
+  .room-root .room-r-bar { flex-direction: column; align-items: stretch !important; }
+  .room-root .room-r-passages { width: 100%; }
+  .room-root .room-r-passages button { flex: 1; min-height: 44px; }
+  .room-root .room-r-font { justify-content: center; }
+  .room-root .room-r-fontbtn { min-width: 44px; min-height: 44px; }
+  .room-root .room-r-fontfam { display: none; }
+  .room-root .room-r-hide { display: none !important; }
+
+  /* Writing */
+  .room-root .exam-prompt-pane { padding: 16px; border-right: 0; }
+  .room-root .room-w-tasktabs, .room-root .room-w-scale, .room-root .room-w-counts { display: none; }
+  .room-root .exam-editor-pane { padding: 12px; gap: 8px; }
+  .room-root .exam-writing-editor { min-height: 240px; padding: 14px; max-width: 100%; overflow-wrap: anywhere; }
+
+  /* Thanh điều hướng dưới */
+  .room-root .exam-navigator {
+    height: calc(var(--room-nav-h) + env(safe-area-inset-bottom));
+    padding: 6px 8px env(safe-area-inset-bottom); gap: 6px;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .room-root .exam-navigator::-webkit-scrollbar { display: none; }
+  .room-root .exam-navigator button { min-height: 44px; font-size: 14px !important; }
+  .room-root .exam-nav-btn { width: 44px; height: 44px; }
+  .room-root .room-nav-task { min-width: 72px; }
+  .room-root .room-nav-next { padding: 0 16px !important; margin-right: 12px !important; }
+  .room-root .exam-flag-btn { padding: 0 12px; }
+  .room-root .room-nav-qn { display: none; }
+  .room-root .room-nav-hide { display: none !important; }
+  /* Gõ đáp án: ẩn thanh số câu và nút Ghi chú để nhường chỗ cho bàn phím */
+  .room-root:has(input:focus, textarea:focus, select:focus) .exam-navigator,
+  .room-root:has(input:focus, textarea:focus, select:focus) .exam-notes-fab { display: none; }
+  .room-root:has(input:focus, textarea:focus, select:focus) { padding-bottom: 0; }
+
+  /* Ô nhập đáp án: 16px để iOS không phóng to, vùng chạm >= 44px */
+  .exam-inline-fill-input { font-size: 16px !important; min-height: 44px; padding: 8px 10px; min-width: 120px; max-width: 100%; }
+  .exam-input { font-size: 16px; width: min(180px, 100%); }
+
+  /* Hộp thoại, ghi chú, gợi ý */
+  .room-root .exam-modal { padding: 20px; width: calc(100% - 32px); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; }
+  .room-root .room-modal-actions { flex-direction: column; }
+  .room-root .room-modal-actions button { min-height: 48px; font-size: 16px; }
+  .exam-notes-fab { left: 12px; bottom: calc(var(--room-nav-h) + 12px + env(safe-area-inset-bottom)); height: 44px; }
+  .exam-notes { left: 12px; bottom: calc(var(--room-nav-h) + 64px + env(safe-area-inset-bottom)); max-height: 50vh; max-height: 50dvh; }
+  .practice-hint { top: auto; bottom: calc(var(--room-nav-h) + 64px + env(safe-area-inset-bottom)); }
+}
+
+/* Điện thoại nằm ngang: giữ hai cột, bớt khối phụ để nút phát audio không cần cuộn */
+@media (max-height: 500px) {
+  .room-root .room-l-guide, .room-root .room-l-wave, .room-root .room-l-title { display: none; }
+}

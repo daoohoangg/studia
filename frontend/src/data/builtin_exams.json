@@ -1,0 +1,4 @@
+{
+  "_note": "Bộ Cambridge IELTS dựng sẵn được hiện ở sảnh /exam và được mở qua /exam/demo?type=cambridgeN_testK. Thêm số bộ vào published_series để mở lại (sau khi dữ liệu đã dựng lại và qua backend/tests/test_builtin_exam_data.py). C17–C20 đang ẩn: dữ liệu làm dở, C18/19/20 trùng C16, C17 dùng chung bài đọc/Writing/Speaking với C16. File dữ liệu vẫn giữ nguyên trong thư mục này.",
+  "published_series": [16, 21]
+}

@@ -13,8 +13,10 @@ import GroupHeader from "@/components/exam/GroupHeader";
 import ServerResult from "@/components/exam/ServerResult";
 import { Mic, Square } from "lucide-react";
 import ExamNotes from "@/components/exam/ExamNotes";
+import ConfirmNextSection from "@/components/exam/ConfirmNextSection";
+import { useNarrow } from "@/lib/useMediaQuery";
 import { useExamFlags, useExamNotes } from "@/lib/examNotes";
-import { SKILL_ORDER, STANDARD_MINUTES, type RoomMode } from "@/lib/examConfig";
+import { SKILL_ORDER, STANDARD_MINUTES, isPublishedBuiltin, type RoomMode } from "@/lib/examConfig";
 import "./room.css";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -260,9 +262,20 @@ function ExamSessionContent() {
   const [status, setStatus] = useState<ExamStatus>("IN_PROGRESS");
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [sectionDone, setSectionDone] = useState<string[]>([]);
   const [showNav, setShowNav] = useState(true);
+  const [confirmNext, setConfirmNext] = useState(false);
+  const narrow = useNarrow();
+  const navRef = useRef<HTMLDivElement | null>(null);
+  // Điện thoại: thanh số câu cuộn ngang, đưa ô câu hiện tại về giữa
+  useEffect(() => {
+    if (!narrow) return;
+    const nav = navRef.current;
+    const el = nav?.querySelector<HTMLElement>(".exam-nav-btn.current");
+    if (nav && el) nav.scrollLeft = el.offsetLeft - nav.clientWidth / 2 + el.offsetWidth / 2;
+  }, [narrow, currentQuestion, currentSection]);
   const [roomMode, setRoomMode] = useState<RoomMode>(isDemoMode ? demoMode : "real");
   const [untimed, setUntimed] = useState(isDemoMode && demoMode === "practice" && demoUntimed);
   const sessionKey = isDemoMode ? `demo-${demoType}-${demoStamp.current}` : sessionId;
@@ -281,7 +294,6 @@ function ExamSessionContent() {
 
   // Audio state (Listening)
   const [audioPlaying, setAudioPlaying] = useState(false);
-  const [audioProgress, setAudioProgress] = useState(0);
 
   const autosaveRef = useRef<NodeJS.Timeout | null>(null);
   const sections = examData?.session?.section_order || [];
@@ -299,11 +311,18 @@ function ExamSessionContent() {
     const loadExam = async () => {
       if (isDemoMode) {
         // Build demo session
-        const isCam21 = demoType.startsWith("cambridge21");
+        const camMatch = /^cambridge(\d+)_test([1-4])$/.exec(demoType);
+        const isCam = Boolean(camMatch);
+        // Bộ đề chưa mở (data/builtin_exams.json) thì không cho vào bằng URL trực tiếp
+        if (camMatch && !isPublishedBuiltin(demoType)) {
+          setLoadError("Đề này đang được biên soạn lại nên tạm thời chưa mở. Hãy chọn một đề khác trong danh sách.");
+          setLoading(false);
+          return;
+        }
         const picked = (demoSectionsParam || "").split(",").filter((x) => (SKILL_ORDER as string[]).includes(x));
         const demoSections = picked.length
           ? SKILL_ORDER.filter((x) => picked.includes(x))
-          : (demoType === "full" || isCam21)
+          : (demoType === "full" || isCam)
             ? ["listening", "reading", "writing", "speaking"]
             : [demoType];
         const customMinutes: Record<string, number> = {};
@@ -315,10 +334,16 @@ function ExamSessionContent() {
         const minutesOf = (k: "listening" | "reading" | "writing" | "speaking") => (customMinutes[k] ?? STANDARD_MINUTES[k]) * 60;
 
         let srcData: any;
-        // Bộ đề Cambridge nạp theo yêu cầu: không đưa ~250KB JSON vào bundle của mọi người dùng
-        const camMatch = /^cambridge21_test([1-4])$/.exec(demoType);
-        if (camMatch) srcData = (await import(`@/data/cambridge21_test${camMatch[1]}.json`)).default;
-        else {
+        // Bộ đề Cambridge nạp theo yêu cầu: không đưa JSON vào bundle của mọi người dùng
+        if (camMatch) {
+          try {
+            srcData = (await import(`@/data/cambridge${camMatch[1]}_test${camMatch[2]}.json`)).default;
+          } catch {
+            setLoadError("Không tải được đề thi. Kiểm tra kết nối rồi thử lại.");
+            setLoading(false);
+            return;
+          }
+        } else {
           srcData = {
             listening: DEMO_LISTENING,
             reading: DEMO_READING,
@@ -338,7 +363,7 @@ function ExamSessionContent() {
             section_durations: {
               listening: minutesOf("listening"), reading: minutesOf("reading"), writing: minutesOf("writing"), speaking: minutesOf("speaking"),
             },
-            audio_url: isCam21 ? resolveAudioUrl(srcData.listening_audio) : undefined
+            audio_url: (isCam && srcData?.listening_audio) ? resolveAudioUrl(srcData.listening_audio) : undefined
           },
           questions: srcData as any,
         });
@@ -429,15 +454,19 @@ function ExamSessionContent() {
   }, [writingTask1, writingTask2]);
 
   const submitRef = useRef<(auto?: boolean) => void>(() => {});
+  const submittingRef = useRef(false);
   const handleAutoSubmit = useCallback(() => {
-    setStatus("AUTO_SUBMITTED");
     submitRef.current(true);
   }, []);
 
+  // Nộp lỗi thì giữ nguyên bài làm, hiện lỗi ngay trên màn (hộp nộp bài hoặc màn hết giờ) kèm nút "Nộp lại"
   const handleSubmitExam = async (auto = false) => {
+    if (submittingRef.current) return; // hết giờ tự nộp trùng lúc bấm nộp tay
+    submittingRef.current = true;
     setSubmitLoading(true);
-    if (!isDemoMode) {
-      try {
+    setSubmitError(null);
+    try {
+      if (!isDemoMode) {
         const saver = saverRef.current;
         if (saver) {
           if (writingTask1) saver.saveWriting("task1", writingTask1);
@@ -447,27 +476,26 @@ function ExamSessionContent() {
         const res = await postJson(`/exam/sessions/${sessionId}/submit`, { auto_submitted: auto });
         if (!res.ok) throw new Error(String(res.status));
         setResult({ ...(await res.json()), server: true });
-        setStatus(auto ? "AUTO_SUBMITTED" : "SUBMITTED");
-        document.body.classList.remove("exam-mode");
-      } catch {
-        window.alert("Không nộp được bài (lỗi mạng hoặc máy chủ). Các câu trả lời đã nhập vẫn được giữ — hãy thử nộp lại.");
+      } else {
+        const camTitle = /^cambridge(\d+)_test(\d)$/.exec(demoType);
+        setResult({
+          ...buildDemoResult({
+            sections: sections as Section[], questions: examData?.questions, answers, task1: writingTask1, task2: writingTask2,
+            mode: roomMode, title: camTitle ? `Cambridge IELTS ${camTitle[1]} - Test ${camTitle[2]}` : "Đề mẫu Studia", auto,
+          }),
+          server: true, demo: true,
+        });
       }
-      setSubmitLoading(false);
       setShowSubmitModal(false);
-      return;
+      setStatus(auto ? "AUTO_SUBMITTED" : "SUBMITTED");
+      document.body.classList.remove("exam-mode");
+    } catch {
+      const reason = typeof navigator !== "undefined" && navigator.onLine === false ? "mất kết nối mạng" : "lỗi mạng hoặc máy chủ";
+      setSubmitError(`Chưa nộp được bài do ${reason}. Câu trả lời vẫn còn trên trang này — đừng đóng hay tải lại trang; kiểm tra kết nối rồi bấm Nộp lại.`);
+    } finally {
+      submittingRef.current = false;
+      setSubmitLoading(false);
     }
-    const camTitle = /^cambridge21_test(\d)$/.exec(demoType);
-    setResult({
-      ...buildDemoResult({
-        sections: sections as Section[], questions: examData?.questions, answers, task1: writingTask1, task2: writingTask2,
-        mode: roomMode, title: camTitle ? `Cambridge IELTS 21 - Test ${camTitle[1]}` : "Đề mẫu Studia", auto,
-      }),
-      server: true, demo: true,
-    });
-    setSubmitLoading(false);
-    setShowSubmitModal(false);
-    setStatus(auto ? "AUTO_SUBMITTED" : "SUBMITTED");
-    document.body.classList.remove("exam-mode");
   };
   submitRef.current = handleSubmitExam;
 
@@ -486,6 +514,7 @@ function ExamSessionContent() {
   const [breakTo, setBreakTo] = useState<Section | null>(null);
   const [breakLeft, setBreakLeft] = useState(45);
   const nextSection = () => {
+    setConfirmNext(false);
     const idx = sections.indexOf(currentSection);
     if (idx < sections.length - 1) {
       setSectionDone(prev => [...prev, currentSection]);
@@ -495,7 +524,13 @@ function ExamSessionContent() {
       setShowSubmitModal(true);
     }
   };
+  // Nút "Phần tiếp": hỏi lại vì không quay lại phần này được; phần cuối đi thẳng tới hộp nộp bài
+  const requestNext = () => {
+    if (sections.indexOf(currentSection) < sections.length - 1) setConfirmNext(true);
+    else nextSection();
+  };
   const startSection = () => {
+    setConfirmNext(false);
     const idx = sections.indexOf(currentSection);
     if (idx < sections.length - 1) {
       setBreakTo(null);
@@ -558,7 +593,9 @@ function ExamSessionContent() {
           </span>
           <div>
             <h2 id="tu-h" style={{ font: "700 24px/30px var(--font-display)", letterSpacing: -0.4 }}>Hết giờ phần {last === "listening" ? "Listening" : last === "reading" ? "Reading" : last === "writing" ? "Writing" : "Speaking"}</h2>
-            <p id="tu-d" className="ink2" style={{ marginTop: 6 }}>Bài làm đã được lưu và nộp tự động — bạn không mất chữ nào.</p>
+            <p id="tu-d" className="ink2" style={{ marginTop: 6 }}>
+              {result ? "Bài làm đã được nộp tự động." : submitError && !submitLoading ? "Bài làm chưa được nộp." : "Đang nộp bài làm của bạn…"}
+            </p>
           </div>
           {sections.includes("writing") && (
             <div style={{ width: "100%", padding: "4px 16px", borderRadius: "var(--radius-md)", background: "var(--surface-sunken)", textAlign: "left" }}>
@@ -567,8 +604,15 @@ function ExamSessionContent() {
             </div>
           )}
           {sections.includes("writing") && w2 < 250 && <p className="meta">Task 2 dưới 250 từ thường bị trừ điểm Task Response.</p>}
-          <button className="st-btn st-btn-primary" style={{ width: "100%" }} type="button" disabled={!result} onClick={() => setTimeUpAck(true)}>
-            {result ? "Xem kết quả" : "Đang chấm bài…"}
+          {submitError && !result && !submitLoading && (
+            <div role="alert" style={{ width: "100%", padding: "12px 16px", borderRadius: "var(--radius-md)", background: "var(--danger-tint)", color: "var(--danger)", textAlign: "left", lineHeight: 1.5 }}>
+              {submitError}
+            </div>
+          )}
+          <button className="st-btn st-btn-primary" style={{ width: "100%" }} type="button"
+            disabled={!result && (submitLoading || !submitError)}
+            onClick={() => (result ? setTimeUpAck(true) : handleSubmitExam(true))}>
+            {result ? "Xem kết quả" : submitError && !submitLoading ? "Nộp lại" : "Đang chấm bài…"}
           </button>
         </section>
       </div>
@@ -655,15 +699,36 @@ function ExamSessionContent() {
     const list: any[] = questions[sec] || [];
     return list.length ? list.map((q) => q.number as number) : Array.from({ length: 40 }, (_, i) => i + 1);
   };
+  const confirmSummary = (): string => {
+    if (currentSection === "writing") {
+      const done = (writingTask1.trim() ? 1 : 0) + (writingTask2.trim() ? 1 : 0);
+      const w2 = writingTask2.split(/\s+/).filter(Boolean).length;
+      const min2 = (questions as any).writing_task2_min_words || 250;
+      return `Bạn mới viết ${done}/2 bài.` + (w2 < min2 ? ` Task 2 mới có ${w2} từ, yêu cầu tối thiểu ${min2}.` : "");
+    }
+    if (currentSection === "speaking") {
+      return speakingPhase === "done" ? "Bạn đã hoàn thành phần Speaking." : "Bạn chưa hoàn thành phần Speaking.";
+    }
+    const left = totalQs[currentSection] - answeredCount(currentSection, totalQs[currentSection]);
+    const flagged = Object.keys(flags).filter((k) => k.startsWith(`${currentSection}_`)).length;
+    if (left <= 0 && flagged === 0) return "Bạn đã trả lời tất cả các câu.";
+    return `Bạn còn ${Math.max(0, left)} câu chưa làm` + (flagged > 0 ? ` và ${flagged} câu đang đánh dấu.` : ".");
+  };
 
   return (
-    <div style={{ background: "var(--canvas)", minHeight: "100vh" }}>
+    <div className="room-root">
       {/* ─── Exam Header ─────────────────────────────────────── */}
       <div className="exam-header">
-        <span className="exam-header-brand row" style={{ gap: 10 }}><Logo variant="mark" height={22} />IELTS Mock Test<span className="room-mode" data-mode={roomMode}>{roomMode === "practice" ? "Luyện tập" : "Thi thật"}</span></span>
+        <span className="exam-header-brand row" style={{ gap: 10 }}><Logo variant="mark" height={22} /><span className="room-hide-sm">IELTS Mock Test</span><span className="room-mode room-hide-sm" data-mode={roomMode}>{roomMode === "practice" ? "Luyện tập" : "Thi thật"}</span></span>
+
+        {/* Điện thoại: thay cho tên thương hiệu + các viên phần thi */}
+        <span className="exam-header-now" role="group" aria-label={`Phần ${sectionLabel[currentSection]}, ${sections.indexOf(currentSection) + 1} trên ${sections.length}, chế độ ${roomMode === "practice" ? "luyện tập" : "thi thật"}`}>
+          <b>{sectionLabel[currentSection]} · {sections.indexOf(currentSection) + 1}/{sections.length}</b>
+          <small>{roomMode === "practice" ? "Luyện tập" : "Thi thật"}</small>
+        </span>
 
         {/* Section tabs */}
-        <div className="row" style={{ gap: 6 }} aria-label="Các phần thi">
+        <div className="row exam-header-parts" style={{ gap: 6 }} aria-label="Các phần thi">
           {sections.map(sec => {
             const done = sectionDone.includes(sec);
             return (
@@ -676,9 +741,9 @@ function ExamSessionContent() {
         </div>
 
         {/* Timer + actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+        <div className="room-header-right" style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           {untimed ? (
-            <span className="room-untimed">Không giới hạn giờ</span>
+            <span className="room-untimed">Không giới hạn<span className="room-hide-sm"> giờ</span></span>
           ) : (
             <ExamTimer
               key={currentSection}
@@ -700,7 +765,7 @@ function ExamSessionContent() {
       </div>
 
       {(!online || saveFailures > 0) && (
-        <div role="alert" style={{ background: "var(--warning-tint)", color: "var(--ink)", padding: "10px 20px", fontSize: "0.88rem", display: "flex", gap: 12, alignItems: "center", borderBottom: "1px solid var(--hairline)" }}>
+        <div role="alert" className="room-offline" style={{ background: "var(--warning-tint)", color: "var(--ink)", padding: "10px 20px", fontSize: "0.88rem", display: "flex", gap: 12, alignItems: "center", borderBottom: "1px solid var(--hairline)" }}>
           <span style={{ flex: 1 }}>
             <b style={{ fontWeight: 600 }}>{online ? "Chưa lưu được một số câu." : "Mất kết nối mạng."}</b>{" "}
             {saveFailures > 0 ? `${saveFailures} câu trả lời chờ lưu. ` : ""}
@@ -731,9 +796,7 @@ function ExamSessionContent() {
             onAnswer={setAnswer}
             onNavigate={setCurrentQuestion}
             audioPlaying={audioPlaying}
-            audioProgress={audioProgress}
             onToggleAudio={() => setAudioPlaying(p => !p)}
-            onUpdateProgress={setAudioProgress}
             audioUrl={audioUrl}
             showNav={showNav}
           />
@@ -791,12 +854,13 @@ function ExamSessionContent() {
       </div>
 
       {/* ─── Question Navigator (Listening/Reading/Writing/Speaking) ──────────── */}
-      {showNav ? (
+      {(showNav || narrow) ? (
         <>
           {(currentSection === "listening" || currentSection === "reading") && (
-            <div className="exam-navigator">
+            <div className="exam-navigator" ref={navRef}>
               <button
-                onClick={() => nextSection()}
+                className="room-nav-next"
+                onClick={requestNext}
                 style={{
                   padding: "6px 14px", borderRadius: "8px", marginRight: "8px",
                   background: "var(--success-tint)", border: "1px solid color-mix(in srgb, var(--success) 40%, transparent)",
@@ -811,10 +875,11 @@ function ExamSessionContent() {
                 className="exam-flag-btn"
                 style={{ marginRight: "8px" }}
                 aria-pressed={!!flags[`${currentSection}_${currentQuestion}`]}
+                aria-label={`${flags[`${currentSection}_${currentQuestion}`] ? "Bỏ đánh dấu" : "Đánh dấu"} câu ${currentQuestion}`}
                 onClick={() => toggleFlag(`${currentSection}_${currentQuestion}`)}
                 title="Đánh dấu câu này để quay lại xem trước khi nộp"
               >
-                {flags[`${currentSection}_${currentQuestion}`] ? `Bỏ đánh dấu câu ${currentQuestion}` : `Đánh dấu câu ${currentQuestion}`}
+                {flags[`${currentSection}_${currentQuestion}`] ? "Bỏ đánh dấu" : "Đánh dấu"}<span className="room-nav-qn"> câu {currentQuestion}</span>
               </button>
               {navNumbers(currentSection).map(n => (
                 <button
@@ -827,6 +892,7 @@ function ExamSessionContent() {
               ))}
               <button
                 onClick={() => setShowNav(false)}
+                className="room-nav-hide"
                 title="Ẩn thanh Navigation"
                 style={{
                   padding: "6px 12px", borderRadius: "8px", marginLeft: "auto",
@@ -846,21 +912,22 @@ function ExamSessionContent() {
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
                   onClick={() => setWritingTab("task1")}
-                  className={`exam-nav-btn ${writingTab === "task1" ? "current" : ""} ${writingTask1 ? "answered" : ""}`}
+                  className={`exam-nav-btn room-nav-task ${writingTab === "task1" ? "current" : ""} ${writingTask1 ? "answered" : ""}`}
                   style={{ width: "auto", padding: "0 12px", borderRadius: "8px" }}
                 >Task 1</button>
                 <button
                   onClick={() => setWritingTab("task2")}
-                  className={`exam-nav-btn ${writingTab === "task2" ? "current" : ""} ${writingTask2 ? "answered" : ""}`}
+                  className={`exam-nav-btn room-nav-task ${writingTab === "task2" ? "current" : ""} ${writingTask2 ? "answered" : ""}`}
                   style={{ width: "auto", padding: "0 12px", borderRadius: "8px" }}
                 >Task 2</button>
               </div>
-              <div style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
+              <div className="room-w-counts" style={{ color: "var(--ink-muted)", fontSize: "0.75rem" }}>
                 Task 1: {writingTask1.split(/\s+/).filter(Boolean).length} từ | Task 2: {writingTask2.split(/\s+/).filter(Boolean).length} từ
               </div>
               <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                 <button
-                  onClick={() => nextSection()}
+                  className="room-nav-next"
+                  onClick={requestNext}
                   style={{
                     padding: "6px 14px", borderRadius: "8px",
                     background: "var(--success-tint)", border: "1px solid color-mix(in srgb, var(--success) 40%, transparent)",
@@ -871,7 +938,8 @@ function ExamSessionContent() {
                 </button>
                 <button
                   onClick={() => setShowNav(false)}
-                  title="Ẩn thanh Navigation"
+                  className="room-nav-hide"
+                title="Ẩn thanh Navigation"
                   style={{
                     padding: "6px 12px", borderRadius: "8px",
                     background: "var(--surface-sunken)", border: "1px solid var(--border-control)",
@@ -898,7 +966,8 @@ function ExamSessionContent() {
                 </div>
               ))}
               <button
-                onClick={() => nextSection()}
+                className="room-nav-next"
+                onClick={requestNext}
                 style={{
                   padding: "6px 14px", borderRadius: "8px", marginLeft: "16px",
                   background: "var(--success-tint)", border: "1px solid color-mix(in srgb, var(--success) 40%, transparent)",
@@ -909,6 +978,7 @@ function ExamSessionContent() {
               </button>
               <button
                 onClick={() => setShowNav(false)}
+                className="room-nav-hide"
                 title="Ẩn thanh Navigation"
                 style={{
                   padding: "6px 12px", borderRadius: "8px", marginLeft: "auto",
@@ -997,13 +1067,20 @@ function ExamSessionContent() {
               )}
             </div>
 
-            <div style={{ display: "flex", gap: "12px" }}>
+            {submitError && !submitLoading && (
+              <div role="alert" style={{ marginBottom: "16px", padding: "12px 14px", borderRadius: "var(--radius-md)", background: "var(--danger-tint)", color: "var(--danger)", fontSize: "0.88rem", lineHeight: 1.5 }}>
+                {submitError}
+              </div>
+            )}
+
+            <div className="room-modal-actions" style={{ display: "flex", gap: "12px" }}>
               <button
-                onClick={() => setShowSubmitModal(false)}
+                onClick={() => { setShowSubmitModal(false); setSubmitError(null); }}
+                disabled={submitLoading}
                 style={{
                   flex: 1, padding: "13px", borderRadius: "12px",
                   background: "var(--surface-sunken)", border: "1px solid var(--hairline)",
-                  color: "var(--ink-muted)", cursor: "pointer", fontWeight: 600, fontSize: "0.88rem"
+                  color: "var(--ink-muted)", cursor: "pointer", fontWeight: 600
                 }}
               >Tiếp tục làm bài</button>
               <button
@@ -1013,27 +1090,59 @@ function ExamSessionContent() {
                   flex: 1, padding: "13px", borderRadius: "12px",
                   background: "var(--danger)",
                   border: "none", color: "var(--on-brand)", cursor: "pointer",
-                  fontWeight: 700, fontSize: "0.88rem",
+                  fontWeight: 700,
                   opacity: submitLoading ? 0.7 : 1
                 }}
               >
-                {submitLoading ? "Đang nộp..." : "Nộp Bài Thi"}
+                {submitLoading ? "Đang nộp..." : submitError ? "Nộp lại" : "Nộp Bài Thi"}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* ─── Xác nhận "Phần tiếp" (không quay lại được) ─── */}
+      {confirmNext && (
+        <ConfirmNextSection
+          label={sectionLabel[currentSection]}
+          summary={confirmSummary()}
+          onStay={() => setConfirmNext(false)}
+          onConfirm={() => nextSection()}
+        />
+      )}
     </div>
   );
 }
 
+// Ô điền đáp án: bàn phím điện thoại hiện "Tiếp", Enter nhảy sang ô kế (hết thì đóng bàn phím)
+function focusNextFill(e: React.KeyboardEvent<HTMLInputElement>) {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const all = Array.from(document.querySelectorAll<HTMLInputElement>(".exam-inline-fill-input"));
+  const next = all[all.indexOf(e.currentTarget) + 1];
+  if (next) next.focus();
+  else e.currentTarget.blur();
+}
+const FILL_INPUT_PROPS = {
+  enterKeyHint: "next" as const,
+  autoCapitalize: "off",
+  autoCorrect: "off",
+  spellCheck: false,
+  onKeyDown: focusNextFill,
+};
+
 // ─── Listening Section ───────────────────────────────────────
-function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, audioPlaying, audioProgress, onToggleAudio, onUpdateProgress, audioUrl, showNav }: any) {
+function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, audioPlaying, onToggleAudio, audioUrl, showNav }: any) {
+  // Tiến độ audio để cục bộ (không đẩy lên phòng thi) và làm tròn 0,2%: timeupdate ~4 lần/giây
+  // nhưng chỉ render lại khi thanh tiến độ thực sự đổi (bài 30 phút ≈ 3,6 giây một lần)
+  const [audioProgress, setAudioProgress] = useState(0);
   const [splitPercent, setSplitPercent] = useState(38);
   const [isDragging, setIsDragging] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const narrow = useNarrow();
+  const showLeft = narrow || !leftCollapsed;
 
   useEffect(() => {
     if (audioPlaying) audioRef.current?.play().catch((e) => console.error("Audio play error", e));
@@ -1076,7 +1185,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
     if (currentQ) {
       const el = document.getElementById(`listening-q-${currentQ}`);
       if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.scrollIntoView({ behavior: narrow ? "auto" : "smooth", block: "center" });
       }
     }
   }, [currentQ]);
@@ -1124,6 +1233,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                   className="exam-inline-fill-input"
                   value={answers[`listening_${item.number}`] || ""}
                   onChange={(e) => onAnswer("listening", item.number, e.target.value)}
+                  {...FILL_INPUT_PROPS}
                   onFocus={() => onNavigate(item.number)}
                   placeholder={`(${item.number}) ...`}
                 />
@@ -1141,13 +1251,14 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px" }}>
           <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--brand)", background: "var(--brand-tint)", padding: "2px 8px", borderRadius: "4px" }}>
-            Cầu {item.number}
+            Câu {item.number}
           </span>
           <input
             type="text"
             className="exam-inline-fill-input"
             value={answers[`listening_${item.number}`] || ""}
             onChange={(e) => onAnswer("listening", item.number, e.target.value)}
+                  {...FILL_INPUT_PROPS}
             onFocus={() => onNavigate(item.number)}
             placeholder="Điền câu trả lời..."
             style={{ width: "240px", maxWidth: "100%" }}
@@ -1158,26 +1269,24 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
   };
 
   return (
-    <div ref={containerRef} className="exam-listening-layout" style={{ userSelect: isDragging ? "none" : "auto", height: showNav ? "calc(100vh - 54px - 60px)" : "calc(100vh - 54px)" }}>
+    <div ref={containerRef} className="exam-listening-layout" style={{ userSelect: isDragging ? "none" : "auto", "--layout-h": showNav ? "calc(100vh - 54px - 60px)" : "calc(100vh - 54px)" } as React.CSSProperties}>
       {audioUrl && (
         <audio
           ref={audioRef}
           src={audioUrl}
           onTimeUpdate={(e) => {
             const el = e.currentTarget;
-            if (el.duration && onUpdateProgress) {
-              onUpdateProgress(el.currentTime / el.duration);
-            }
+            if (el.duration) setAudioProgress(Math.round((el.currentTime / el.duration) * 500) / 500);
           }}
           onEnded={() => onToggleAudio()}
         />
       )}
 
       {/* ─── Left Pane: Audio & Controls ─── */}
-      {!leftCollapsed && (
-        <div className="exam-audio-pane" style={{ width: `${splitPercent}%` }}>
+      {showLeft && (
+        <div className="exam-audio-pane" style={{ "--split": `${splitPercent}%` } as React.CSSProperties}>
           {/* Part Quick Indicator & Collapse Button */}
-          <div style={{ display: "flex", gap: "6px", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+          <div className="room-l-parts">
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
               {parts.map(p => (
                 <button
@@ -1212,7 +1321,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
 
           {/* Audio Player Card */}
           <div className="audio-player-exam">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+            <div className="room-l-title">
               <span style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 700, letterSpacing: "0.08em" }}>
                 IELTS LISTENING — {currentPart}
               </span>
@@ -1220,7 +1329,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
             </div>
 
             {/* Waveform Visual */}
-            <div style={{ display: "flex", alignItems: "center", gap: "2px", height: "40px", marginBottom: "14px" }}>
+            <div className="room-l-wave">
               {Array.from({ length: 45 }, (_, i) => (
                 <div key={i} style={{
                   flex: 1, borderRadius: "2px",
@@ -1237,28 +1346,29 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
               <div style={{ width: `${audioProgress * 100}%`, height: "100%", background: "var(--brand)", borderRadius: "9999px", transition: "width 0.1s" }} />
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div className="room-audio-row">
               <button
+                className="room-audio-btn"
                 onClick={onToggleAudio}
                 style={{
-                  padding: "10px 22px", borderRadius: "10px",
+                  borderRadius: "10px",
                   background: audioPlaying ? "var(--danger)" : "var(--brand)",
                   border: "none", color: "var(--on-brand)", cursor: "pointer",
-                  fontWeight: 700, fontSize: "0.85rem",
+                  fontWeight: 700,
                   display: "flex", alignItems: "center", gap: "8px",
                   boxShadow: "none"
                 }}
               >
                 {audioPlaying ? "Tạm Dừng Audio" : "Phát Audio Đề Thi"}
               </button>
-              <span style={{ fontSize: "0.7rem", color: "var(--ink-muted)" }}>
+              <span className="room-audio-note">
                 Phần nghe phát 1 lần
               </span>
             </div>
           </div>
 
           {/* Exam Guide */}
-          <div style={{ background: "var(--surface-sunken)", borderRadius: "12px", padding: "16px", border: "1px solid var(--hairline)" }}>
+          <div className="room-l-guide" style={{ background: "var(--surface-sunken)", borderRadius: "12px", padding: "16px", border: "1px solid var(--hairline)" }}>
             <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--ink-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
               Hướng dẫn làm bài Listening
             </div>
@@ -1270,7 +1380,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
           </div>
 
           {/* Prev / Next controls */}
-          <div style={{ display: "flex", gap: "8px", marginTop: "auto" }}>
+          <div className="room-l-prevnext">
             <button
               onClick={() => onNavigate(Math.max(1, currentQ - 1))}
               disabled={currentQ <= 1}
@@ -1309,11 +1419,11 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
       )}
 
       {/* ─── Right Pane: Full 40 Questions List ─── */}
-      <div className="exam-questions-pane" style={{ width: leftCollapsed ? "100%" : "auto" }}>
+      <div className="exam-questions-pane" style={{ "--qw": leftCollapsed ? "100%" : "auto" } as React.CSSProperties}>
         {/* Sticky Part Switcher Header */}
         <div className="exam-part-header">
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            {leftCollapsed && (
+          <div className="room-chips" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {leftCollapsed && !narrow && (
               <button
                 onClick={() => setLeftCollapsed(false)}
                 title="Hiện lại khung Audio bên trái"
@@ -1341,11 +1451,11 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                   cursor: "pointer", transition: "all 0.15s ease"
                 }}
               >
-                {p} (Q{partRange[p][0]}-{partRange[p][1]})
+                {p} <span className="room-chip-range">(Q{partRange[p][0]}-{partRange[p][1]})</span>
               </button>
             ))}
           </div>
-          <div style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 600 }}>
+          <div className="room-hide-sm" style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 600 }}>
             Đang chọn: <span style={{ color: "var(--brand-hover)", fontWeight: 700 }}>Câu {currentQ} / 40</span>
           </div>
         </div>
@@ -1399,6 +1509,7 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
                     <GroupHeader item={item} prev={partQuestions[itemIdx - 1]} />
                     <div
                       id={`listening-q-${item.number}`}
+                      className="room-qcard"
                       onClick={() => onNavigate(item.number)}
                       style={{
                         background: "var(--surface)",
@@ -1479,6 +1590,15 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
   const [fontSize, setFontSize] = useState(15);
   const [fontFamily, setFontFamily] = useState("Inter");
   const [activePassageTab, setActivePassageTab] = useState<"Passage 1" | "Passage 2" | "Passage 3" | null>(null);
+  const narrow = useNarrow();
+  const showLeft = narrow || !leftCollapsed;
+  // Điện thoại: hai tab "Bài đọc" / "Câu hỏi"; cả hai khung luôn nằm trong DOM (visibility) để giữ vị trí cuộn
+  const [mobileTab, setMobileTab] = useState<"passage" | "questions">("passage");
+  const fromPassageChip = useRef(false);
+  const prevQ = useRef<number | null>(null);
+  const passagePaneRef = useRef<HTMLDivElement | null>(null);
+  const readingDone = (questions || []).filter((q: any) => answers[`reading_${q.number}`]).length;
+  const readingTotal = (questions || []).length || 40;
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Active Passage calculation
@@ -1540,10 +1660,16 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
       // Auto-update passage tab to match question
       const autoP = currentQ <= 13 ? "Passage 1" : currentQ <= 26 ? "Passage 2" : "Passage 3";
       setActivePassageTab(autoP);
+      // Điện thoại: đổi câu (chạm số câu, ô điền) thì về tab "Câu hỏi", trừ khi do chip Passage ở tab "Bài đọc"
+      if (narrow && prevQ.current !== null && prevQ.current !== currentQ) {
+        if (fromPassageChip.current) fromPassageChip.current = false;
+        else setMobileTab("questions");
+      }
+      prevQ.current = currentQ;
 
       const el = document.getElementById(`reading-q-${currentQ}`);
       if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.scrollIntoView({ behavior: narrow ? "auto" : "smooth", block: "center" });
       }
     }
   }, [currentQ]);
@@ -1552,6 +1678,10 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
     setActivePassageTab(pName as any);
     const range = passageRange[pName];
     if (range) {
+      if (narrow && mobileTab === "passage") {
+        if (range[0] !== currentQ) fromPassageChip.current = true;
+        if (passagePaneRef.current) passagePaneRef.current.scrollTop = 0;
+      }
       onNavigate(range[0]);
       const el = document.getElementById(`passage-header-${pName.replace(/\s+/g, '-').toLowerCase()}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1585,6 +1715,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                   className="exam-inline-fill-input"
                   value={answers[`reading_${item.number}`] || ""}
                   onChange={(e) => onAnswer("reading", item.number, e.target.value)}
+                  {...FILL_INPUT_PROPS}
                   onFocus={() => onNavigate(item.number)}
                   placeholder={`(${item.number}) ...`}
                   style={{ fontSize: `${fontSize * 0.95}px` }}
@@ -1610,6 +1741,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
             className="exam-inline-fill-input"
             value={answers[`reading_${item.number}`] || ""}
             onChange={(e) => onAnswer("reading", item.number, e.target.value)}
+                  {...FILL_INPUT_PROPS}
             onFocus={() => onNavigate(item.number)}
             placeholder="Điền câu trả lời..."
             style={{ width: "240px", maxWidth: "100%", fontSize: `${fontSize * 0.95}px` }}
@@ -1620,14 +1752,21 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
   };
 
   return (
-    <div ref={containerRef} className="exam-reading-layout" style={{ userSelect: isDragging ? "none" : "auto", height: showNav ? "calc(100vh - 54px - 60px)" : "calc(100vh - 54px)" }}>
+    <div ref={containerRef} className="exam-reading-layout" data-tab={mobileTab} style={{ userSelect: isDragging ? "none" : "auto", "--layout-h": showNav ? "calc(100vh - 54px - 60px)" : "calc(100vh - 54px)" } as React.CSSProperties}>
+      {/* Điện thoại: chọn một trong hai khung */}
+      <div className="tabs room-tabs" role="tablist" aria-label="Bài đọc và câu hỏi">
+        <button type="button" role="tab" id="reading-tab-passage" className="tab" aria-selected={mobileTab === "passage"} aria-controls="reading-panel-passage" onClick={() => setMobileTab("passage")}>Bài đọc</button>
+        <button type="button" role="tab" id="reading-tab-questions" className="tab" aria-selected={mobileTab === "questions"} aria-controls="reading-panel-questions"
+          aria-label={`Câu hỏi, đã trả lời ${readingDone} trên ${readingTotal}`} onClick={() => setMobileTab("questions")}>Câu hỏi · {readingDone}/{readingTotal}</button>
+      </div>
       {/* ─── Left Pane: Reading Passage ─── */}
-      {!leftCollapsed && (
-        <div className="exam-passage-pane" style={{ width: `${splitPercent}%` }}>
+      {showLeft && (
+        <div className="exam-passage-pane" ref={passagePaneRef} style={{ "--split": `${splitPercent}%` } as React.CSSProperties}
+          role={narrow ? "tabpanel" : undefined} id="reading-panel-passage" aria-labelledby={narrow ? "reading-tab-passage" : undefined}>
           {/* Passage Switcher Tabs & Controls */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken)", padding: "10px 14px", borderRadius: "10px", marginBottom: "16px", border: "1px solid var(--hairline)", flexWrap: "wrap", gap: "8px" }}>
+          <div className="room-r-bar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken)", padding: "10px 14px", borderRadius: "10px", marginBottom: "16px", border: "1px solid var(--hairline)", flexWrap: "wrap", gap: "8px" }}>
             {/* Passage Selector Buttons */}
-            <div style={{ display: "flex", gap: "6px" }}>
+            <div className="room-r-passages" style={{ display: "flex", gap: "6px" }}>
               {passageList.map(p => (
                 <button
                   key={p}
@@ -1647,22 +1786,25 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
             </div>
 
             {/* Font Size & Family Controls */}
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div className="room-r-font" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                 <button
                   onClick={() => setFontSize(s => Math.max(12, s - 1))}
+                  className="room-r-fontbtn"
                   title="Giảm cỡ chữ"
                   style={{ width: 26, height: 26, borderRadius: "6px", border: "1px solid var(--border-control)", background: "var(--surface)", cursor: "pointer", fontWeight: 700, fontSize: "0.75rem", color: "var(--ink-secondary)" }}
                 >A-</button>
                 <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--brand-hover)", minWidth: "28px", textAlign: "center" }}>{fontSize}px</span>
                 <button
                   onClick={() => setFontSize(s => Math.min(24, s + 1))}
+                  className="room-r-fontbtn"
                   title="Tăng cỡ chữ"
                   style={{ width: 26, height: 26, borderRadius: "6px", border: "1px solid var(--border-control)", background: "var(--surface)", cursor: "pointer", fontWeight: 700, fontSize: "0.75rem", color: "var(--ink-secondary)" }}
                 >A+</button>
               </div>
 
               <select
+                className="room-r-fontfam"
                 value={fontFamily}
                 onChange={(e) => setFontFamily(e.target.value)}
                 style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid var(--border-control)", fontSize: "0.75rem", fontWeight: 600, color: "var(--ink-secondary)", background: "var(--surface)", outline: "none" }}
@@ -1673,6 +1815,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
               </select>
 
               <button
+                className="room-r-hide"
                 onClick={() => setLeftCollapsed(true)}
                 title="Ẩn khung bài đọc bên trái"
                 style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid var(--border-control)", background: "var(--surface)", color: "var(--ink-muted)", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}
@@ -1711,11 +1854,12 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
       )}
 
       {/* ─── Right Pane: Full 40 Questions List ─── */}
-      <div className="exam-questions-pane" style={{ width: leftCollapsed ? "100%" : "auto" }}>
+      <div className="exam-questions-pane" style={{ "--qw": leftCollapsed ? "100%" : "auto" } as React.CSSProperties}
+        role={narrow ? "tabpanel" : undefined} id="reading-panel-questions" aria-labelledby={narrow ? "reading-tab-questions" : undefined}>
         {/* Sticky Passage Switcher Header */}
         <div className="exam-part-header">
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            {leftCollapsed && (
+          <div className="room-chips" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {leftCollapsed && !narrow && (
               <button
                 onClick={() => setLeftCollapsed(false)}
                 title="Hiện lại khung bài đọc bên trái"
@@ -1743,11 +1887,11 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                   cursor: "pointer", transition: "all 0.15s ease"
                 }}
               >
-                {p} (Q{passageRange[p][0]}-{passageRange[p][1]})
+                {p} <span className="room-chip-range">(Q{passageRange[p][0]}-{passageRange[p][1]})</span>
               </button>
             ))}
           </div>
-          <div style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 600 }}>
+          <div className="room-hide-sm" style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 600 }}>
             Đang chọn: <span style={{ color: "var(--brand-hover)", fontWeight: 700 }}>Câu {currentQ} / 40</span>
           </div>
         </div>
@@ -1801,6 +1945,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
                     <GroupHeader item={item} prev={passageQuestions[itemIdx - 1]} />
                     <div
                       id={`reading-q-${item.number}`}
+                      className="room-qcard"
                       onClick={() => onNavigate(item.number)}
                       style={{
                         background: "var(--surface)",
@@ -1899,6 +2044,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
 
 // ─── Writing Section ─────────────────────────────────────────
 function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask1Change, onTask2Change, activeTab, onTabChange, task1Image, task1MinWords, task2MinWords }: any) {
+  const [mobileTab, setMobileTab] = useState<"prompt" | "write">("prompt");
   const isTask1 = activeTab === "task1";
   const prompt = isTask1 ? task1Prompt : task2Prompt;
   const text = isTask1 ? task1Text : task2Text;
@@ -1908,11 +2054,16 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
   const wordStatus = wordCount < minWords * 0.6 ? "danger" : wordCount < minWords ? "warning" : "ok";
 
   return (
-    <div className="exam-writing-layout">
+    <div className="exam-writing-layout" data-tab={mobileTab}>
+      {/* Điện thoại: hai tab "Đề bài" / "Bài viết" (khung không chọn chỉ bị ẩn, chữ đang viết không mất) */}
+      <div className="tabs room-tabs" role="tablist" aria-label="Đề bài và bài viết">
+        <button type="button" role="tab" id="writing-tab-prompt" className="tab" aria-selected={mobileTab === "prompt"} aria-controls="writing-panel-prompt" onClick={() => setMobileTab("prompt")}>Đề bài</button>
+        <button type="button" role="tab" id="writing-tab-write" className="tab" aria-selected={mobileTab === "write"} aria-controls="writing-panel-write" onClick={() => setMobileTab("write")}>Bài viết</button>
+      </div>
       {/* Left — Prompt */}
-      <div className="exam-prompt-pane">
+      <div className="exam-prompt-pane" id="writing-panel-prompt">
         <div style={{ marginBottom: "16px" }}>
-          <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+          <div className="room-w-tasktabs">
             {["task1", "task2"].map(t => (
               <button key={t} onClick={() => onTabChange(t)} style={{
                 padding: "6px 14px", borderRadius: "8px", border: "1.5px solid",
@@ -1946,7 +2097,7 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
       </div>
 
       {/* Right — Editor */}
-      <div className="exam-editor-pane">
+      <div className="exam-editor-pane" id="writing-panel-write">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
           <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--ink-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
             {isTask1 ? "Task 1" : "Task 2"} — Bài viết
@@ -1982,7 +2133,7 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
               transition: "width 0.3s ease"
             }} />
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px" }}>
+          <div className="room-w-scale">
             <span style={{ fontSize: "0.65rem", color: "var(--ink-muted)" }}>0</span>
             <span style={{ fontSize: "0.65rem", color: "var(--ink-muted)" }}>{minWords} (min)</span>
             <span style={{ fontSize: "0.65rem", color: "var(--ink-muted)" }}>{Math.round(minWords * 1.5)}</span>
@@ -2051,7 +2202,7 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
       )}
 
       {phase === "question" && (
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+        <div className="room-sp-row" style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <button aria-label="Ghi âm"
             onClick={onRecord}
             className={isRecording ? "mic-recording" : ""}

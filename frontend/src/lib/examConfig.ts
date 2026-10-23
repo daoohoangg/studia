@@ -1,4 +1,5 @@
 /** Cấu hình một lượt thi: chế độ, phần thi, thời gian; và gom các đề trong thư viện thành bộ sách. */
+import builtinExams from "@/data/builtin_exams.json";
 
 export type Skill = "listening" | "reading" | "writing" | "speaking";
 export type RoomMode = "real" | "practice";
@@ -108,17 +109,32 @@ export function matchesQuery(t: LibraryTest, q: string): boolean {
   return !needle || `${t.title} ${t.series}`.toLowerCase().includes(needle);
 }
 
-export const BUILTIN_TESTS: LibraryTest[] = [1, 2, 3, 4].map((n) => ({
-  key: `builtin-cambridge21-${n}`,
-  title: `Cambridge IELTS 21 - Test ${n}`,
-  series: "Cambridge IELTS 21",
-  order: n,
-  source: "builtin" as const,
-  demoType: `cambridge21_test${n}`,
-  sections: [...SKILL_ORDER],
-  counts: { listening: 40, reading: 40, writing: 2, speaking: 3 },
-  hasAudio: true,
-}));
+/**
+ * Các bộ Cambridge dựng sẵn đang mở cho học viên. Danh sách duy nhất nằm ở `data/builtin_exams.json`
+ * (test backend `test_builtin_exam_data.py` cũng đọc file này); bộ không có trong danh sách bị ẩn khỏi sảnh
+ * và bị chặn khi mở thẳng URL, nhưng file dữ liệu vẫn giữ nguyên.
+ */
+export const BUILTIN_SERIES_NUMBERS: number[] = builtinExams.published_series;
+
+/** demoType dạng "cambridge16_test2" có thuộc bộ đang mở không. */
+export function isPublishedBuiltin(demoType: string): boolean {
+  const m = /^cambridge(\d+)_test([1-4])$/.exec(demoType);
+  return !!m && BUILTIN_SERIES_NUMBERS.includes(Number(m[1]));
+}
+
+export const BUILTIN_TESTS: LibraryTest[] = BUILTIN_SERIES_NUMBERS.flatMap((cam) =>
+  [1, 2, 3, 4].map((n) => ({
+    key: `builtin-cambridge${cam}-${n}`,
+    title: `Cambridge IELTS ${cam} - Test ${n}`,
+    series: `Cambridge IELTS ${cam}`,
+    order: n,
+    source: "builtin" as const,
+    demoType: `cambridge${cam}_test${n}`,
+    sections: [...SKILL_ORDER],
+    counts: { listening: 40, reading: 40, writing: 2, speaking: 3 },
+    hasAudio: true,
+  }))
+);
 
 export const SAMPLE_TEST: LibraryTest = {
   key: "sample-studia",

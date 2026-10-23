@@ -168,8 +168,8 @@ def grade_writing(task: int, prompt: str, text: str, min_words: int, llm: Any = 
             result = llm.generate_json(WRITING_PROMPT.format(
                 task=task, prompt=(prompt or "")[:2500], words=words, min_words=min_words, text=text[:6000]))
             if isinstance(result, dict) and all(isinstance(result.get(c), (int, float)) for c in CRITERIA):
-                criteria = {c: max(0.0, min(9.0, round(float(result[c]) * 2) / 2)) for c in CRITERIA}
-                band = round(sum(criteria.values()) / 4 * 2) / 2
+                criteria = {c: round_ielts(max(0.0, min(9.0, float(result[c])))) for c in CRITERIA}
+                band = round_ielts(sum(criteria.values()) / 4)
                 cap = length_cap(words, min_words)
                 if cap is not None:
                     band = min(band, cap)
@@ -189,7 +189,7 @@ def combine_writing(task1: Dict[str, Any], task2: Dict[str, Any]) -> Optional[fl
     """Task 2 chiếm 2/3 điểm Writing. Thiếu một task thì tính task còn lại với trọng số tương ứng (thiếu = 0)."""
     if task1.get("scored_by") == "none" and task2.get("scored_by") == "none":
         return None
-    return round((task1.get("band", 0.0) + 2 * task2.get("band", 0.0)) / 3 * 2) / 2
+    return round_ielts((task1.get("band", 0.0) + 2 * task2.get("band", 0.0)) / 3)
 
 
 # ============================================================

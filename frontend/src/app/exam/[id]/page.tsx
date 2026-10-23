@@ -14,6 +14,8 @@ import ServerResult from "@/components/exam/ServerResult";
 import { Mic, Square } from "lucide-react";
 import ExamNotes from "@/components/exam/ExamNotes";
 import ConfirmNextSection from "@/components/exam/ConfirmNextSection";
+import Task1Figure, { type FigState } from "@/components/exam/Task1Figure";
+import ImageLightbox, { type LbZoom } from "@/components/exam/ImageLightbox";
 import { useNarrow } from "@/lib/useMediaQuery";
 import { useExamFlags, useExamNotes } from "@/lib/examNotes";
 import { SKILL_ORDER, STANDARD_MINUTES, isPublishedBuiltin, type RoomMode } from "@/lib/examConfig";
@@ -826,6 +828,7 @@ function ExamSessionContent() {
             onTask2Change={setWritingTask2}
             activeTab={writingTab}
             onTabChange={setWritingTab}
+            overlayOpen={showSubmitModal || confirmNext || !!submitError}
           />
         )}
         {currentSection === "speaking" && (
@@ -2043,7 +2046,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
 }
 
 // ─── Writing Section ─────────────────────────────────────────
-function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask1Change, onTask2Change, activeTab, onTabChange, task1Image, task1MinWords, task2MinWords }: any) {
+function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask1Change, onTask2Change, activeTab, onTabChange, task1Image, task1MinWords, task2MinWords, overlayOpen }: any) {
   const [mobileTab, setMobileTab] = useState<"prompt" | "write">("prompt");
   const isTask1 = activeTab === "task1";
   const prompt = isTask1 ? task1Prompt : task2Prompt;
@@ -2053,8 +2056,28 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
   const wordCount = text.split(/\s+/).filter(Boolean).length;
   const wordStatus = wordCount < minWords * 0.6 ? "danger" : wordCount < minWords ? "warning" : "ok";
 
+  // Hình Task 1: trạng thái tải sống ở đây để khung đề, nút ở hàng ô viết và lớp xem hình dùng chung
+  const narrow = useNarrow();
+  const hasFig = !!task1Image;
+  const [imgState, setImgState] = useState<FigState>("loading");
+  const [imgTry, setImgTry] = useState(0);
+  const [lbOpen, setLbOpen] = useState(false);
+  const [lbZoom, setLbZoom] = useState<LbZoom | null>(null);
+  const lbOpenerRef = useRef<HTMLElement | null>(null);
+  const figSrc: string = hasFig && imgTry > 0 ? `${task1Image}${String(task1Image).includes("?") ? "&" : "?"}r=${imgTry}` : task1Image;
+  const paras = String(task1Prompt || "").split("\n\n").map((p: string) => p.replace(/\s+/g, " ").trim());
+  const descSentence: string = paras.find((p: string) => /\b(below|following)\b/i.test(p)) ?? paras[1] ?? paras[0] ?? "";
+  const figAlt = `Hình của đề Writing Task 1. ${descSentence}`.trim();
+  const openLb = (opener: HTMLElement | null) => { lbOpenerRef.current = opener; setLbOpen(true); };
+  const retryImg = () => { setImgState("loading"); setImgTry((n) => n + 1); };
+  // Lớp xem hình (z 10000, portal vào body) nằm trên mọi hộp của phòng thi (nằm trong main, ngữ cảnh xếp chồng riêng):
+  // tự đóng khi có hộp "Nộp bài thi?"/"Phần tiếp"/lỗi nộp mở, và khi rời Task 1 (khỏi mở lại ngoài ý muốn).
+  useEffect(() => {
+    if (lbOpen && (overlayOpen || !isTask1)) setLbOpen(false);
+  }, [lbOpen, overlayOpen, isTask1]);
+
   return (
-    <div className="exam-writing-layout" data-tab={mobileTab}>
+    <div className="exam-writing-layout" data-tab={mobileTab} data-fig={hasFig ? "1" : undefined}>
       {/* Điện thoại: hai tab "Đề bài" / "Bài viết" (khung không chọn chỉ bị ẩn, chữ đang viết không mất) */}
       <div className="tabs room-tabs" role="tablist" aria-label="Đề bài và bài viết">
         <button type="button" role="tab" id="writing-tab-prompt" className="tab" aria-selected={mobileTab === "prompt"} aria-controls="writing-panel-prompt" onClick={() => setMobileTab("prompt")}>Đề bài</button>
@@ -2077,13 +2100,9 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
             ))}
           </div>
           <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--ink-muted)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "8px" }}>
-            {isTask1 ? "Task 1 — Summarise the graph" : "Task 2 — Essay"}
+            {isTask1 ? "Task 1 — Summarise the information" : "Task 2 — Essay"}
           </div>
         </div>
-        {isTask1 && task1Image && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={task1Image} alt="Hình của đề Writing Task 1" style={{ maxWidth: "100%", borderRadius: "10px", marginBottom: "14px", border: "1px solid var(--hairline)" }} />
-        )}
         {prompt.split("\n\n").map((para: string, i: number) => (
           <p key={i} style={{ marginBottom: "12px", fontSize: "0.88rem", color: "var(--ink-secondary)", lineHeight: 1.7 }}>
             {para}
@@ -2094,16 +2113,25 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
             Yêu cầu tối thiểu: {minWords} từ
           </div>
         </div>
+        {isTask1 && hasFig && (
+          <Task1Figure src={figSrc} alt={figAlt} state={imgState} onState={setImgState} onRetry={retryImg} onOpen={openLb} />
+        )}
       </div>
 
       {/* Right — Editor */}
       <div className="exam-editor-pane" id="writing-panel-write">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--ink-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            {isTask1 ? "Task 1" : "Task 2"} — Bài viết
+        <div className="room-w-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+          <span aria-label={`${isTask1 ? "Task 1" : "Task 2"} — Bài viết`} style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--ink-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+            {isTask1 ? "Task 1" : "Task 2"}<span className="room-hide-sm"> — Bài viết</span>
           </span>
+          {isTask1 && hasFig && (
+            <button type="button" className="st-btn st-btn-secondary st-btn-sm room-w-viewimg" aria-haspopup="dialog"
+              disabled={imgState !== "ready"} aria-disabled={imgState !== "ready"} onClick={(e) => openLb(e.currentTarget)}>
+              Xem hình đề
+            </button>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{
+            <span className="room-w-wc" style={{
               fontSize: "0.78rem", fontWeight: 700,
               color: wordStatus === "ok" ? "var(--success)" : wordStatus === "warning" ? "var(--warning)" : "var(--danger)"
             }}>
@@ -2140,6 +2168,21 @@ function WritingSection({ task1Prompt, task2Prompt, task1Text, task2Text, onTask
           </div>
         </div>
       </div>
+
+      {/* Lớp xem hình: portal vào body, không đổi cây của ô viết và đồng hồ */}
+      {isTask1 && hasFig && (
+        <ImageLightbox
+          open={lbOpen}
+          src={figSrc}
+          alt={figAlt}
+          caption={descSentence}
+          zoom={lbZoom ?? (narrow ? 100 : "fit")}
+          onZoom={setLbZoom}
+          onClose={() => setLbOpen(false)}
+          returnFocusRef={lbOpenerRef}
+          narrow={narrow}
+        />
+      )}
     </div>
   );
 }

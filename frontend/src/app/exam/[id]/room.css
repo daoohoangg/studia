@@ -37,6 +37,19 @@
 .room-w-scale { display: flex; justify-content: space-between; margin-top: 4px; }
 .room-modal-actions button { font-size: .88rem; }
 
+/* ===== Hình đề Writing Task 1 (T37) ===== */
+.room-root .exam-writing-layout[data-fig="1"] { grid-template-columns: clamp(380px, 40%, 520px) minmax(0, 1fr); }
+.room-root .room-w-viewimg { display: none; }
+.exam-fig { margin: 16px 0 0; }
+.exam-fig-paper { background: #fff; padding: 6px; border: 1px solid var(--hairline); border-radius: 10px; }
+.exam-fig-paper:hover { border-color: var(--brand); }
+.exam-fig-paper img { display: block; width: 100%; height: auto; border-radius: 6px; cursor: zoom-in; }
+.exam-fig[data-state="loading"] .exam-fig-paper, .exam-fig[data-state="error"] .exam-fig-paper { display: none; }
+.exam-fig-msg { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 180px; padding: 12px; box-sizing: border-box; text-align: center; background: var(--surface-sunken); border: 1px solid var(--hairline); border-radius: 10px; font: 500 13px/19px var(--font-sans); color: var(--ink-muted); }
+.exam-fig-msg[role="alert"] { color: var(--danger); }
+.exam-fig-zoom { margin-top: 10px; }
+[data-theme='dark'] .exam-fig-paper img, [data-theme='dark'] .room-lb-paper img { filter: brightness(0.92); }
+
 /* ===== Phòng thi trên điện thoại (<= 767px) ===== */
 @media (max-width: 767px) {
   .room-root { --room-header-h: 52px; --room-nav-h: 56px; --room-tabs-h: 48px; }
@@ -112,6 +125,13 @@
   .room-root .room-w-tasktabs, .room-root .room-w-scale, .room-root .room-w-counts { display: none; }
   .room-root .exam-editor-pane { padding: 12px; gap: 8px; }
   .room-root .exam-writing-editor { min-height: 240px; padding: 14px; max-width: 100%; overflow-wrap: anywhere; }
+  .room-root .exam-fig-zoom { width: 100%; --_h: 44px; }
+  .room-root .exam-fig-msg { min-height: 140px; }
+  .room-root .exam-fig-msg .st-btn { --_h: 44px; }
+  .room-root .room-w-viewimg { display: inline-flex; --_h: 44px; min-width: 44px; flex-shrink: 0; }
+  .room-root .room-w-head { min-height: 44px; gap: 8px; }
+  .room-root .room-w-head > span:first-child { white-space: nowrap; }
+  .room-root .room-w-wc { display: block; text-align: right; }
 
   /* Thanh điều hướng dưới */
   .room-root .exam-navigator {
@@ -148,4 +168,50 @@
 /* Điện thoại nằm ngang: giữ hai cột, bớt khối phụ để nút phát audio không cần cuộn */
 @media (max-height: 500px) {
   .room-root .room-l-guide, .room-root .room-l-wave, .room-root .room-l-title { display: none; }
+}
+
+/* ===== Lớp xem hình Task 1: portal vào body nên nằm NGOÀI .room-root ===== */
+.room-lb {
+  --lb-top: 56px; --lb-chrome: 192px;
+  position: fixed; left: 0; right: 0; bottom: 0; top: var(--lb-top); z-index: 10000;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-areas: "title bar" "cap cap" "hint hint" "stage stage";
+  background: var(--surface-sunken); color: var(--ink); outline: none;
+}
+.room-lb-title { grid-area: title; margin: 0; padding: 0 16px; font: 600 18px/52px var(--font-sans); }
+.room-lb-cap { grid-area: cap; margin: 0; padding: 0 16px; font: 400 13px/28px var(--font-sans); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-lb-hint { display: none; grid-area: hint; }
+.room-lb-bar { grid-area: bar; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; }
+.room-lb-group { display: flex; gap: 6px; }
+.room-lb-z.is-active { background: var(--brand-tint); color: var(--brand-hover); border-color: var(--brand); }
+.room-lb-stage { grid-area: stage; min-height: 0; overflow: auto; display: flex; padding: 16px; overscroll-behavior: contain; }
+.room-lb-stage:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.room-lb-paper { margin: auto; background: #fff; padding: 12px; box-sizing: border-box; border-radius: 8px; box-shadow: var(--shadow-lg); }
+.room-lb-paper[data-mode="fit"] { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.room-lb-paper[data-mode="px"] { flex: none; max-width: none; }
+.room-lb-paper img { display: block; height: auto; border-radius: 4px; cursor: zoom-in; }
+.room-lb-paper[data-mode="fit"] img { width: auto; max-width: 100%; max-height: calc(100vh - var(--lb-chrome)); max-height: calc(100dvh - var(--lb-chrome)); }
+.room-lb-paper[data-mode="px"] img { max-width: none; cursor: zoom-out; }
+.room-lb-fail { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 360px; text-align: center; font: 500 14px/20px var(--font-sans); color: var(--danger); }
+
+@media (max-width: 767px) {
+  .room-lb {
+    --lb-top: 52px; --lb-chrome: calc(264px + env(safe-area-inset-bottom));
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "title" "cap" "hint" "stage" "bar";
+  }
+  .room-lb-title { font: 600 16px/40px var(--font-sans); }
+  .room-lb-cap { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 18px; padding-bottom: 4px; }
+  .room-lb-hint { display: block; margin: 0; padding: 0 16px 6px; font: 400 12px/14px var(--font-sans); color: var(--ink-muted); }
+  .room-lb-stage { padding: 8px; touch-action: pan-x pan-y pinch-zoom; }
+  .room-lb-bar { height: auto; justify-content: space-between; gap: 8px; padding: 6px 12px calc(6px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--hairline); }
+  .room-lb-group { gap: 8px; }
+  .room-lb-bar .st-btn { --_h: 44px; min-width: 56px; padding: 0 8px; }
+  .room-lb-bar .room-lb-z:first-child { min-width: 84px; }
+  .room-lb-bar .room-lb-close { min-width: 72px; }
+  .room-lb-z200 { display: none; }
+}
+/* Điện thoại nằm ngang: bỏ phần chữ phụ để nhường chỗ cho hình */
+@media (max-height: 500px) {
+  .room-lb-cap, .room-lb-hint { display: none; }
 }

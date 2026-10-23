@@ -46,7 +46,7 @@ def _band(value: Any) -> float:
         v = float(value)
     except (TypeError, ValueError):
         return 0.0
-    return max(0.0, min(9.0, round(v * 2) / 2))
+    return round_band(v)
 
 
 def _strs(value: Any, limit: int = 4) -> List[str]:

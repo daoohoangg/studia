@@ -89,5 +89,45 @@ class WritingApi(unittest.TestCase):
             self.assertEqual(self.post().status_code, 503)
 
 
+class IeltsRounding(unittest.TestCase):
+    """Làm tròn IELTS (không dùng round() chẵn của Python): 6.25 -> 6.5, 5.25 -> 5.5."""
+
+    def test_round_ielts_boundaries(self):
+        from app.services.exam_grading import round_ielts
+        for value, expected in [(6.25, 6.5), (6.24, 6.0), (6.75, 7.0), (6.74, 6.5), (5.25, 5.5),
+                                (8.9, 9.0), (6.0, 6.0), (0.0, 0.0)]:
+            self.assertEqual(round_ielts(value), expected, value)
+
+    def test_grade_writing_uses_ielts_rounding(self):
+        from app.services import exam_grading as g
+
+        class FakeLLM:
+            def __init__(self, bands): self.bands = bands
+            def generate_json(self, prompt): return dict(zip(g.CRITERIA, self.bands))
+
+        text = " ".join(["word"] * 300)
+        r = g.grade_writing(2, "p", text, 250, FakeLLM([6.25, 6.25, 5.25, 5.25]))
+        self.assertEqual(r["criteria"]["task_response"], 6.5)
+        self.assertEqual(r["criteria"]["lexical_resource"], 5.5)
+        self.assertEqual(r["band"], 6.0)  # (6.5+6.5+5.5+5.5)/4 = 6.0
+        r = g.grade_writing(2, "p", text, 250, FakeLLM([6, 6, 6, 7.5]))
+        self.assertEqual(r["band"], 6.5)  # 6.375 -> 6.5
+        r = g.grade_writing(2, "p", text, 250, FakeLLM([-3, 12, 9, 9]))
+        self.assertEqual(r["criteria"]["task_response"], 0.0)
+        self.assertEqual(r["criteria"]["coherence_cohesion"], 9.0)
+
+    def test_combine_writing_rounds_ielts(self):
+        from app.services.exam_grading import combine_writing
+        # (5.5 + 2*6.5)/3 = 6.1667 -> 6.0 ; (6 + 2*6.5)/3 = 6.333 -> 6.5 ; (5.5+2*5.5)=5.5
+        self.assertEqual(combine_writing({"band": 5.5, "scored_by": "ai"}, {"band": 6.5, "scored_by": "ai"}), 6.0)
+        self.assertEqual(combine_writing({"band": 6.0, "scored_by": "ai"}, {"band": 6.5, "scored_by": "ai"}), 6.5)
+        self.assertEqual(combine_writing({"band": 7.0, "scored_by": "ai"}, {"band": 7.5, "scored_by": "ai"}), 7.5)
+
+    def test_writing_grader_band_clamp_and_round(self):
+        self.assertEqual(wg._band(6.25), 6.5)
+        self.assertEqual(wg._band(-1), 0.0)
+        self.assertEqual(wg._band("x"), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -762,6 +762,24 @@ ALTER TABLE public.exam_sessions
 -- Lưu ý: mỗi câu trả lời được ghi qua backend dưới khoá theo phiên (đọc-sửa-ghi cột answers_json),
 -- nên hai câu trả lời đến gần nhau không ghi đè lên nhau khi chạy một tiến trình backend.
 
+-- ===== migration_v13.sql (T24): exam_sessions chỉ backend (service_role) truy cập =====
+ALTER TABLE public.exam_sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Owner access" ON public.exam_sessions;
+DO $$
+DECLARE
+    p RECORD;
+BEGIN
+    FOR p IN
+        SELECT policyname FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'exam_sessions'
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.exam_sessions', p.policyname);
+    END LOOP;
+END $$;
+REVOKE ALL ON TABLE public.exam_sessions FROM anon, authenticated;
+REVOKE ALL ON TABLE public.exam_sessions FROM PUBLIC;
+GRANT ALL ON TABLE public.exam_sessions TO service_role;
+
 -- ===== Kho tệp riêng tư (bucket) =====
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('documents', 'documents', false),

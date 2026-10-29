@@ -1,0 +1,127 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Literata:ital,opsz,wght@0,7..72,300..600;1,7..72,300..600&display=block"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1350px;overflow:hidden}
+body{-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;position:relative}
+svg{display:block}
+.display{font-family:'Bricolage Grotesque',sans-serif;font-optical-sizing:auto}
+.serif{font-family:'Literata',serif;font-optical-sizing:auto}
+
+body{background:var(--bg);color:#0E1630;font-family:'Be Vietnam Pro',sans-serif}
+.post{position:absolute;inset:0;padding:72px 76px 64px;display:flex;flex-direction:column}
+.top{display:flex;justify-content:space-between;align-items:center}
+.pill{display:flex;align-items:center;gap:12px;background:#fff;border:4px solid #0E1630;border-radius:999px;padding:12px 24px 12px 18px;font-weight:800;font-size:22px;letter-spacing:.06em;text-transform:uppercase;box-shadow:5px 5px 0 #0E1630}
+.pill.n{padding:12px 22px;font-family:'Bricolage Grotesque',sans-serif;letter-spacing:0;font-size:24px}
+.foot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:26px}
+.foot span{font-weight:700;font-size:22px}
+.body{flex:1;min-height:0;display:flex;flex-direction:column;padding-top:44px}
+h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:84px;line-height:1;letter-spacing:-.03em}
+h1.sm{font-size:68px}
+.box{background:#fff;border:5px solid #0E1630;border-radius:36px;box-shadow:12px 12px 0 #0E1630}
+.coal{display:block;object-fit:contain}
+.hand{font-family:'Bricolage Grotesque',sans-serif;font-weight:700}
+.tag{display:inline-block;background:#0E1630;color:#fff;border-radius:14px;padding:8px 18px;font-weight:700;font-size:24px}
+.say{position:relative;background:#fff;border:5px solid #0E1630;border-radius:32px;padding:26px 32px;font-size:32px;font-weight:600;line-height:1.35}
+
+/* Meme */
+.meme-top{padding:40px 44px}
+.meme-top h1{font-size:76px}
+.stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
+.stage img{height:100%;max-height:640px}
+.caption{align-self:center;background:#0E1630;color:#fff;border-radius:24px;padding:22px 34px;font-size:34px;font-weight:700;text-align:center;max-width:900px;line-height:1.3}
+
+/* Chat */
+.chat{display:flex;flex-direction:column;gap:20px;margin-top:36px}
+.fill{flex:1;min-height:0;display:flex;justify-content:center;align-items:flex-end;margin-top:12px}.fill img{height:100%;max-height:520px;width:auto}
+.msg{display:flex;gap:18px;align-items:flex-end}
+.msg .av{width:120px;height:120px;flex:none;background:#fff;border:4px solid #0E1630;border-radius:50%;overflow:hidden;display:grid;place-items:center}
+.msg .av img{width:150px;height:150px;margin-top:22px}
+.bub{border:4px solid #0E1630;border-radius:30px;padding:24px 32px;font-size:34px;line-height:1.4;font-weight:500;max-width:740px;background:#fff}
+.msg.coal .bub{border-bottom-left-radius:6px}
+.msg.you{justify-content:flex-end}
+.msg.you .bub{background:#0E1630;color:#fff;border-bottom-right-radius:6px}
+.msg.cont .av{visibility:hidden}
+
+/* Chuỗi ngày */
+.streak{display:grid;grid-template-columns:.85fr 1.15fr;gap:0;align-items:center;flex:1;min-height:0}
+.day{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:340px;line-height:.8;letter-spacing:-.06em}
+.day small{display:block;font-size:52px;letter-spacing:-.01em;margin-top:24px}
+.streak img{width:118%;max-width:none;margin-left:-6%}
+.track{display:flex;gap:14px;margin:6px 0 26px}
+.track div{flex:1;border:4px solid #0E1630;border-radius:18px;padding:12px 0;text-align:center;font-weight:800;font-size:26px;background:#fff}
+.track .on{background:#0E1630;color:#fff}
+.track .past{background:#F2611F;color:#0E1630}
+.desc h2{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:56px;line-height:1.05;letter-spacing:-.02em}
+.desc p{font-size:30px;line-height:1.5;margin-top:16px;font-weight:500}
+
+/* Lưới */
+.grid{display:grid;gap:22px;margin-top:36px;flex:1;min-height:0}
+.cell{background:#fff;border:4px solid #0E1630;border-radius:28px;box-shadow:7px 7px 0 #0E1630;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:8px 10px 18px;position:relative;min-height:0}
+.cell img{width:92%;flex:1;min-height:0;object-fit:contain}
+.cell b{font-size:27px;font-weight:700;text-align:center;line-height:1.2}
+.cell .no{position:absolute;left:14px;top:12px;width:48px;height:48px;border-radius:50%;background:#0E1630;color:#fff;display:grid;place-items:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:24px}
+.ask{text-align:center;font-weight:700;font-size:30px;margin-top:28px}
+
+/* Từ vựng */
+.vcard{padding:46px 50px;margin-top:34px}
+.vword{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;letter-spacing:-.035em;line-height:.95}
+.vipa{font-family:'Literata',serif;font-size:32px;margin-top:14px;color:#3A4260}
+.vvi{font-size:44px;font-weight:700;margin-top:26px;display:inline-block;background:#FFE27A;padding:0 12px;border-radius:8px}
+.vex{font-family:'Literata',serif;font-style:italic;font-size:31px;line-height:1.5;margin-top:22px;color:#3A4260}
+.coalsay{display:flex;align-items:flex-end;gap:10px;margin-top:auto}
+.coalsay img{width:420px;flex:none;margin-left:-20px;margin-bottom:-10px}
+.coalsay .say{margin-bottom:150px}
+.coalsay .say:after{content:"";position:absolute;left:-26px;bottom:34px;width:40px;height:40px;background:#fff;border-left:5px solid #0E1630;border-bottom:5px solid #0E1630;transform:rotate(45deg) skew(10deg,10deg)}
+
+/* Mẹo */
+.points{display:flex;flex-direction:column;gap:20px;margin-top:40px}
+.pt{display:flex;gap:22px;align-items:center;background:#fff;border:4px solid #0E1630;border-radius:26px;padding:24px 28px;box-shadow:6px 6px 0 #0E1630;font-size:34px;font-weight:600;line-height:1.35}
+.pt .c{flex:none;width:58px;height:58px;border-radius:50%;background:#F2611F;border:4px solid #0E1630;display:grid;place-items:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:28px}
+.tipcoal{position:absolute;right:40px;bottom:120px;width:330px}
+
+/* Truyện 4 khung */
+.comic{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:22px;flex:1;min-height:0;margin-top:34px}
+.panel{background:#fff;border:5px solid #0E1630;border-radius:24px;display:flex;flex-direction:column;overflow:hidden;min-height:0;position:relative}
+.panel:nth-child(2n){background:var(--alt)}
+.panel img{flex:1;min-height:0;width:100%;object-fit:contain;padding:10px 20px 0}
+.panel p{border-top:5px solid #0E1630;background:#fff;padding:16px 20px;font-size:25px;font-weight:600;line-height:1.35;min-height:118px;display:flex;align-items:center}
+.panel .k{position:absolute;left:14px;top:12px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:28px}
+
+/* Bình chọn */
+.poll{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:44px;flex:1;min-height:0;position:relative}
+.opt{display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:26px 20px 34px;min-height:0}
+.opt img{width:100%;flex:1;min-height:0;object-fit:contain}
+.opt b{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:56px;letter-spacing:-.02em}
+.opt .k{width:76px;height:76px;border-radius:50%;background:#0E1630;color:#fff;display:grid;place-items:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:38px}
+.vs{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-8deg);background:#F2611F;border:5px solid #0E1630;border-radius:22px;padding:10px 22px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:46px;z-index:2}
+
+/* Thử thách */
+.miles{display:grid;grid-template-columns:repeat(2,1fr);gap:22px;margin-top:34px;flex:1;min-height:0}
+.miles .cell b{font-family:'Bricolage Grotesque',sans-serif;font-size:40px;font-weight:800}
+.miles .cell span{font-size:23px;font-weight:600;color:#3A4260}
+.hashtag{align-self:center;margin-top:28px;background:#0E1630;color:#fff;border-radius:999px;padding:18px 40px;font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:40px}
+
+/* Lời mời */
+.cta{display:grid;grid-template-columns:1.05fr .95fr;gap:10px;align-items:center;flex:1}
+.cta img{width:120%;margin-left:-10%}
+.cta ul{list-style:none;display:flex;flex-direction:column;gap:18px;margin-top:34px}
+.cta li{display:flex;gap:16px;align-items:center;font-size:30px;font-weight:600;line-height:1.3}
+.cta li i{flex:none;width:46px;height:46px;border-radius:50%;background:#0E1630;display:grid;place-items:center}
+.go{align-self:flex-start;margin-top:40px;background:#F2611F;border:5px solid #0E1630;box-shadow:8px 8px 0 #0E1630;border-radius:999px;padding:24px 44px;font-weight:800;font-size:36px;display:flex;gap:14px;align-items:center}
+</style></head><body style="--bg:#E9EEFD" class="">
+<div class="post">
+  <div class="top"><span class="pill"><svg viewBox="4 4 40 40" width="28" height="28" aria-hidden="true"><path d="M4 13.5A9.5 9.5 0 0 1 13.5 4H34a2 2 0 0 1 2 2v17H13.5A9.5 9.5 0 0 1 4 13.5z" fill="#0E1630"/><path d="M12 25h22.5a9.5 9.5 0 0 1 0 19H14a2 2 0 0 1-2-2z" fill="#F2611F"/></svg>Bình chọn</span><span class="pill n">#15</span></div>
+  <div class="body"><h1>Bạn học giờ nào?</h1>
+    <div class="poll"><div class="box opt"><span class="k">A</span><img class="coal" src="file:///E:/freelance/Studia/frontend/public/coal/hello.webp" alt="" style=""><b>Sáng sớm</b></div><div class="box opt"><span class="k">B</span><img class="coal" src="file:///E:/freelance/Studia/frontend/public/coal/sleepy.webp" alt="" style=""><b>Đêm khuya</b></div><span class="vs">hay</span></div>
+    <p class="ask">Bình luận A hoặc B.</p></div>
+  <div class="foot"><svg viewBox="4 4 186 40" height="32" width="148.8" aria-hidden="true"><path d="M4 13.5A9.5 9.5 0 0 1 13.5 4H34a2 2 0 0 1 2 2v17H13.5A9.5 9.5 0 0 1 4 13.5z" fill="#0E1630"/><path d="M12 25h22.5a9.5 9.5 0 0 1 0 19H14a2 2 0 0 1-2-2z" fill="#F2611F"/><g transform="translate(60 4)">
+  <g fill="none" stroke="#0E1630" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 19H8a4.5 4.5 0 0 0 0 9h2a4.5 4.5 0 0 1 0 9H3"/>
+    <g transform="translate(3 0)">
+      <path d="M26 8v23a6 6 0 0 0 6 6M21 19h10"/><path d="M42 19v12a6 6 0 0 0 12 0V19M54 19v18"/>
+      <circle cx="72" cy="28" r="9"/><path d="M81 6v31"/><path d="M93 19v18"/>
+      <circle cx="114" cy="28" r="9"/><path d="M123 19v18"/>
+    </g>
+  </g>
+  <circle cx="96" cy="8.5" r="4" fill="#F2611F"/></g></svg><span>Học cùng Coal mỗi ngày</span></div>
+</div></body></html>

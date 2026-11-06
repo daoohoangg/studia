@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { API, apiFetch } from "@/lib/api";
 import { Clock } from "lucide-react";
+import { demoHistoryRows } from "@/lib/demoResults";
 import TestLibrary, { type TestStat } from "@/components/exam/TestLibrary";
 import StartPanel from "@/components/exam/StartPanel";
 import {
@@ -39,8 +40,13 @@ export default function ExamLobbyPage() {
     apiFetch(`${API}/exam-sets?status=published`).then(async (res) => {
       if (res.ok) setSets((await res.json()).exam_sets || []);
     }).catch(() => {}).finally(() => setLoadingSets(false));
+    // Lần thi demo lưu trong trình duyệt được gộp vào cùng danh sách, xếp theo ngày
+    const merge = (server: any[]) => setHistory(
+      [...server, ...demoHistoryRows()].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))),
+    );
+    merge([]);
     apiFetch(`${API}/exam/sessions?limit=40`).then(async (res) => {
-      if (res.ok) setHistory((await res.json()).sessions || []);
+      if (res.ok) merge((await res.json()).sessions || []);
     }).catch(() => {});
   }, []);
 
@@ -119,6 +125,7 @@ export default function ExamLobbyPage() {
           <h1 className="page-title">Thi thử IELTS</h1>
           <p className="page-sub">Chọn đề, chọn phần thi và thời gian, rồi thi như thật hoặc luyện tập có công cụ hỗ trợ.</p>
         </div>
+        <Link className="st-btn st-btn-secondary st-btn-sm" href="/exam/stats">Thống kê kết quả</Link>
       </header>
 
       {inProgress && (
@@ -147,7 +154,7 @@ export default function ExamLobbyPage() {
               const done = h.status === "SUBMITTED" || h.status === "AUTO_SUBMITTED";
               const secs: string[] = (h.sections || []).map((s: string) => (SKILL_LABEL as any)[s]).filter(Boolean);
               return (
-                <Link key={h.session_id} href={`/exam/${h.session_id}`} className="el-hist">
+                <Link key={h.session_id} href={h.href || `/exam/${h.session_id}`} className="el-hist">
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span className="el-hist-title">{sessionLabel(h)}</span>
                     <span className="meta">

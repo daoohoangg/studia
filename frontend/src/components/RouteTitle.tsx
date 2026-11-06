@@ -36,6 +36,7 @@ const RULES: [RegExp, string][] = [
   [/^\/writing/, "Luyện Writing"],
   [/^\/feedback/, "Lỗi sai"],
   [/^\/mistakes/, "Lỗi sai"],
+  [/^\/exam\/stats/, "Thống kê thi thử"],
   [/^\/exam\/[^/]+/, "Làm bài thi"],
   [/^\/exam/, "Thi thử IELTS"],
   [/^\/tutor/, "Coal, bạn học AI"],

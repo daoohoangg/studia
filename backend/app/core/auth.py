@@ -12,7 +12,7 @@ import threading
 import time
 
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -74,9 +74,17 @@ def auth_disabled() -> bool:
     return not settings.AUTH_REQUIRED and settings.ENVIRONMENT == "development"
 
 
+def _is_public_read_request(request: Optional[Request]) -> bool:
+    if not request or request.method != "GET":
+        return False
+    path = request.url.path
+    return path == "/api/v1/documents" or path.startswith("/api/v1/documents/")
+
+
 async def require_user(
+    request: Request = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
-) -> str:
+) -> Optional[str]:
     from app.core.accounts import check_active, set_current_email
 
     if auth_disabled():
@@ -86,12 +94,20 @@ async def require_user(
         return settings.DEFAULT_USER_ID
 
     if credentials is None:
+        if _is_public_read_request(request):
+            _current_user_id.set(None)
+            set_current_email(None)
+            return None
         raise HTTPException(status_code=401, detail="Chưa đăng nhập", headers={"WWW-Authenticate": "Bearer"})
 
     try:
         claims = await run_in_threadpool(decode_access_token, credentials.credentials)
     except Exception as e:
         logger.info(f"Rejected access token: {e}")
+        if _is_public_read_request(request):
+            _current_user_id.set(None)
+            set_current_email(None)
+            return None
         raise HTTPException(
             status_code=401,
             detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
@@ -117,12 +133,23 @@ def require_owned(table: str, row_id: str, missing_ok: bool = False, write: bool
 
     Riêng bảng `documents`:
       - quản lý (role admin) đọc/ghi được mọi tài liệu;
-      - sách trong thư viện chung (visibility = 'shared') ai đăng nhập cũng ĐỌC được, nhưng chỉ chủ sở hữu
-        hoặc quản lý mới SỬA được (`write=True`: sửa khối nội dung, xử lý lại, xoá...).
+      - sách trong thư viện chung (visibility = 'shared') ai cũng ĐỌC được (kể cả khách / chưa đăng nhập),
+        nhưng chỉ chủ sở hữu hoặc quản lý mới SỬA được (`write=True`: sửa khối nội dung, xử lý lại, xoá...).
     """
     from app.core.supabase_client import get_supabase_client
 
-    uid = current_user_id()
+    uid = _current_user_id.get()
+    if not uid:
+        if table == "documents" and not write:
+            try:
+                resp = get_supabase_client().table(table).select("visibility").eq("id", row_id).execute()
+                rows = getattr(resp, "data", None) or []
+                if rows and (rows[0].get("visibility") or "private") == "shared":
+                    return
+            except Exception:
+                pass
+            raise HTTPException(status_code=404, detail="Không tìm thấy")
+        raise HTTPException(status_code=401, detail="Chưa đăng nhập")
     ck = (uid, table, str(row_id))
     with _owned_lock:
         if _owned_cache.get(ck, 0) > time.time():

@@ -141,6 +141,8 @@ export interface ReaderPrefs {
   theme: keyof typeof READER_THEMES;
   lineHeight: number;
   width: keyof typeof READER_WIDTHS;
+  pageWidth: number; // 40% đến 100%: chỉnh độ rộng nội dung / khoảng cách 2 bên
+  zoom: number;
   /** Kèm ảnh trang gốc xen vào bài đọc: chỉ trang rủi ro (auto), mọi trang (all) hoặc không (off). */
   originals: "auto" | "all" | "off";
 }
@@ -163,13 +165,16 @@ export const READER_THEMES = {
 } as const;
 
 export const READER_WIDTHS = {
-  narrow: { label: "Hẹp", css: "560px" },
-  medium: { label: "Vừa", css: "720px" },
-  wide: { label: "Rộng", css: "940px" },
+  narrow: { label: "Hẹp", css: "760px" },
+  medium: { label: "Vừa", css: "1020px" },
+  wide: { label: "Rộng", css: "1360px" },
+  full: { label: "Dãn đều 2 bên", css: "100%" },
 } as const;
 
-export const DEFAULT_PREFS: ReaderPrefs = { fontSize: 18, fontFamily: "serif", theme: "app", lineHeight: 1.7, width: "medium", originals: "auto" };
+export const DEFAULT_PREFS: ReaderPrefs = { fontSize: 18, fontFamily: "serif", theme: "app", lineHeight: 1.7, width: "full", pageWidth: 100, zoom: 100, originals: "auto" };
 export const FONT_SIZE_RANGE = { min: 13, max: 32 };
+export const PAGE_WIDTH_RANGE = { min: 40, max: 100, step: 5 };
+export const ZOOM_RANGE = { min: 60, max: 200, step: 10 };
 
 const PREFS_KEY = "studia_reader_prefs";
 
@@ -179,9 +184,11 @@ export function loadPrefs(): ReaderPrefs {
     const prefs = { ...DEFAULT_PREFS, ...saved };
     if (!(prefs.fontFamily in READER_FONTS)) prefs.fontFamily = DEFAULT_PREFS.fontFamily;
     if (!(prefs.theme in READER_THEMES)) prefs.theme = DEFAULT_PREFS.theme;
-    if (!(prefs.width in READER_WIDTHS)) prefs.width = DEFAULT_PREFS.width;
+    if (!(prefs.width in READER_WIDTHS) || saved.width === "medium") prefs.width = "full";
     if (!["auto", "all", "off"].includes(prefs.originals)) prefs.originals = DEFAULT_PREFS.originals;
     prefs.fontSize = Math.min(FONT_SIZE_RANGE.max, Math.max(FONT_SIZE_RANGE.min, Number(prefs.fontSize) || DEFAULT_PREFS.fontSize));
+    prefs.pageWidth = Math.min(PAGE_WIDTH_RANGE.max, Math.max(PAGE_WIDTH_RANGE.min, Number(prefs.pageWidth) || DEFAULT_PREFS.pageWidth));
+    prefs.zoom = Math.min(ZOOM_RANGE.max, Math.max(ZOOM_RANGE.min, Number(prefs.zoom) || DEFAULT_PREFS.zoom));
     return prefs;
   } catch {
     return DEFAULT_PREFS;

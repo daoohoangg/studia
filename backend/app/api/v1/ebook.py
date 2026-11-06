@@ -172,7 +172,10 @@ def get_toc(document_id: str):
     """
     require_owned("documents", document_id)
     supabase = _db()
-    uid = current_user_id()
+    try:
+        uid = current_user_id()
+    except Exception:
+        uid = None
     cached = _TOC_CACHE.get(document_id)
     if cached and time.time() - cached[0] < TOC_CACHE_SECONDS:
         base = cached[1]
@@ -191,7 +194,7 @@ def get_toc(document_id: str):
         _TOC_CACHE[document_id] = (time.time(), base)
 
     rows = supabase.table("reading_progress").select("block_id, percent") \
-        .eq("document_id", document_id).eq("user_id", uid).limit(1).execute().data or []
+        .eq("document_id", document_id).eq("user_id", uid).limit(1).execute().data or [] if uid else []
     current_order: Optional[float] = None
     percent = 0.0
     if rows:
@@ -498,10 +501,34 @@ def _highlight_public(row: Dict[str, Any]) -> Dict[str, Any]:
 @router.get("/{document_id}/highlights")
 def list_highlights(document_id: str):
     require_owned("documents", document_id)
-    rows = _db().table("document_highlights").select("*") \
-        .eq("document_id", document_id).eq("user_id", current_user_id()) \
+    try:
+        uid = current_user_id()
+    except Exception:
+        uid = None
+    supabase = _db()
+    if not uid:
+        rows = supabase.table("document_highlights").select("*") \
+            .eq("document_id", document_id) \
+            .order("created_at").limit(5000).execute().data or []
+        return {"document_id": document_id, "highlights": [_highlight_public(r) for r in rows]}
+
+    user_rows = supabase.table("document_highlights").select("*") \
+        .eq("document_id", document_id).eq("user_id", uid) \
         .order("created_at").limit(5000).execute().data or []
-    return {"document_id": document_id, "highlights": [_highlight_public(r) for r in rows]}
+
+    curated_rows = supabase.table("document_highlights").select("*") \
+        .eq("document_id", document_id).neq("user_id", uid) \
+        .order("created_at").limit(5000).execute().data or []
+
+    seen = {(r["block_id"], r["start_offset"], r["end_offset"]) for r in user_rows}
+    all_rows = list(user_rows)
+    for r in curated_rows:
+        key = (r["block_id"], r["start_offset"], r["end_offset"])
+        if key not in seen:
+            all_rows.append(r)
+            seen.add(key)
+
+    return {"document_id": document_id, "highlights": [_highlight_public(r) for r in all_rows]}
 
 
 @router.post("/{document_id}/highlights")
@@ -572,8 +599,14 @@ class ProgressUpdate(BaseModel):
 @router.get("/{document_id}/progress")
 def get_progress(document_id: str):
     require_owned("documents", document_id)
+    try:
+        uid = current_user_id()
+    except Exception:
+        uid = None
+    if not uid:
+        return {"document_id": document_id, "block_id": None, "percent": 0, "updated_at": None}
     rows = _db().table("reading_progress").select("block_id, percent, updated_at") \
-        .eq("document_id", document_id).eq("user_id", current_user_id()).limit(1).execute().data or []
+        .eq("document_id", document_id).eq("user_id", uid).limit(1).execute().data or []
     if not rows:
         return {"document_id": document_id, "block_id": None, "percent": 0, "updated_at": None}
     return {"document_id": document_id, **rows[0]}
@@ -704,8 +737,14 @@ def _get_note(supabase, document_id: str, note_id: str) -> Dict[str, Any]:
 @router.get("/{document_id}/notes")
 def list_notes(document_id: str):
     require_owned("documents", document_id)
+    try:
+        uid = current_user_id()
+    except Exception:
+        uid = None
+    if not uid:
+        return {"document_id": document_id, "notes": []}
     rows: List[Dict[str, Any]] = _db().table("document_notes").select("*") \
-        .eq("document_id", document_id).eq("user_id", current_user_id()) \
+        .eq("document_id", document_id).eq("user_id", uid) \
         .order("created_at", desc=True).limit(1000).execute().data or []
     return {"document_id": document_id, "notes": [_note_public(r) for r in rows]}
 

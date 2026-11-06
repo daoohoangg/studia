@@ -275,6 +275,23 @@ async def generate_lesson(req: GenerateLessonRequest):
     user_id = current_user_id()
     supabase = get_supabase_client()
 
+    # 1. Kiểm tra cache trong bảng lessons trước
+    if supabase:
+        try:
+            cached_resp = supabase.table("lessons").select("*").eq("topic_id", req.topic_id).order("created_at", desc=True).limit(1).execute()
+            if cached_resp.data:
+                cached = cached_resp.data[0]
+                return {
+                    "title": cached.get("title") or f"Bài học: {req.topic_name}",
+                    "content_markdown": cached.get("content_markdown") or "",
+                    "key_takeaways": cached.get("key_takeaways") or [],
+                    "topic_id": req.topic_id,
+                    "user_mastery": req.user_mastery,
+                    "rag_chunks_used": 5
+                }
+        except Exception as e:
+            logger.warning(f"Cached lesson lookup warning: {e}")
+
     # RAG: tìm kiếm context liên quan
     rag_chunks = []
     if supabase and req.document_id:
@@ -355,6 +372,26 @@ async def generate_lesson_v2(req: GenerateLessonV2Request):
     """
     user_id = current_user_id()
     supabase = get_supabase_client()
+
+    # 1. Kiểm tra cache trong bảng lessons trước
+    if supabase:
+        try:
+            cached_resp = supabase.table("lessons").select("*").eq("topic_id", req.topic_id).order("created_at", desc=True).limit(1).execute()
+            if cached_resp.data:
+                cached = cached_resp.data[0]
+                return {
+                    "title": cached.get("title") or f"Bài học: {req.topic_name}",
+                    "content_markdown": cached.get("content_markdown") or "",
+                    "key_takeaways": cached.get("key_takeaways") or [],
+                    "topic_id": req.topic_id,
+                    "user_mastery": req.user_mastery,
+                    "proficiency_level": req.proficiency_level or "intermediate",
+                    "rag_chunks_used": 5,
+                    "vocabulary_highlights": [],
+                    "vocabulary_auto_saved": 0
+                }
+        except Exception as e:
+            logger.warning(f"Cached lesson lookup warning: {e}")
 
     # RAG context
     rag_chunks = []

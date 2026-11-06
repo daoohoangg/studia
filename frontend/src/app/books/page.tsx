@@ -44,6 +44,10 @@ export default function BooksPage() {
   const [shareUpload, setShareUpload] = useState(false);
 
   const openUpload = () => {
+    if (!account) {
+      window.location.href = "/login";
+      return;
+    }
     if (account && !account.quota.unlimited && account.quota.remaining <= 0) setShowLimit(true);
     else setShowUpload(true);
   };
@@ -148,7 +152,7 @@ export default function BooksPage() {
   const [filter, setFilter] = useState<"all" | "ready" | "processing">("all");
   const mine = books.filter((b: any) => !b.is_shared);
   const sharedBooks = books.filter((b: any) => b.is_shared);
-  const activeTab = tab ?? (mine.length || !sharedBooks.length ? "mine" : "shared");
+  const activeTab = tab ?? (account ? (mine.length || !sharedBooks.length ? "mine" : "shared") : "shared");
   const list = activeTab === "mine" ? mine : sharedBooks;
   const processingBook = mine.find((b: any) => b.processing_status === "processing" || b.processing_status === "pending");
   const counts = {

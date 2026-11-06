@@ -9,6 +9,7 @@ import Logo from "@/components/Logo";
 
 import { API, apiFetch } from "@/lib/api";
 import { AnswerSaver, createAnswerSaver, postJson } from "@/lib/examSession";
+import { saveDemoResult, getDemoResult } from "@/lib/demoResults";
 import GroupHeader from "@/components/exam/GroupHeader";
 import ServerResult from "@/components/exam/ServerResult";
 import { Mic, Square } from "lucide-react";
@@ -312,6 +313,19 @@ function ExamSessionContent() {
   useEffect(() => {
     const loadExam = async () => {
       if (isDemoMode) {
+        // Mở lại kết quả một lần thi demo đã lưu trong trình duyệt
+        const savedId = searchParams.get("result");
+        if (savedId) {
+          const saved = getDemoResult(savedId);
+          if (saved) {
+            setResult({ ...saved, server: true, demo: true });
+            setStatus(saved.status || "SUBMITTED");
+          } else {
+            setLoadError("Không tìm thấy kết quả đã lưu (có thể đã bị xoá khỏi trình duyệt này).");
+          }
+          setLoading(false);
+          return;
+        }
         // Build demo session
         const camMatch = /^cambridge(\d+)_test([1-4])$/.exec(demoType);
         const isCam = Boolean(camMatch);
@@ -480,13 +494,12 @@ function ExamSessionContent() {
         setResult({ ...(await res.json()), server: true });
       } else {
         const camTitle = /^cambridge(\d+)_test(\d)$/.exec(demoType);
-        setResult({
-          ...buildDemoResult({
-            sections: sections as Section[], questions: examData?.questions, answers, task1: writingTask1, task2: writingTask2,
-            mode: roomMode, title: camTitle ? `Cambridge IELTS ${camTitle[1]} - Test ${camTitle[2]}` : "Đề mẫu Studia", auto,
-          }),
-          server: true, demo: true,
+        const demoResult = buildDemoResult({
+          sections: sections as Section[], questions: examData?.questions, answers, task1: writingTask1, task2: writingTask2,
+          mode: roomMode, title: camTitle ? `Cambridge IELTS ${camTitle[1]} - Test ${camTitle[2]}` : "Đề mẫu Studia", auto,
         });
+        saveDemoResult(demoResult); // lưu để xem lại trong Lịch sử làm bài
+        setResult({ ...demoResult, server: true, demo: true });
       }
       setShowSubmitModal(false);
       setStatus(auto ? "AUTO_SUBMITTED" : "SUBMITTED");

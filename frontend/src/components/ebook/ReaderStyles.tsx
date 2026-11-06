@@ -4,8 +4,15 @@
 export default function ReaderStyles() {
   return (
     <style jsx global>{`
-      .reader-root { min-height: 100vh; margin: -32px -40px; padding-bottom: 120px; transition: background 0.2s ease, color 0.2s ease; }
+      .reader-root { min-height: 100vh; margin: -40px -48px; padding-bottom: 120px; transition: background 0.2s ease, color 0.2s ease, padding 0.2s ease; }
+      @media (max-width: 768px) {
+        .reader-root { margin: -72px -16px; }
+      }
       .reader-root.with-pane { padding-right: 440px; }
+      .reader-root.with-toc-pinned { padding-left: 330px; }
+      @media (max-width: 1024px) {
+        .reader-root.with-toc-pinned { padding-left: 0; }
+      }
       .reader-toolbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
         padding: 10px 16px; background: var(--bg-card); color: var(--text-primary); border-bottom: 1px solid var(--border-subtle); }
       .reader-title { flex: 1; min-width: 120px; font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
@@ -14,19 +21,61 @@ export default function ReaderStyles() {
       .reader-tool:hover:not(:disabled) { background: var(--bg-card-hover); color: var(--text-primary); }
       .reader-tool:disabled { opacity: 0.4; cursor: not-allowed; }
       .reader-tool.active { border-color: var(--primary); color: var(--primary); }
+      .reader-zoom-group { display: inline-flex; align-items: center; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; background: var(--bg-card); }
+      .reader-zoom-group .reader-tool { border: none; border-radius: 0; padding: 6px 10px; margin: 0; }
+      .reader-zoom-group .reader-zoom-val { font-variant-numeric: tabular-nums; min-width: 54px; text-align: center; border-left: 1px solid var(--border-subtle); border-right: 1px solid var(--border-subtle); font-weight: 700; font-size: 0.82rem; }
+      .reader-zoom-group .reader-zoom-btn { font-size: 0.95rem; font-weight: 700; padding: 6px 10px; }
+      .reader-zoom-group .reader-tool:hover:not(:disabled) { background: var(--bg-card-hover); }
       .reader-progress { font-size: 0.78rem; color: var(--text-muted); min-width: 36px; text-align: right; }
       .reader-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 0.8rem; padding: 8px 16px;
         background: rgba(var(--primary-rgb), 0.1); color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); font-family: inherit; }
-      .reader-page { margin: 0 auto; padding: 36px 20px 0; overflow-wrap: break-word; }
+      .reader-page { margin: 0 auto; padding: 36px clamp(20px, 3.5vw, 48px) 0; width: 100%; box-sizing: border-box; overflow-wrap: break-word; transition: max-width 0.15s ease; }
+      @media (max-width: 768px) {
+        .reader-page { padding: 24px 16px 0; }
+      }
       .reader-empty { text-align: center; opacity: 0.7; padding: 48px 0; font-size: 0.95rem; }
-      .reader-block { position: relative; margin: 0 0 0.9em; border-radius: 6px; scroll-margin-top: 90px; }
+      .reader-block { position: relative; margin: 0 0 1.15em; border-radius: 6px; scroll-margin-top: 90px; width: 100%; }
       .reader-block.editable { cursor: text; outline: 1px dashed transparent; outline-offset: 4px; }
       .reader-block.editable:hover { outline-color: currentColor; }
-      .reader-block h2, .reader-block h3, .reader-block h4 { margin: 1.2em 0 0.3em; line-height: 1.3; font-family: inherit; color: inherit; }
-      .reader-block h2 { font-size: 1.6em; } .reader-block h3 { font-size: 1.3em; } .reader-block h4 { font-size: 1.1em; }
-      .reader-block p { margin: 0; }
-      .reader-block.list p { padding-left: 1.4em; text-indent: -1em; }
-      .reader-block table { border-collapse: collapse; font-size: 0.9em; width: 100%; }
+      .reader-block h2, .reader-block h3, .reader-block h4 { margin: 1.6em 0 0.5em; line-height: 1.35; font-family: inherit; text-align: left; letter-spacing: -0.01em; }
+      .reader-block h2 {
+        font-size: 1.65em;
+        font-weight: 800;
+        color: var(--primary);
+        border-left: 5px solid var(--primary);
+        background: rgba(var(--primary-rgb, 14, 165, 233), 0.08);
+        padding: 8px 14px;
+        border-radius: 0 8px 8px 0;
+        box-shadow: inset 0 -1px 0 rgba(var(--primary-rgb, 14, 165, 233), 0.15);
+      }
+      .reader-block h3 {
+        font-size: 1.32em;
+        font-weight: 700;
+        color: var(--text-primary);
+        border-left: 4px solid var(--accent-teal, #0d9488);
+        background: rgba(13, 148, 136, 0.07);
+        padding: 6px 12px;
+        border-radius: 0 6px 6px 0;
+      }
+      .reader-block h4 {
+        font-size: 1.15em;
+        font-weight: 700;
+        color: var(--text-primary);
+        border-left: 3px solid var(--border-subtle);
+        padding-left: 10px;
+      }
+      .reader-block strong {
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+      .reader-block mark {
+        border-radius: 4px;
+        padding: 1px 4px;
+        transition: background-color 0.15s ease;
+      }
+      .reader-block p { margin: 0; text-align: justify; text-justify: inter-word; hyphens: auto; }
+      .reader-block.list p { padding-left: 1.4em; text-indent: -1em; text-align: left; }
+      .reader-block table { border-collapse: collapse; font-size: 0.9em; width: 100%; margin: 0.8em 0; }
       .reader-block td { border: 1px solid currentColor; padding: 4px 10px; vertical-align: top; }
       .reader-block tr:first-child td { font-weight: 700; }
       .reader-block mark[data-hid] { cursor: pointer; }
@@ -35,10 +84,25 @@ export default function ReaderStyles() {
       .reader-marker { position: absolute; right: -18px; top: 0.5em; width: 8px; height: 8px; border-radius: 50%; border: none; padding: 0; cursor: pointer; background: var(--accent-strong); }
       .reader-marker.edited { right: -32px; background: var(--primary); cursor: default; }
 
-      .reader-drawer { position: fixed; top: 0; bottom: 0; width: min(380px, 92vw); z-index: 40; overflow-y: auto; padding: 16px;
-        background: var(--bg-card); color: var(--text-primary); box-shadow: var(--shadow-2); font-family: var(--font-sans, inherit); font-size: 0.875rem; line-height: 1.5; }
-      .reader-drawer.left { left: 0; border-right: 1px solid var(--border-subtle); }
+      .reader-drawer { position: fixed; top: 0; bottom: 0; width: min(380px, 92vw); z-index: 75; overflow-y: auto; padding: 16px;
+        background: var(--bg-card); color: var(--text-primary); box-shadow: var(--shadow-2); font-family: var(--font-sans, inherit); font-size: 0.875rem; line-height: 1.5;
+        transition: left 0.2s ease, width 0.2s ease; }
+      .reader-drawer.left { left: var(--sidebar, 248px); border-right: 1px solid var(--border-subtle); }
+      .app-main.collapsed .reader-drawer.left { left: var(--sidebar-collapsed, 72px); }
+      .reader-drawer.left.pinned { width: 320px; z-index: 34; box-shadow: none; border-right: 1px solid var(--border-subtle); }
+      @media (max-width: 1024px) {
+        .reader-drawer.left.pinned { z-index: 75; box-shadow: var(--shadow-2); width: min(360px, 92vw); }
+      }
+      @media (max-width: 768px) {
+        .reader-drawer { top: 56px; bottom: 56px; width: 100vw; z-index: 85; }
+        .reader-drawer.left { left: 0; }
+        .app-main.collapsed .reader-drawer.left { left: 0; }
+      }
       .reader-drawer.right { right: 0; border-left: 1px solid var(--border-subtle); }
+      .reader-pin-btn { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-secondary); border-radius: 6px;
+        padding: 4px 10px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.15s ease; font-family: inherit; }
+      .reader-pin-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--border-input); }
+      .reader-pin-btn.active { background: rgba(var(--primary-rgb, 14, 165, 233), 0.12); border-color: var(--primary); color: var(--primary); font-weight: 700; }
       .reader-pane { position: fixed; top: 0; bottom: 0; right: 0; width: 420px; max-width: 92vw; z-index: 35; overflow-y: auto; padding: 16px;
         background: var(--bg-card); color: var(--text-primary); border-left: 1px solid var(--border-subtle);
         font-family: var(--font-sans, inherit); font-size: 0.875rem; }
@@ -61,7 +125,8 @@ export default function ReaderStyles() {
       .reader-hit:hover { background: var(--bg-card-hover); }
       .reader-muted { color: var(--text-muted); font-size: 0.78rem; }
       .reader-label { display: block; margin: 18px 0 8px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
-      .reader-options { display: flex; flex-direction: column; gap: 6px; } .reader-options.row { flex-direction: row; }
+      .reader-options { display: flex; flex-direction: column; gap: 6px; } .reader-options.row { flex-direction: row; flex-wrap: wrap; }
+      .reader-options.row .reader-option { text-align: center; }
       .reader-option { flex: 1; text-align: left; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: transparent;
         color: var(--text-primary); cursor: pointer; font-size: 0.85rem; }
       .reader-option.active { border-color: var(--primary); color: var(--primary); font-weight: 700; }

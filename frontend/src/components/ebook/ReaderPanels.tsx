@@ -6,13 +6,36 @@ import { apiFetch } from "@/lib/api";
 import {
   DEFAULT_PREFS, EbookHighlight, EbookNote, FONT_SIZE_RANGE, HIGHLIGHT_COLORS, HIGHLIGHT_SWATCH, OutlineItem,
   PAGE_ISSUE_LABEL, PageIssue, READER_FONTS, READER_THEMES, READER_WIDTHS, ReaderPrefs, SearchHit, TocData, chapterPercent, plainText,
+  PAGE_WIDTH_RANGE, ZOOM_RANGE,
 } from "@/lib/ebook";
 
-export function DrawerHeader({ title, onClose }: { title: string; onClose: () => void }) {
+export function DrawerHeader({
+  title,
+  onClose,
+  pinned,
+  onTogglePin,
+}: {
+  title: string;
+  onClose: () => void;
+  pinned?: boolean;
+  onTogglePin?: () => void;
+}) {
   return (
     <div className="reader-drawer-header">
       <span>{title}</span>
-      <button className="reader-link" onClick={onClose}>Đóng</button>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {onTogglePin && (
+          <button
+            type="button"
+            className={`reader-pin-btn ${pinned ? "active" : ""}`}
+            onClick={onTogglePin}
+            title={pinned ? "Bỏ ghim mục lục (chuyển sang dạng ngăn kéo)" : "Ghim cố định mục lục vào lề trái"}
+          >
+            {pinned ? "Bỏ ghim" : "Ghim"}
+          </button>
+        )}
+        <button className="reader-link" onClick={onClose} title="Đóng mục lục">Đóng</button>
+      </div>
     </div>
   );
 }
@@ -25,8 +48,22 @@ const TOC_SOURCE_NOTE: Record<string, string> = {
   headings: "Sách không có trang mục lục: dùng các tiêu đề nhận diện được",
 };
 
-export function TocPanel({ toc, outline, currentOrder, onJump, onClose }: {
-  toc: TocData | null; outline: OutlineItem[]; currentOrder: number | null; onJump: (blockId: string) => void; onClose: () => void;
+export function TocPanel({
+  toc,
+  outline,
+  currentOrder,
+  onJump,
+  onClose,
+  pinned = false,
+  onTogglePin,
+}: {
+  toc: TocData | null;
+  outline: OutlineItem[];
+  currentOrder: number | null;
+  onJump: (blockId: string) => void;
+  onClose: () => void;
+  pinned?: boolean;
+  onTogglePin?: () => void;
 }) {
   const entries = toc?.entries || [];
   const withProgress = entries.map((entry) => ({ entry, percent: chapterPercent(entry, currentOrder) }));
@@ -35,8 +72,8 @@ export function TocPanel({ toc, outline, currentOrder, onJump, onClose }: {
 
   if (entries.length === 0) {
     return (
-      <aside className="reader-drawer left">
-        <DrawerHeader title="Mục lục" onClose={onClose} />
+      <aside className={`reader-drawer left ${pinned ? "pinned" : ""}`}>
+        <DrawerHeader title="Mục lục" onClose={onClose} pinned={pinned} onTogglePin={onTogglePin} />
         {outline.length === 0 && (
           <p className="reader-muted">Tài liệu này chưa có tiêu đề nào. Trong chế độ chỉnh sửa, bạn có thể đổi một đoạn thành tiêu đề.</p>
         )}
@@ -53,8 +90,8 @@ export function TocPanel({ toc, outline, currentOrder, onJump, onClose }: {
   }
 
   return (
-    <aside className="reader-drawer left">
-      <DrawerHeader title="Mục lục" onClose={onClose} />
+    <aside className={`reader-drawer left ${pinned ? "pinned" : ""}`}>
+      <DrawerHeader title="Mục lục" onClose={onClose} pinned={pinned} onTogglePin={onTogglePin} />
       <div className="reader-muted" style={{ margin: "0 0 8px" }}>
         {toc?.title ? <b>{toc.title}</b> : null}
         <div>{done}/{entries.length} phần đã đọc xong · {TOC_SOURCE_NOTE[toc?.source || ""] || ""}</div>
@@ -172,11 +209,13 @@ export function SettingsPanel({ prefs, onChange, onClose }: {
         Bảng, sơ đồ, câu hỏi điền từ không thể dựng lại hoàn hảo bằng chữ nên ảnh trang gốc được xen vào để không mất nội dung.
       </div>
 
-      <label className="reader-label">Độ rộng trang</label>
-      <div className="reader-options row">
-        {(Object.keys(READER_WIDTHS) as (keyof typeof READER_WIDTHS)[]).map((key) => (
-          <button key={key} className={`reader-option ${prefs.width === key ? "active" : ""}`} onClick={() => onChange({ width: key })}>
-            {READER_WIDTHS[key].label}
+      <label className="reader-label">Khoảng cách 2 bên / Độ rộng trang: {prefs.pageWidth ?? 100}%</label>
+      <input type="range" min={PAGE_WIDTH_RANGE.min} max={PAGE_WIDTH_RANGE.max} step={PAGE_WIDTH_RANGE.step} value={prefs.pageWidth ?? 100}
+        onChange={(e) => onChange({ pageWidth: Number(e.target.value) })} style={{ width: "100%" }} />
+      <div className="reader-options row" style={{ marginTop: 6 }}>
+        {[50, 65, 80, 90, 100].map((w) => (
+          <button key={w} className={`reader-option ${(prefs.pageWidth ?? 100) === w ? "active" : ""}`} onClick={() => onChange({ pageWidth: w })}>
+            {w === 100 ? "Dãn đều (100%)" : `${w}%`}
           </button>
         ))}
       </div>
@@ -370,6 +409,7 @@ export function PageImagePane({ base, page, maxPage, onPage, onClose }: {
   const cache = useRef<Map<number, string>>(new Map());
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  const [paneZoom, setPaneZoom] = useState(100);
 
   useEffect(() => {
     let cancelled = false;
@@ -404,9 +444,28 @@ export function PageImagePane({ base, page, maxPage, onPage, onClose }: {
         <span>Trang {page}{maxPage ? ` / ${maxPage}` : ""}</span>
         <button className="reader-tool" disabled={maxPage > 0 && page >= maxPage} onClick={() => onPage(page + 1)}>→</button>
       </div>
-      {error && <p className="reader-muted">Không tải được ảnh trang này (tài liệu không có tệp PDF gốc hoặc trang không tồn tại).</p>}
-      {!error && !url && <p className="reader-muted">Đang tải ảnh trang...</p>}
-      {url && <img src={url} alt={`Trang ${page} của tệp gốc`} style={{ width: "100%", borderRadius: 6, border: "1px solid var(--border-subtle)" }} />}
+      <div className="reader-pane-nav" style={{ marginTop: 8 }}>
+        <button className="reader-tool" onClick={() => setPaneZoom((z) => Math.max(50, z - 25))} title="Thu nhỏ ảnh trang gốc">−</button>
+        <button className="reader-tool" onClick={() => setPaneZoom(100)} title="Đặt lại 100%">Zoom: {paneZoom}%</button>
+        <button className="reader-tool" onClick={() => setPaneZoom((z) => Math.min(300, z + 25))} title="Phóng to ảnh trang gốc">+</button>
+      </div>
+      <div style={{ overflow: "auto", maxHeight: "calc(100vh - 165px)", marginTop: 10, textAlign: "center" }}>
+        {error && <p className="reader-muted">Không tải được ảnh trang này (tài liệu không có tệp PDF gốc hoặc trang không tồn tại).</p>}
+        {!error && !url && <p className="reader-muted">Đang tải ảnh trang...</p>}
+        {url && (
+          <img
+            src={url}
+            alt={`Trang ${page} của tệp gốc`}
+            style={{
+              width: `${paneZoom}%`,
+              maxWidth: paneZoom <= 100 ? "100%" : "none",
+              borderRadius: 6,
+              border: "1px solid var(--border-subtle)",
+              transition: "width 0.15s ease",
+            }}
+          />
+        )}
+      </div>
     </aside>
   );
 }

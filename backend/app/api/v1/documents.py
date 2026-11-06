@@ -413,11 +413,14 @@ async def list_documents(user_id: Optional[str] = None):
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    uid = current_user_id()
+    try:
+        uid = current_user_id()
+    except HTTPException:
+        uid = None
     cols = "id, user_id, title, source_type, file_path, processing_status, visibility, created_at"
     try:
         own = supabase.table("documents").select(cols).eq("user_id", uid) \
-            .order("created_at", desc=True).execute().data or []
+            .order("created_at", desc=True).execute().data or [] if uid else []
         shared = supabase.table("documents").select(cols).eq("visibility", "shared") \
             .order("created_at", desc=True).execute().data or []
     except Exception as e:
@@ -432,7 +435,7 @@ async def list_documents(user_id: Optional[str] = None):
             continue
         seen.add(doc["id"])
         doc["visibility"] = doc.get("visibility") or "private"
-        doc["is_owner"] = str(doc.get("user_id")) == uid
+        doc["is_owner"] = str(doc.get("user_id")) == uid if uid else False
         # Sách thư viện chung luôn ở tab "Thư viện Studia", kể cả với quản lý đã tải nó lên
         doc["is_shared"] = doc["visibility"] in ("shared", "shared_draft")
         meta = book_meta.get(str(doc["id"])) if doc["is_shared"] else None

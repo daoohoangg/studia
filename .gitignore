@@ -20,6 +20,7 @@ tsconfig.tsbuildinfo
 backend/data/
 frontend/.preview/
 _ui_backup_*/
+brand/video/**/out/
 
 # Tài liệu nguồn nặng (giữ ở máy, không commit)
 Cambridge IELTS 21.pdf

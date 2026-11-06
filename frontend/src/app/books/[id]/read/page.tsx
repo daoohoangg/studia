@@ -8,7 +8,7 @@ import { API, apiFetch } from "@/lib/api";
 import {
   DEFAULT_PREFS, EbookBlock, EbookHighlight, EbookNote, FONT_SIZE_RANGE, HIGHLIGHT_COLORS, HIGHLIGHT_SWATCH,
   BlockRevision, OutlineItem, PageIssue, TocData, READER_FONTS, READER_THEMES, READER_WIDTHS, ReaderPrefs, ResolvedHighlight,
-  loadPrefs, plainText, resolveHighlight, savePrefs, toggleBoldByPlainRange,
+  PAGE_WIDTH_RANGE, ZOOM_RANGE, loadPrefs, plainText, resolveHighlight, savePrefs, toggleBoldByPlainRange,
 } from "@/lib/ebook";
 import BlockView from "@/components/ebook/BlockView";
 import BlockEditor from "@/components/ebook/BlockEditor";
@@ -54,6 +54,7 @@ export default function BookReaderPage() {
   const [panePage, setPanePage] = useState<number | null>(null);
   const [currentBlockId, setCurrentBlockId] = useState<string | null>(null);
   const [popover, setPopover] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [tocPinned, setTocPinned] = useState(false);
 
   const blocksRef = useRef<EbookBlock[]>([]);
   blocksRef.current = blocks;
@@ -67,7 +68,25 @@ export default function BookReaderPage() {
     setTimeout(() => setToast((current) => (current === message ? null : current)), 3500);
   }, []);
 
-  useEffect(() => { setPrefs(loadPrefs()); }, []);
+  useEffect(() => {
+    setPrefs(loadPrefs());
+    try {
+      if (localStorage.getItem("studia_reader_toc_pinned") === "true") {
+        setTocPinned(true);
+      }
+    } catch {}
+  }, []);
+
+  const toggleTocPin = useCallback(() => {
+    setTocPinned((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("studia_reader_toc_pinned", String(next)); } catch {}
+      if (next) {
+        setPanel((p) => (p === "toc" ? null : p));
+      }
+      return next;
+    });
+  }, []);
   const updatePrefs = (changes: Partial<ReaderPrefs> | ((current: ReaderPrefs) => Partial<ReaderPrefs>)) => {
     setPrefs((current) => {
       const next = { ...current, ...(typeof changes === "function" ? changes(current) : changes) };
@@ -308,7 +327,7 @@ export default function BookReaderPage() {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ block_id: blockId, start, end, color, quote }),
     });
-    if (!res.ok) { notify("Không lưu được highlight."); return; }
+    if (!res.ok) { notify(res.status === 401 ? "Vui lòng đăng nhập để lưu highlight." : "Không lưu được highlight."); return; }
     const created: EbookHighlight = await res.json();
     setHighlights((current) => [...current, created]);
   }, [base, notify]);
@@ -456,7 +475,7 @@ export default function BookReaderPage() {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ content, quote: noteDraft.quote, block_id: noteDraft.blockId }),
     });
-    if (!res.ok) { notify("Không lưu được ghi chú."); return; }
+    if (!res.ok) { notify(res.status === 401 ? "Vui lòng đăng nhập để lưu ghi chú." : "Không lưu được ghi chú."); return; }
     const created: EbookNote = await res.json();
     setNotes((current) => [created, ...current]);
     setNoteDraft({ quote: null, blockId: null, content: "" });
@@ -515,21 +534,81 @@ export default function BookReaderPage() {
     return () => window.removeEventListener("studia:ebook-selection", onSelectionAction);
   }, [patchBlock, addHighlight, bookId, title]);
 
+  // Phím tắt chỉnh khoảng cách 2 bên / độ rộng trang (Ctrl/Cmd + Plus, Minus, Zero)
+  useEffect(() => {
+    const onZoomKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        updatePrefs((p) => ({ pageWidth: Math.min(PAGE_WIDTH_RANGE.max, (p.pageWidth ?? 100) + PAGE_WIDTH_RANGE.step) }));
+      } else if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        updatePrefs((p) => ({ pageWidth: Math.max(PAGE_WIDTH_RANGE.min, (p.pageWidth ?? 100) - PAGE_WIDTH_RANGE.step) }));
+      } else if (e.key === "0") {
+        e.preventDefault();
+        updatePrefs({ pageWidth: 100 });
+      }
+    };
+    window.addEventListener("keydown", onZoomKey);
+    return () => window.removeEventListener("keydown", onZoomKey);
+  }, []);
+
   const theme = READER_THEMES[prefs.theme];
   const notedBlockIds = useMemo(() => new Set(notes.map((n) => n.block_id).filter(Boolean)), [notes]);
   const togglePanel = (name: Exclude<Panel, null>) => setPanel((current) => (current === name ? null : name));
   const popoverHighlight = popover ? highlights.find((h) => h.id === popover.id) : null;
 
   return (
-    <div className={`reader-root ${paneOpen && hasPages ? "with-pane" : ""}`} style={{ background: theme.background, color: theme.color }}>
+    <div className={`reader-root ${paneOpen && hasPages ? "with-pane" : ""} ${tocPinned ? "with-toc-pinned" : ""}`} style={{ background: theme.background, color: theme.color }}>
       <div className="reader-toolbar">
         <Link href={`/books/${bookId}`} className="reader-tool">← Sách</Link>
         <div className="reader-title" title={title}>{title || "Đang tải..."}</div>
         {blocks.length > 0 && <span className="reader-progress" title="Vị trí đang đọc">{percent}%</span>}
         <button className={`reader-tool ${panel === "search" ? "active" : ""}`} onClick={() => togglePanel("search")}>Tìm</button>
-        <button className={`reader-tool ${panel === "toc" ? "active" : ""}`} onClick={() => togglePanel("toc")}>Mục lục</button>
+        <button
+          className={`reader-tool ${panel === "toc" || tocPinned ? "active" : ""}`}
+          onClick={() => {
+            if (tocPinned) {
+              toggleTocPin();
+            } else {
+              togglePanel("toc");
+            }
+          }}
+          title="Mục lục sách"
+        >
+          Mục lục
+        </button>
+        <button
+          className={`reader-tool ${tocPinned ? "active" : ""}`}
+          onClick={toggleTocPin}
+          title={tocPinned ? "Bỏ ghim mục lục" : "Ghim mục lục vào lề trái"}
+        >
+          {tocPinned ? "Bỏ ghim" : "Ghim"}
+        </button>
         <button className="reader-tool" onClick={() => updatePrefs((p) => ({ fontSize: Math.max(FONT_SIZE_RANGE.min, p.fontSize - 1) }))} title="Giảm cỡ chữ" aria-label="Giảm cỡ chữ">A−</button>
         <button className="reader-tool" onClick={() => updatePrefs((p) => ({ fontSize: Math.min(FONT_SIZE_RANGE.max, p.fontSize + 1) }))} title="Tăng cỡ chữ" aria-label="Tăng cỡ chữ">A+</button>
+        <div className="reader-zoom-group" title="Chỉnh khoảng cách 2 bên / Độ rộng nội dung">
+          <button type="button" className="reader-tool reader-zoom-btn"
+            onClick={() => updatePrefs((p) => ({ pageWidth: Math.max(PAGE_WIDTH_RANGE.min, (p.pageWidth ?? 100) - PAGE_WIDTH_RANGE.step) }))}
+            title="Tăng khoảng cách 2 bên · thu hẹp trang (Ctrl + −)" aria-label="Thu hẹp 2 bên">
+            −
+          </button>
+          <button type="button" className={`reader-tool reader-zoom-val ${(prefs.pageWidth ?? 100) !== 100 ? "active" : ""}`}
+            onClick={() => updatePrefs({ pageWidth: 100 })}
+            title="Độ rộng nội dung · Nhấn để dãn đều 100% ra 2 bên (Ctrl + 0)">
+            {prefs.pageWidth ?? 100}%
+          </button>
+          <button type="button" className="reader-tool reader-zoom-btn"
+            onClick={() => updatePrefs((p) => ({ pageWidth: Math.min(PAGE_WIDTH_RANGE.max, (p.pageWidth ?? 100) + PAGE_WIDTH_RANGE.step) }))}
+            title="Giảm khoảng cách 2 bên · dãn rộng trang (Ctrl + +)" aria-label="Dãn rộng 2 bên">
+            +
+          </button>
+        </div>
+        <button className={`reader-tool ${(prefs.pageWidth ?? 100) === 100 ? "active" : ""}`}
+          onClick={() => updatePrefs((p) => ({ pageWidth: (p.pageWidth ?? 100) === 100 ? 75 : 100 }))}
+          title={(prefs.pageWidth ?? 100) === 100 ? "Đang dãn đều 100% · bấm để thu hẹp vừa (75%)" : "Dãn đều nội dung sách ra 2 bên (100%)"}>
+          {(prefs.pageWidth ?? 100) === 100 ? "Dãn đều: Bật" : "Dãn đều"}
+        </button>
         <button className={`reader-tool ${panel === "settings" ? "active" : ""}`} onClick={() => togglePanel("settings")}>Hiển thị</button>
         {hasPages && (
           <button className={`reader-tool ${paneOpen ? "active" : ""}`} onClick={() => setPaneOpen((v) => !v)}
@@ -566,7 +645,7 @@ export default function BookReaderPage() {
       )}
 
       <div className="reader-page" onClick={onPageClick} style={{
-        maxWidth: READER_WIDTHS[prefs.width].css,
+        maxWidth: `${prefs.pageWidth ?? 100}%`,
         fontSize: `${prefs.fontSize}px`,
         fontFamily: READER_FONTS[prefs.fontFamily].css,
         lineHeight: prefs.lineHeight,
@@ -612,7 +691,20 @@ export default function BookReaderPage() {
         {loadingMore && blocks.length > 0 && <p className="reader-empty">Đang tải phần tiếp theo...</p>}
       </div>
 
-      {panel === "toc" && <TocPanel toc={toc} outline={outline} currentOrder={currentOrder} onJump={jumpTo} onClose={() => setPanel(null)} />}
+      {(tocPinned || panel === "toc") && (
+        <TocPanel
+          toc={toc}
+          outline={outline}
+          currentOrder={currentOrder}
+          onJump={jumpTo}
+          onClose={() => {
+            setPanel(null);
+            if (tocPinned) toggleTocPin();
+          }}
+          pinned={tocPinned}
+          onTogglePin={toggleTocPin}
+        />
+      )}
       {panel === "search" && <SearchPanel base={base} onJump={jumpTo} onClose={() => setPanel(null)} />}
       {panel === "settings" && <SettingsPanel prefs={prefs} onChange={updatePrefs} onClose={() => setPanel(null)} />}
       {panel === "notes" && (

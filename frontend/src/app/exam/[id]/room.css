@@ -23,8 +23,9 @@
 /* ===== Bố cục phòng thi (desktop): thay cho style inline cũ, giá trị giữ nguyên ===== */
 .room-root { background: var(--canvas); min-height: 100vh; }
 .room-root .exam-listening-layout, .room-root .exam-reading-layout { height: var(--layout-h, calc(100vh - 56px - 60px)); }
-.room-root .exam-audio-pane, .room-root .exam-passage-pane { width: var(--split, auto); }
-.room-root .exam-questions-pane { width: var(--qw, auto); }
+/* Khung trái cố định theo --split (không co lại), khung phải lấy phần còn lại — nhờ vậy kéo thanh chia mới có tác dụng */
+.room-root .exam-audio-pane, .room-root .exam-passage-pane { width: var(--split, auto); flex: 0 0 var(--split, auto); min-width: 0; }
+.room-root .exam-questions-pane { width: var(--qw, auto); flex: 1 1 0; min-width: 0; }
 .room-tabs, .exam-header-now { display: none; }
 .room-l-parts { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .room-l-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }

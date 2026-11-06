@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Studia Reel 01</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Literata:ital,opsz,wght@0,7..72,300..600;1,7..72,300..600&display=block">
+<style>
+  :root {
+    --navy: #0F1F4D; --ink: #0E1630; --ink2: #3A4260; --muted: #5E6480; --control: #80869E;
+    --ivory: #F8F6F2; --hair: #E5E0D8; --brand: #2344C9; --brandH: #1A3399; --brandT: #E9EEFD;
+    --accent: #F2611F; --accentT: #FFEDE3; --success: #0D7A5F; --successT: #E1F4EC; --marker: #FFE27A;
+    --navy2: #1B2A5E; --dline: #273055; --dmuted: #949BB8;
+  }
+  html, body { margin: 0; padding: 0; background: #000; }
+  #stage { position: relative; width: 1080px; height: 1920px; overflow: hidden; background: var(--ivory); }
+  .scene { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; overflow: hidden; display: none; }
+  .abs { position: absolute; }
+  .br { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+  .bv { font-family: 'Be Vietnam Pro', sans-serif; }
+  .li { font-family: 'Literata', serif; }
+  .mask { position: absolute; overflow: hidden; white-space: nowrap; }
+  .mask > .in { position: relative; white-space: nowrap; isolation: isolate; }
+  .mk { position: absolute; background: var(--marker); z-index: -1; transform-origin: 0 50%; }
+  .card { position: absolute; box-sizing: border-box; background: #fff; border: 6px solid var(--navy); }
+  .coal { position: absolute; transform-origin: 50% 92%; }
+  .coal img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0; }
+  .pill { position: absolute; box-sizing: border-box; white-space: nowrap; display: flex; align-items: center; justify-content: center; }
+  .sweep { position: absolute; top: 0; left: -210px; width: 1500px; height: 1920px; display: none; z-index: 50; }
+  .ring { position: absolute; box-sizing: border-box; border: 6px solid var(--navy); border-radius: 50%; display: none; z-index: 30; }
+  .face { position: absolute; inset: 0; box-sizing: border-box; background: #fff; border: 6px solid var(--navy); border-radius: 40px;
+          box-shadow: 0 14px 0 var(--navy); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+  .sheet { position: absolute; left: 0; top: 0; width: 520px; height: 700px; box-sizing: border-box; background: #fff;
+           border: 5px solid var(--navy); border-radius: 18px; transform-origin: 0 100%; }
+  .sheet i { position: absolute; display: block; height: 18px; border-radius: 9px; background: var(--hair); }
+  .num { display: inline-block; text-align: center; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+'use strict';
+/* =====================================================================
+   Studia Reel 01 — mọi chuyển động là hàm thuần của t (giây): window.render(t)
+   Kịch bản: docs/marketing/video/KICH_BAN_REEL_01.md
+   ===================================================================== */
+const COAL = '../../../frontend/public/coal/';
+const C = {
+  navy: '#0F1F4D', ink: '#0E1630', ink2: '#3A4260', muted: '#5E6480', control: '#80869E', ivory: '#F8F6F2',
+  white: '#FFFFFF', hair: '#E5E0D8', brand: '#2344C9', brandH: '#1A3399', brandT: '#E9EEFD', accent: '#F2611F',
+  accentT: '#FFEDE3', success: '#0D7A5F', successT: '#E1F4EC', marker: '#FFE27A', navy2: '#1B2A5E',
+  dline: '#273055', dmuted: '#949BB8',
+};
+
+/* ---------- easing ---------- */
+function bez(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = s => ((ax * s + bx) * s + cx) * s;
+  const sy = s => ((ay * s + by) * s + cy) * s;
+  const dx = s => (3 * ax * s + 2 * bx) * s + cx;
+  return x => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let s = x;
+    for (let i = 0; i < 8; i++) {
+      const e = sx(s) - x;
+      if (Math.abs(e) < 1e-7) return sy(s);
+      const d = dx(s);
+      if (Math.abs(d) < 1e-6) break;
+      s -= e / d;
+    }
+    let lo = 0, hi = 1; s = x;
+    for (let i = 0; i < 40; i++) {
+      const v = sx(s);
+      if (Math.abs(v - x) < 1e-7) break;
+      if (v < x) lo = s; else hi = s;
+      s = (lo + hi) / 2;
+    }
+    return sy(s);
+  };
+}
+const E = {
+  SPRING: bez(0.34, 1.56, 0.64, 1), OUT: bez(0.22, 1, 0.36, 1), IN: bez(0.55, 0, 1, 0.45),
+  INOUT: bez(0.65, 0, 0.35, 1), LIN: x => x,
+};
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const prog = (t, t0, dur, ease = E.LIN) => ease(clamp((t - t0) / dur));
+const tri = p => (p < 0.5 ? p * 2 : 2 - p * 2);           // 0→1→0
+const bump = (t, t0, dur) => E.INOUT(tri(clamp((t - t0) / dur))); // 0→1→0 INOUT
+function hex2rgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function mix(a, b, k) {
+  const A = hex2rgb(a), B = hex2rgb(b);
+  return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], clamp(k)))).join(',')})`;
+}
+
+/* POP (đổi tư thế): 0.9→1.05 (0.12 OUT) →1 (0.18 INOUT) */
+function popS(t, tp) {
+  const u = t - tp;
+  if (u < 0 || u >= 0.3) return 1;
+  if (u < 0.12) return 0.9 + 0.15 * E.OUT(u / 0.12);
+  return 1.05 - 0.05 * E.INOUT((u - 0.12) / 0.18);
+}
+/* POP-IN: s0→1.05 (0.3 OUT) →1 (0.15 INOUT), opacity 0→1 trong 0.1 */
+function popIn(t, tp, s0 = 0) {
+  const u = t - tp;
+  if (u < 0) return { s: s0, o: 0 };
+  const o = clamp(u / 0.1);
+  if (u < 0.3) return { s: s0 + (1.05 - s0) * E.OUT(u / 0.3), o };
+  if (u < 0.45) return { s: 1.05 - 0.05 * E.INOUT((u - 0.3) / 0.15), o };
+  return { s: 1, o: 1 };
+}
+/* NHÚN: pha tích phân theo chu kỳ thay đổi, tạm dừng (giữ nguyên) trong lúc POP */
+function bobPhase(t, t0, periods, pauses = []) {
+  if (t <= t0) return 0;
+  let ph = 0;
+  const dt = 1 / 240;
+  for (let s = t0; s < t; s += dt) {
+    const step = Math.min(dt, t - s), mid = s + step / 2;
+    let paused = false;
+    for (const [a, b] of pauses) if (mid >= a && mid < b) { paused = true; break; }
+    if (paused) continue;
+    let P = periods[0][1];
+    for (const [ts, pp] of periods) if (mid >= ts) P = pp;
+    ph += step / P;
+  }
+  return ph;
+}
+function bobV(ph, amp) {
+  const p = ph - Math.floor(ph);
+  const h = E.INOUT(tri(p));
+  return { y: -12 * h * amp, sx: 1 + amp * lerp(0.04, -0.02, h), sy: 1 + amp * lerp(-0.04, 0.03, h) };
+}
+const popWins = (times) => times.map(x => [x, x + 0.3]);
+
+/* ---------- DOM helpers ---------- */
+const stage = document.getElementById('stage');
+function el(parent, tag, cls, css, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (css) e.style.cssText = css;
+  if (html !== undefined) e.innerHTML = html;
+  parent.appendChild(e);
+  return e;
+}
+const tf = (o) => {
+  let s = '';
+  if (o.x || o.y) s += `translate(${(o.x || 0).toFixed(2)}px,${(o.y || 0).toFixed(2)}px) `;
+  if (o.r) s += `rotate(${o.r.toFixed(3)}deg) `;
+  const sx = o.sx !== undefined ? o.sx : (o.s !== undefined ? o.s : 1);
+  const sy = o.sy !== undefined ? o.sy : (o.s !== undefined ? o.s : 1);
+  if (sx !== 1 || sy !== 1) s += `scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
+  return s || 'none';
+};
+function put(e, o) {
+  e.style.transform = (o.pre || '') + ' ' + tf(o);
+  if (o.o !== undefined) e.style.opacity = clamp(o.o).toFixed(3);
+}
+
+/* Dòng chữ LỘ CHỮ: khung overflow:hidden (có đệm trên/dưới để không cắt dấu tiếng Việt) */
+const MASKS = [];
+function mkMask(parent, o) {
+  const size = o.size, lh = o.lh || size;
+  const pt = Math.round(size * 0.42), pb = Math.round(size * 0.3);
+  const outer = el(parent, 'div', 'mask ' + (o.cls || 'br'),
+    `top:${o.y - pt}px;height:${lh + pt + pb}px;` +
+    (o.center ? `left:0;width:1080px;text-align:center;` : `left:${o.x - 20}px;width:${1080 - o.x}px;padding-left:20px;`) +
+    `font-size:${size}px;color:${o.color || C.ink};` + (o.weight ? `font-weight:${o.weight};` : '') + (o.css || ''));
+  const inner = el(outer, 'div', 'in', `padding-top:${pt}px;line-height:${lh}px;height:${lh + pb}px;`, '');
+  const span = el(inner, 'span', 'txt', 'position:relative;', o.html);
+  const m = { outer, inner, span, h: lh + pt + pb, size, lh, pt, o, fit: o.fit !== false, mk: null };
+  MASKS.push(m);
+  return m;
+}
+function setMask(m, k) {
+  m.inner.style.transform = k >= 1 ? 'none' : `translateY(${((1 - k) * m.h * 1.02).toFixed(2)}px)`;
+}
+/* GẠCH DẠ QUANG sau phần chữ .hl trong dòng */
+function mkMarker(m) {
+  const hl = m.span.querySelector('.hl');
+  const mk = el(m.span, 'i', 'mk', '');
+  m.mk = { mk, hl };
+  return m.mk;
+}
+function layoutMarker(m) {
+  const { mk, hl } = m.mk;
+  const lh = m.lh;
+  // toạ độ so với span (inline): dùng offsetLeft của .hl trong span
+  const spanBox = m.span.getBoundingClientRect(), hlBox = hl.getBoundingClientRect();
+  const innerBox = m.inner.getBoundingClientRect();
+  const lineTop = innerBox.top + m.pt; // đỉnh dòng (line box)
+  mk.style.left = (hlBox.left - spanBox.left - 8) + 'px';
+  mk.style.width = (hlBox.width + 16) + 'px';
+  mk.style.height = (lh * 0.45) + 'px';
+  mk.style.top = (lineTop + lh * 0.85 - lh * 0.45 - spanBox.top) + 'px';
+}
+function setMarker(m, k) { m.mk.mk.style.transform = `scaleX(${clamp(k).toFixed(4)})`; }
+
+/* Coal: các tư thế xếp chồng, đổi tư thế bằng opacity (ảnh đã giải mã sẵn) */
+const IMGS = [];
+function mkCoal(parent, x, y, w, poses, z) {
+  const e = el(parent, 'div', 'coal', `left:${x}px;top:${y}px;width:${w}px;height:${(w * 0.977).toFixed(1)}px;` + (z ? `z-index:${z};` : ''));
+  const imgs = {};
+  for (const p of poses) {
+    const im = el(e, 'img', '', '');
+    im.src = COAL + p + '.webp';
+    im.decoding = 'sync';
+    imgs[p] = im; IMGS.push(im);
+  }
+  return { el: e, imgs, cur: null };
+}
+function coalSet(c, pose, o) {
+  if (c.cur !== pose) {
+    for (const k in c.imgs) c.imgs[k].style.opacity = k === pose ? '1' : '0';
+    c.cur = pose;
+  }
+  put(c.el, o);
+}
+
+/* Vòng CHẠM */
+function tapRing(ring, t, t0, cx, cy) {
+  const u = (t - t0) / 0.35;
+  if (u < 0 || u >= 1) { ring.style.display = 'none'; return; }
+  const e = E.OUT(u), d = 60 + 80 * e;
+  ring.style.display = 'block';
+  ring.style.width = ring.style.height = d + 'px';
+  ring.style.left = (cx - d / 2) + 'px';
+  ring.style.top = (cy - d / 2) + 'px';
+  ring.style.opacity = (1 - e).toFixed(3);
+}
+/* nút bị chạm: lún 8px + bóng về 0 trong 0.1s, trả lại 0.15s SPRING → trả về {y, sh} */
+function press(t, t0, sh0) {
+  const u = t - t0;
+  if (u < 0) return { y: 0, sh: sh0 };
+  if (u < 0.1) { const k = E.OUT(u / 0.1); return { y: 8 * k, sh: sh0 * (1 - k) }; }
+  if (u < 0.25) { const k = E.SPRING((u - 0.1) / 0.15); return { y: 8 * (1 - k), sh: sh0 * k }; }
+  return { y: 0, sh: sh0 };
+}
+
+/* ---------- thành phần giao diện ---------- */
+const markSvg = (size) => `<svg viewBox="4 4 40 40" width="${size}" height="${size}"><path fill="#0F1F4D" d="M4 13.5A9.5 9.5 0 0 1 13.5 4H34a2 2 0 0 1 2 2v17H13.5A9.5 9.5 0 0 1 4 13.5z"/><path fill="#F2611F" d="M12 25h22.5a9.5 9.5 0 0 1 0 19H14a2 2 0 0 1-2-2z"/></svg>`;
+const lockupSvg = (h) => `<svg viewBox="4 4 186 40" height="${h}" width="${(h * 186 / 40).toFixed(1)}"><path d="M4 13.5A9.5 9.5 0 0 1 13.5 4H34a2 2 0 0 1 2 2v17H13.5A9.5 9.5 0 0 1 4 13.5z" fill="#0F1F4D"/><path d="M12 25h22.5a9.5 9.5 0 0 1 0 19H14a2 2 0 0 1-2-2z" fill="#F2611F"/><g transform="translate(60 4)"><g fill="none" stroke="#0F1F4D" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19H8a4.5 4.5 0 0 0 0 9h2a4.5 4.5 0 0 1 0 9H3"/><g transform="translate(3 0)"><path d="M26 8v23a6 6 0 0 0 6 6M21 19h10"/><path d="M42 19v12a6 6 0 0 0 12 0V19M54 19v18"/><circle cx="72" cy="28" r="9"/><path d="M81 6v31"/><path d="M93 19v18"/><circle cx="114" cy="28" r="9"/><path d="M123 19v18"/></g></g><circle cx="96" cy="8.5" r="4" fill="#F2611F"/></g></svg>`;
+const tickSvg = (s, col, id) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" style="display:block"><path ${id ? `id="${id}"` : ''} d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="${col}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+/* 5.1 Thẻ PDF 760×220 (toạ độ con tính trong padding-box, viền 6) */
+function pdfCard(parent, x, y, { web = false, bar = false } = {}) {
+  const wrap = el(parent, 'div', 'abs', `left:${x}px;top:${y}px;width:760px;height:220px;`);
+  const card = el(wrap, 'div', 'card', `left:0;top:0;width:760px;height:220px;border-radius:32px;box-shadow:0 12px 0 ${C.navy};`);
+  const icon = el(card, 'div', 'abs', `left:34px;top:29px;width:120px;height:150px;`,
+    `<svg width="120" height="150" viewBox="0 0 120 150" style="display:block">
+      <path d="M16.5 2.5H83.5L117.5 36.5V133.5Q117.5 147.5 103.5 147.5H16.5Q2.5 147.5 2.5 133.5V16.5Q2.5 2.5 16.5 2.5Z" fill="${C.accentT}" stroke="${C.navy}" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M83.5 2.5V36.5H117.5Z" fill="${C.accent}" stroke="${C.navy}" stroke-width="5" stroke-linejoin="round"/>
+    </svg>
+    <div class="bv" style="position:absolute;left:0;top:62px;width:120px;text-align:center;font-weight:800;font-size:34px;line-height:40px;color:${C.accent}">PDF</div>`);
+  const tTop = bar ? 38 : 56;
+  el(card, 'div', 'abs bv', `left:194px;top:${tTop}px;font-weight:700;font-size:40px;line-height:48px;color:${C.ink};white-space:nowrap`, 'Tai-lieu-cua-ban.pdf');
+  el(card, 'div', 'abs bv', `left:194px;top:${tTop + 52}px;font-weight:400;font-size:32px;line-height:40px;color:${C.muted};white-space:nowrap`, '312 trang · bản scan');
+  let fill = null;
+  if (bar) {
+    const track = el(card, 'div', 'abs', `left:194px;top:170px;width:520px;height:14px;border-radius:7px;background:${C.hair};overflow:hidden`);
+    fill = el(track, 'div', 'abs', `left:0;top:0;height:14px;width:0;border-radius:7px;background:${C.accent}`);
+  }
+  if (web) {
+    el(card, 'div', 'abs', 'left:0;top:0;width:120px;height:120px;',
+      `<svg width="120" height="120" viewBox="0 0 120 120" style="display:block" fill="none" stroke="${C.control}" stroke-width="3" stroke-linecap="round">
+        <path d="M8 8L118 22M8 8L92 92M8 8L22 118"/>
+        <path d="M54 14Q44 30 44 44Q30 46 15 56"/>
+        <path d="M96 20Q78 50 76 76Q50 80 20 98"/>
+      </svg>`);
+  }
+  return { wrap, card, fill };
+}
+
+/* ====================================================================
+   CẢNH
+   ==================================================================== */
+const SCENES = [];
+function mkScene(t0, t1, bg) {
+  const s = el(stage, 'div', 'scene', `background:${bg}`);
+  const o = { el: s, t0, t1 };
+  SCENES.push(o);
+  return o;
+}
+
+/* ---------- Cảnh 1: 0.0–2.3 ---------- */
+const S1 = mkScene(0, 2.3, C.ivory);
+const m1a = mkMask(S1.el, { x: 80, y: 300, size: 96, html: 'Tải về rồi...' });
+const m1b = mkMask(S1.el, { x: 80, y: 400, size: 96, html: 'để đó.' });
+const dust1 = [];
+const DUST = [[150, 610, 8], [300, 585, 6], [520, 600, 10], [760, 575, 7], [930, 640, 9], [140, 850, 6], [905, 880, 8], [690, 605, 6]];
+for (const [x, y, d] of DUST) dust1.push(el(S1.el, 'div', 'abs', `left:${x - d / 2}px;top:${y - d / 2}px;width:${d}px;height:${d}px;border-radius:50%;background:${C.control}`));
+const pdf1 = pdfCard(S1.el, 160, 640, { web: true });
+pdf1.wrap.style.transform = 'rotate(-4deg)';
+const badge1 = el(S1.el, 'div', 'pill bv', `left:540px;top:920px;height:90px;padding:0 40px;border-radius:45px;background:${C.navy};color:${C.ivory};font-weight:700;font-size:40px;line-height:90px;transform-origin:50% 50%`,
+  `Mở lần cuối:&nbsp;<span class="num" id="n1" style="color:${C.marker}">97</span>&nbsp;ngày trước`);
+const coal1 = mkCoal(S1.el, 320, 1060, 440, ['sleepy']);
+
+/* ---------- Cảnh 2: 2.3–4.7 ---------- */
+const S2 = mkScene(2.3, 4.7, C.brandT);
+const stack2 = el(S2.el, 'div', 'abs', 'left:160px;top:660px;width:520px;height:700px;');
+const BARS = [380, 440, 410, 460, 300, 440, 420, 360, 250];
+function sheetHtml(num) {
+  let h = `<i style="left:36px;top:48px;width:300px;height:28px;border-radius:14px;background:${C.ink}"></i>`;
+  BARS.forEach((w, k) => { h += `<i style="left:36px;top:${112 + k * 44}px;width:${w}px"></i>`; });
+  if (num) h += `<div class="bv" style="position:absolute;left:0;width:510px;top:620px;text-align:center;font-weight:600;font-size:28px;line-height:36px;color:${C.muted}">${num}</div>`;
+  return h;
+}
+// S0 (dưới cùng, "312") + 4 tờ xoè: −12, −6, 0, +6 (tờ trên cùng ghi "1")
+const sheets2 = [
+  { e: el(stack2, 'div', 'sheet', '', sheetHtml('312')), ang: -4, fanT: 2.35, fly: null },
+  { e: el(stack2, 'div', 'sheet', '', sheetHtml('')), ang: -12, fanT: 2.35, fly: 3.35 },
+  { e: el(stack2, 'div', 'sheet', '', sheetHtml('')), ang: -6, fanT: 2.40, fly: 3.20 },
+  { e: el(stack2, 'div', 'sheet', '', sheetHtml('')), ang: 0, fanT: 2.45, fly: 3.05 },
+  { e: el(stack2, 'div', 'sheet', '', sheetHtml('1')), ang: 6, fanT: 2.50, fly: 2.90 },
+];
+const m2a = mkMask(S2.el, { x: 80, y: 300, size: 96, html: 'Mở ra: 312 trang.' });
+const m2b = mkMask(S2.el, { x: 80, y: 400, size: 96, html: 'Học từ đâu đây?' });
+const chip2 = el(S2.el, 'div', 'pill bv', `right:120px;top:540px;height:80px;padding:0 32px;border:5px solid ${C.navy};border-radius:40px;background:#fff;box-shadow:0 8px 0 ${C.navy};color:${C.ink};font-weight:800;font-size:40px;line-height:70px;transform-origin:50% 50%`,
+  `Trang&nbsp;<span class="num" id="n2">312</span>&nbsp;/ 312`);
+const coal2 = mkCoal(S2.el, 560, 1100, 400, ['lost']);
+
+/* ---------- Cảnh 3: 4.7–8.1 ---------- */
+const S3 = mkScene(4.7, 8.1, C.brand);
+const m3a = mkMask(S3.el, { x: 80, y: 300, size: 96, html: 'Thả vào Studia.', color: C.white });
+const zone3 = el(S3.el, 'div', 'abs', `left:120px;top:560px;width:840px;height:300px;border-radius:40px;background:${C.brandH};transform-origin:50% 50%`,
+  `<svg width="840" height="300" style="position:absolute;left:0;top:0"><rect id="dash3" x="3" y="3" width="834" height="294" rx="37" fill="none" stroke="${C.ivory}" stroke-width="6" stroke-dasharray="24 16" stroke-linecap="butt"/></svg>
+   <div id="zl3" class="bv" style="position:absolute;left:0;top:0;width:840px;height:300px;line-height:300px;text-align:center;font-weight:600;font-size:40px;color:${C.brandT}">Thả PDF vào đây</div>`);
+const pdf3 = pdfCard(S3.el, 160, 600, { bar: true });
+pdf3.wrap.style.transformOrigin = '50% 100%';
+const chip3 = el(S3.el, 'div', 'pill bv', `left:540px;top:900px;height:90px;padding:0 34px 0 22px;border:5px solid ${C.navy};border-radius:45px;background:${C.successT};box-shadow:0 8px 0 ${C.navy};color:${C.success};font-weight:800;font-size:40px;line-height:80px;gap:16px;transform-origin:50% 50%`,
+  `<span style="width:44px;height:44px;border-radius:22px;background:${C.success};display:flex;align-items:center;justify-content:center">${tickSvg(32, '#fff', 'tick3')}</span><span>Trang 1–24: học được rồi</span>`);
+const coal3 = mkCoal(S3.el, 310, 1040, 460, ['hello', 'excited']);
+
+/* ---------- Cảnh 4: 8.1–11.1 ---------- */
+const S4 = mkScene(8.1, 11.1, C.ivory);
+const m4a = mkMask(S4.el, { x: 80, y: 300, size: 96, html: 'Thành bài học' });
+const m4b = mkMask(S4.el, { x: 80, y: 400, size: 96, html: '<span class="hl">mỗi ngày</span>.' });
+mkMarker(m4b);
+const DAYS = [
+  ['1', 'Từ vựng: Environment', 'Trang 1–8 · 12 thẻ · 15 phút', C.brand, C.white],
+  ['2', 'Đọc: tìm ý chính', 'Trang 9–16 · 1 quiz · 18 phút', C.brandT, C.navy],
+  ['3', 'Nghe: điền thông tin', 'Trang 17–24 · 20 phút', C.brandT, C.navy],
+];
+const days4 = DAYS.map(([n, title, meta, bg, fg], i) => {
+  const c = el(S4.el, 'div', 'card', `left:120px;top:${[600, 836, 1072][i]}px;width:840px;height:200px;border-radius:32px;box-shadow:0 10px 0 ${C.navy};transform-origin:50% 50%`);
+  el(c, 'div', 'abs', `left:24px;top:24px;width:140px;height:140px;border-radius:24px;background:${bg};color:${fg};display:flex;flex-direction:column;align-items:center;justify-content:center`,
+    `<div class="bv" style="font-weight:800;font-size:26px;line-height:28px;letter-spacing:0.04em">NGÀY</div><div class="br" style="font-size:64px;line-height:62px">${n}</div>`);
+  el(c, 'div', 'abs bv', `left:194px;top:44px;font-weight:700;font-size:40px;line-height:50px;color:${C.ink};white-space:nowrap`, title);
+  el(c, 'div', 'abs bv', `left:194px;top:102px;font-weight:400;font-size:30px;line-height:40px;color:${C.muted};white-space:nowrap`, meta);
+  return c;
+});
+const tag4 = el(days4[0], 'div', 'pill bv', `right:24px;top:-26px;height:48px;padding:0 18px;border:4px solid ${C.navy};border-radius:24px;background:${C.accent};color:${C.ink};font-weight:800;font-size:26px;line-height:40px;transform-origin:50% 50%`, 'Hôm nay');
+const coal4 = mkCoal(S4.el, 660, 1247, 300, ['focus']);
+
+/* ---------- Cảnh 5: 11.1–15.3 ---------- */
+const S5 = mkScene(11.1, 15.3, C.accentT);
+const m5a = mkMask(S5.el, { x: 80, y: 300, size: 96, html: 'Flashcard từ' });
+const m5b = mkMask(S5.el, { x: 80, y: 400, size: 96, html: 'sách của bạn.' });
+const fcWrap = el(S5.el, 'div', 'abs', 'left:160px;top:560px;width:760px;height:600px;perspective:1600px;');
+const fcMove = el(fcWrap, 'div', 'abs', 'left:0;top:0;width:760px;height:600px;transform-origin:50% 50%;');
+const fcFlip = el(fcMove, 'div', 'abs', 'left:0;top:0;width:760px;height:600px;transform-style:preserve-3d;');
+const fcFront = el(fcFlip, 'div', 'face', '',
+  `<div class="bv" style="position:absolute;left:34px;top:34px;height:44px;padding:0 18px;border-radius:20px;background:${C.brandT};color:${C.brand};font-weight:700;font-size:28px;line-height:44px">verb</div>
+   <div class="li" style="position:absolute;left:0;width:748px;top:${820 - 560 - 6 - 75}px;height:150px;line-height:150px;text-align:center;font-weight:600;font-size:120px;color:${C.ink}">mitigate</div>
+   <div class="bv" style="position:absolute;left:0;width:748px;top:${820 - 560 - 6 + 78}px;line-height:44px;text-align:center;font-weight:400;font-size:36px;color:${C.muted}">/ˈmɪtɪɡeɪt/</div>
+   <div class="bv" style="position:absolute;left:0;width:748px;bottom:34px;line-height:36px;text-align:center;font-weight:600;font-size:28px;color:${C.muted}">Chạm để lật</div>`);
+const fcBack = el(fcFlip, 'div', 'face', 'transform:rotateY(180deg)',
+  `<div id="fcdef" class="bv" style="position:absolute;left:0;width:748px;top:${720 - 560 - 6 - 40}px;line-height:80px;text-align:center;font-weight:800;font-size:60px;color:${C.ink};white-space:nowrap"><span id="fcdefs">giảm nhẹ, làm dịu bớt</span></div>
+   <div style="position:absolute;left:74px;width:600px;top:${720 - 560 - 6 + 70}px;height:3px;background:${C.hair}"></div>
+   <div class="li" style="position:absolute;left:0;width:748px;top:${720 - 560 - 6 + 112}px;line-height:62px;text-align:center;font-style:italic;font-weight:400;font-size:44px;color:${C.ink2};white-space:nowrap">Trees help <span style="position:relative;display:inline-block"><span style="position:absolute;left:-6px;right:-6px;bottom:10px;height:22px;background:${C.marker};z-index:0"></span><span style="position:relative">mitigate</span></span> the<br>effects of flooding.</div>
+   <div class="bv" style="position:absolute;left:0;width:748px;bottom:34px;line-height:36px;text-align:center;font-weight:600;font-size:28px;color:${C.muted}">Trang 3 · tài liệu của bạn</div>`);
+const coal5 = mkCoal(S5.el, 770, 360, 220, ['smile', 'happy']);
+const RATE = [['Quên', '#C0281C'], ['Khó', '#A15C00'], ['Được', C.brand], ['Dễ', C.success]];
+const btn5 = RATE.map(([txt, col], i) => {
+  const b = el(S5.el, 'div', 'pill bv', `left:${124 + i * 212}px;top:1220px;width:196px;height:110px;border:5px solid ${C.navy};border-radius:28px;background:#fff;box-shadow:0 8px 0 ${C.navy};color:${col};font-weight:800;font-size:36px;line-height:100px`, txt);
+  return b;
+});
+const m5c = mkMask(S5.el, { center: true, y: 1380, size: 44, lh: 60, cls: 'bv', weight: 700, html: 'Ôn lại đúng lúc sắp quên.' });
+const ring5 = el(S5.el, 'div', 'ring', '');
+
+/* ---------- Cảnh 6: 15.3–18.6 ---------- */
+const S6 = mkScene(15.3, 18.6, C.successT);
+const m6a = mkMask(S6.el, { x: 80, y: 300, size: 96, html: 'Quiz để nhớ lâu.' });
+const q6 = el(S6.el, 'div', 'card', `left:120px;top:440px;width:840px;height:380px;border-radius:36px;box-shadow:0 12px 0 ${C.navy};`,
+  `<div class="bv" style="position:absolute;left:30px;top:30px;font-weight:700;font-size:28px;line-height:36px;color:${C.success}">Câu 3/10</div>
+   <div class="li" style="position:absolute;left:0;width:828px;top:110px;text-align:center;font-weight:500;font-size:50px;line-height:64px;color:${C.ink};white-space:nowrap">
+     <div>Sea walls can <span id="blank6" style="position:relative;display:inline-block;width:206px;height:64px;vertical-align:top">
+        <span id="bl6ink" style="position:absolute;left:3px;right:3px;bottom:0px;height:5px;background:${C.ink}"></span>
+        <span id="bl6ok" style="position:absolute;left:0;right:0;top:0;height:64px;text-align:center;color:${C.success};font-weight:600">mitigate<span style="position:absolute;left:3px;right:3px;bottom:0px;height:4px;background:${C.success}"></span></span>
+     </span></div>
+     <div>the damage caused</div>
+     <div>by storms.</div>
+   </div>`);
+m6a.outer.style.zIndex = '5';
+const ANS = [['A', 'resilient'], ['B', 'mitigate'], ['C', 'reluctant'], ['D', 'abundant']];
+const ans6 = ANS.map(([L, w], i) => {
+  const x = i % 2 ? 550 : 120, y = i < 2 ? 870 : 1020;
+  const b = el(S6.el, 'div', 'card', `left:${x}px;top:${y}px;width:410px;height:130px;border-width:5px;border-radius:28px;box-shadow:0 8px 0 ${C.navy};transform-origin:50% 50%`,
+    `<span class="bv L" style="position:absolute;left:27px;top:0;line-height:120px;font-weight:800;font-size:32px;color:${C.muted}">${L}</span>
+     <span class="li W" style="position:absolute;left:76px;top:0;line-height:118px;font-weight:600;font-size:48px;color:${C.ink}">${w}</span>
+     ${i === 1 ? `<span class="T" style="position:absolute;right:26px;top:36px;width:48px;height:48px;opacity:0">${tickSvg(48, '#fff')}</span>` : ''}`);
+  return { b, x, y, L: b.querySelector('.L'), W: b.querySelector('.W'), T: b.querySelector('.T') };
+});
+const ok6 = el(S6.el, 'div', 'pill bv', `left:120px;top:1220px;width:300px;height:90px;border:5px solid ${C.navy};border-radius:45px;background:${C.marker};box-shadow:0 8px 0 ${C.navy};color:${C.ink};font-weight:800;font-size:44px;line-height:80px;transform-origin:50% 50%`, 'Đúng rồi!');
+const coal6 = mkCoal(S6.el, 600, 1190, 340, ['cheer']);
+const ring6 = el(S6.el, 'div', 'ring', '');
+
+/* ---------- Cảnh 7: 18.6–21.8 ---------- */
+const S7 = mkScene(18.6, 21.8, C.navy);
+const w7 = el(S7.el, 'div', 'abs', 'left:0;top:0;width:1080px;height:1920px;');
+const halo7 = el(w7, 'div', 'abs', `left:540px;top:1063px;width:0;height:0;border-radius:50%;background:${C.navy2}`);
+const rays7 = el(w7, 'div', 'abs', 'left:540px;top:1063px;width:0;height:0;');
+const rayEls = [];
+for (let i = 0; i < 12; i++) rayEls.push(el(rays7, 'div', 'abs', `left:-5px;top:-30px;width:10px;height:60px;border-radius:5px;background:${C.marker};transform-origin:50% 50%`));
+const coal7 = mkCoal(w7, 230, 760, 620, ['happy', 'fire0', 'fire2', 'fire3', 'fire4']);
+const sparks7 = el(w7, 'div', 'abs', 'left:540px;top:1063px;width:0;height:0;z-index:5');
+const sparkEls = [];
+for (let i = 0; i < 10; i++) sparkEls.push(el(sparks7, 'div', 'abs', `left:-6.5px;top:-6.5px;width:13px;height:13px;background:${i % 2 ? C.marker : C.accent};border-radius:2px`));
+const m7a = mkMask(w7, { x: 80, y: 260, size: 84, html: 'Học đều mỗi ngày,', color: C.ivory });
+const m7b = mkMask(w7, { x: 80, y: 350, size: 84, html: `lửa càng <span style="color:${C.accent}">bùng to.</span>`, color: C.ivory });
+// Bộ đếm chuỗi: số 170px + " ngày" 64px cùng đường chân chữ
+const cnt7 = el(w7, 'div', 'abs br', `left:0;top:480px;height:180px;display:flex;align-items:baseline;white-space:nowrap`);
+const slot7 = el(cnt7, 'div', '', `position:relative;display:inline-block;height:180px;font-size:170px;line-height:180px;color:${C.marker};clip-path:inset(0 -400px 0 -400px)`);
+const numNew7 = el(slot7, 'span', '', 'position:relative;display:inline-block', '1');
+const numOld7 = el(slot7, 'span', '', 'position:absolute;left:0;top:0', '');
+const lbl7 = el(cnt7, 'div', '', `display:inline-block;margin-left:22px;font-size:64px;line-height:180px;color:${C.ivory};clip-path:inset(0 -100px 0 -100px)`, '<span style="display:inline-block" id="lbl7in">ngày</span>');
+const lbl7in = lbl7.querySelector('#lbl7in');
+const MIL = [[18.65, '1', 'happy', 220, 0.8], [19.10, '3', 'fire0', 260, 0.7], [19.55, '7', 'fire2', 300, 0.6], [20.00, '14', 'fire3', 340, 0.5], [20.45, '30', 'fire4', 400, 0.45]];
+const pills7 = MIL.map(([, n], i) => el(w7, 'div', 'pill br', `left:${129 + i * 168}px;top:1420px;width:150px;height:70px;border:4px solid ${C.dline};border-radius:35px;color:${C.dmuted};font-size:36px;line-height:62px;letter-spacing:0;transform-origin:50% 50%`, n));
+const iris1 = el(S7.el, 'div', 'abs', `left:0;top:0;width:1080px;height:1920px;background:${C.accent};z-index:40;display:none`);
+const iris2 = el(S7.el, 'div', 'abs', `left:0;top:0;width:1080px;height:1920px;background:${C.ivory};z-index:41;display:none`);
+
+/* ---------- Cảnh 8: 21.8–24.6 ---------- */
+const S8 = mkScene(21.8, 24.65, C.ivory);
+const logo8 = el(S8.el, 'div', 'abs', `left:${540 - 92 * 186 / 40 / 2}px;top:264px;width:${92 * 186 / 40}px;height:92px;transform-origin:50% 50%`, lockupSvg(92));
+const m8a = mkMask(S8.el, { center: true, y: 440, size: 88, html: 'Cuốn sách của bạn' });
+const m8b = mkMask(S8.el, { center: true, y: 535, size: 88, html: 'thành <span class="hl">lộ trình học</span>.' });
+mkMarker(m8b);
+const coal8 = mkCoal(S8.el, 280, 680, 520, ['fireM']);
+const cta8 = el(S8.el, 'div', 'pill bv', `left:130px;top:1230px;width:820px;height:120px;border:6px solid ${C.navy};border-radius:60px;background:${C.accent};box-shadow:0 10px 0 ${C.navy};color:${C.ink};font-weight:800;font-size:46px;line-height:108px;transform-origin:50% 50%`, 'Miễn phí cuốn sách đầu tiên');
+const m8c = mkMask(S8.el, { center: true, y: 1400, size: 48, lh: 62, cls: 'bv', weight: 800, color: C.navy, html: 'Link ở bio <span id="arr8" style="display:inline-block;vertical-align:-7px;margin-left:4px"><svg viewBox="0 0 24 24" width="46" height="46" style="display:block"><path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="#0F1F4D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' });
+const arr8 = m8c.span.querySelector('#arr8');
+const m8d = mkMask(S8.el, { center: true, y: 1490, size: 32, lh: 40, cls: 'bv', weight: 600, color: C.muted, html: 'Học đúng điều cần học.' });
+
+/* ---------- QUÉT ---------- */
+const sw1 = el(stage, 'div', 'sweep', '');
+const sw2 = el(stage, 'div', 'sweep', '');
+const SWEEPS = [
+  [2.3, C.brand, C.brandT], [4.7, C.marker, C.brand], [8.1, C.accent, C.ivory],
+  [11.1, C.brand, C.accentT], [15.3, C.success, C.successT], [18.6, C.accent, C.navy],
+];
+
+/* ====================================================================
+   RENDER
+   ==================================================================== */
+let numW7 = {};
+function coalBobbing(c, pose, t, o) { coalSet(c, pose, o); }
+
+function render(T) {
+  const t = T + 1e-6;
+  for (const s of SCENES) s.el.style.display = (t >= s.t0 && t < s.t1) ? 'block' : 'none';
+
+  /* QUÉT */
+  let active = null;
+  for (const sw of SWEEPS) if (t >= sw[0] - 0.30 && t < sw[0]) active = sw;
+  if (active) {
+    const [TT, c1, c2] = active;
+    const x1 = lerp(-1700, 0, prog(t, TT - 0.30, 0.25, E.INOUT));
+    const x2 = lerp(-1700, 0, prog(t, TT - 0.24, 0.25, E.INOUT));
+    sw1.style.display = 'block'; sw1.style.background = c1; sw1.style.transform = `translateX(${x1.toFixed(2)}px) skewX(-8deg)`;
+    sw2.style.display = t >= TT - 0.24 ? 'block' : 'none'; sw2.style.background = c2; sw2.style.transform = `translateX(${x2.toFixed(2)}px) skewX(-8deg)`;
+  } else { sw1.style.display = 'none'; sw2.style.display = 'none'; }
+
+  if (t < 2.3) r1(t);
+  else if (t < 4.7) r2(t);
+  else if (t < 8.1) r3(t);
+  else if (t < 11.1) r4(t);
+  else if (t < 15.3) r5(t);
+  else if (t < 18.6) r6(t);
+  else if (t < 21.8) r7(t);
+  else r8(t);
+  // giữ cảnh cũ chạy tiếp dưới lớp QUÉT: cảnh đang hiện đã được tính ở trên
+}
+
+function r1(t) {
+  setMask(m1a, 1);
+  setMask(m1b, prog(t, 0.35, 0.30, E.OUT));
+  const n = Math.max(1, Math.round(1 + 96 * prog(t, 0, 1.1, E.OUT)));
+  document.getElementById('n1').textContent = n;
+  const u = clamp((t - 1.15) / 0.3);
+  const r = (u > 0 && u < 1) ? -3 * Math.sin(2 * Math.PI * u) : 0;
+  const bs = 1 + 0.06 * bump(t, 1.12, 0.22);
+  badge1.style.transform = `translateX(-50%) rotate(${r.toFixed(3)}deg) scale(${bs.toFixed(4)})`;
+  // Coal thở: scaleY 1→1.03→1 chu kỳ 1.6s
+  const k = E.INOUT(tri((t / 1.6) % 1));
+  coalSet(coal1, 'sleepy', { sx: 1 - 0.008 * k, sy: 1 + 0.03 * k });
+  // bụi trôi lên 20px, lắc ngang nhẹ
+  dust1.forEach((d, i) => {
+    const y = -20 * (t / 2.3);
+    const x = 3 * Math.sin(t * 2.2 + i * 1.7);
+    put(d, { x, y, o: 0.55 + 0.35 * Math.sin(t * 3 + i) * 0.5 + 0.2 });
+  });
+}
+
+function r2(t) {
+  setMask(m2a, prog(t, 2.35, 0.35, E.OUT));
+  setMask(m2b, prog(t, 2.80, 0.30, E.OUT));
+  // chip
+  const pc = popIn(t, 2.45);
+  const su = clamp((t - 3.60) / 0.30);
+  const cr = (su > 0 && su < 1) ? 4 * Math.sin(6 * Math.PI * su) * (1 - 0.35 * su) : 0;
+  put(chip2, { s: pc.s, r: cr, o: pc.o });
+  const n = Math.round(1 + 311 * prog(t, 2.50, 1.10, E.IN));
+  document.getElementById('n2').textContent = n;
+  // chồng trang vào (trồi lên + hiện)
+  const ent = prog(t, 2.30, 0.35, E.OUT);
+  put(stack2, { y: 120 * (1 - ent), o: clamp((t - 2.3) / 0.12) });
+  for (const sh of sheets2) {
+    let ang = sh.ang * prog(t, sh.fanT, 0.35, E.SPRING);
+    let x = 0, y = 0, o = 1;
+    if (sh.fly !== null) {
+      const u = clamp((t - sh.fly) / 0.2);
+      if (u > 0) {
+        const e = E.IN(u);
+        x = -1000 * e; y = -330 * e; ang -= 30 * e; o = 1 - clamp((u - 0.8) / 0.2);
+      }
+      if (u >= 1) o = 0;
+    }
+    put(sh.e, { x, y, r: ang, o });
+  }
+  // Coal lost
+  const pi = popIn(t, 2.40);
+  const tilt = -4 * Math.sin(2 * Math.PI * (t - 2.8) / 1.0) * prog(t, 2.8, 0.25, E.OUT);
+  const k = E.INOUT(tri(((t - 2.3) / 1.6) % 1));
+  coalSet(coal2, 'lost', { r: t > 2.8 ? tilt : 0, sx: pi.s * (1 - 0.006 * k), sy: pi.s * (1 + 0.02 * k), o: pi.o });
+}
+
+function r3(t) {
+  setMask(m3a, prog(t, 4.85, 0.35, E.OUT));
+  // ô thả file
+  const zk = prog(t, 4.80, 0.30, E.OUT);
+  const zb = 1 + 0.018 * bump(t, 5.70, 0.30);
+  put(zone3, { s: (0.95 + 0.05 * zk) * zb, o: zk });
+  document.getElementById('dash3').setAttribute('stroke-dashoffset', (-40 * (t - 4.7)).toFixed(2));
+  document.getElementById('zl3').style.opacity = (1 - prog(t, 5.4, 0.2, E.LIN)).toFixed(3);
+  // thẻ PDF rơi
+  if (t < 5.2) { pdf3.wrap.style.opacity = 0; }
+  else {
+    const u = clamp((t - 5.2) / 0.5), e = E.IN(u);
+    let sx = 1, sy = 1;
+    if (t < 5.7) { sx = 1 - 0.03 * e; sy = 1 + 0.06 * e; }
+    else { const k = prog(t, 5.7, 0.2, E.SPRING); sx = lerp(1.05, 1, k); sy = lerp(0.9, 1, k); }
+    put(pdf3.wrap, { y: lerp(-900, 0, e), sx, sy, o: 1 });
+  }
+  pdf3.fill.style.width = (520 * 0.35 * prog(t, 5.9, 1.9, E.LIN)).toFixed(2) + 'px';
+  // chip xong
+  const pc = popIn(t, 6.20);
+  chip3.style.transform = `translateX(-50%) scale(${pc.s.toFixed(4)})`;
+  chip3.style.opacity = pc.o;
+  const tk = document.getElementById('tick3');
+  const L = 22;
+  tk.setAttribute('stroke-dasharray', L);
+  tk.setAttribute('stroke-dashoffset', (L * (1 - prog(t, 6.50, 0.30, E.OUT))).toFixed(3));
+  // Coal: hello POP-IN + trồi lên, đổi excited 5.75, NHÚN
+  const pi = popIn(t, 4.75);
+  const rise = 200 * (1 - prog(t, 4.75, 0.45, E.SPRING));
+  const pose = t >= 5.75 ? 'excited' : 'hello';
+  const ph = bobPhase(t, 5.20, [[0, 0.8]], popWins([5.75]));
+  const b = bobV(ph, prog(t, 5.20, 0.25, E.OUT));
+  const ps = popS(t, 5.75);
+  coalSet(coal3, pose, { y: rise + b.y, sx: pi.s * ps * b.sx, sy: pi.s * ps * b.sy, o: pi.o });
+}
+
+function r4(t) {
+  setMask(m4a, prog(t, 8.15, 0.35, E.OUT));
+  setMask(m4b, prog(t, 8.30, 0.35, E.OUT));
+  setMarker(m4b, prog(t, 8.70, 0.30, E.OUT));
+  days4.forEach((c, i) => {
+    const ts = [8.45, 8.60, 8.75][i];
+    const x = 1000 * (1 - prog(t, ts, 0.45, E.SPRING));
+    const s = i === 0 ? 1 + 0.03 * bump(t, 9.80, 0.40) : 1;
+    put(c, { x, s });
+  });
+  const pt = popIn(t, 9.30);
+  put(tag4, { s: pt.s, o: pt.o, r: -4 * (1 - prog(t, 9.30, 0.45, E.OUT)) });
+  const pi = popIn(t, 9.10);
+  const ph = bobPhase(t, 9.55, [[0, 0.8]]);
+  const b = bobV(ph, prog(t, 9.55, 0.25, E.OUT));
+  coalSet(coal4, 'focus', { y: b.y, sx: pi.s * b.sx, sy: pi.s * b.sy, o: pi.o });
+}
+
+function r5(t) {
+  setMask(m5a, prog(t, 11.15, 0.35, E.OUT));
+  setMask(m5b, prog(t, 11.30, 0.35, E.OUT));
+  // thẻ bay lên
+  const e = prog(t, 11.20, 0.40, E.SPRING);
+  const fu = clamp((t - 12.80) / 0.45);
+  const lift = Math.sin(Math.PI * fu);
+  put(fcMove, { y: 420 * (1 - e) - 18 * lift, r: 8 * (1 - e), s: 1 + 0.035 * lift, o: clamp((t - 11.2) / 0.1) });
+  fcFlip.style.transform = `rotateY(${(180 * E.INOUT(fu)).toFixed(3)}deg)`;
+  // Coal smile → happy, nhảy lên khi thẻ lật
+  const pi = popIn(t, 11.50);
+  const pose = t >= 13.25 ? 'happy' : 'smile';
+  const ph = bobPhase(t, 11.95, [[0, 0.8]], [[12.80, 13.25], [13.25, 13.55]]);
+  const b = bobV(ph, prog(t, 11.95, 0.25, E.OUT));
+  const hop = -48 * Math.sin(Math.PI * fu);
+  const ps = popS(t, 13.25);
+  coalSet(coal5, pose, { y: b.y + hop, sx: pi.s * ps * b.sx, sy: pi.s * ps * b.sy, o: pi.o });
+  // nút đánh giá
+  btn5.forEach((bt, i) => {
+    const ts = 13.30 + 0.06 * i;
+    const u = clamp((t - ts) / 0.3);
+    let y = 60 * (1 - E.SPRING(u)), sh = 8;
+    if (i === 2) { const p = press(t, 14.20, 8); y += p.y; sh = p.sh; }
+    put(bt, { y, o: E.OUT(clamp(u / 0.6)) });
+    bt.style.boxShadow = `0 ${sh.toFixed(2)}px 0 ${C.navy}`;
+    if (i === 2) {
+      const k = prog(t, 14.30, 0.08, E.LIN);
+      bt.style.background = mix(C.white, C.brand, k);
+      bt.style.color = mix(C.brand, C.white, k);
+    }
+  });
+  setMask(m5c, prog(t, 13.40, 0.30, E.OUT));
+  tapRing(ring5, t, 14.20, 124 + 2 * 212 + 98, 1275);
+}
+
+function r6(t) {
+  setMask(m6a, prog(t, 15.35, 0.35, E.OUT));
+  const e = prog(t, 15.40, 0.40, E.SPRING);
+  put(q6, { y: -200 * (1 - e), o: clamp((t - 15.40) / 0.12) });
+  const k = prog(t, 16.65, 0.12, E.LIN);
+  ans6.forEach((a, i) => {
+    const pi = popIn(t, 15.60 + 0.08 * i);
+    let y = 0, sh = 8;
+    if (i === 1) {
+      const p = press(t, 16.60, 8); y = p.y; sh = p.sh;
+      const s2 = 1 + 0.04 * bump(t, 16.66, 0.30);
+      put(a.b, { y, s: pi.s * s2, o: pi.o });
+      a.b.style.background = mix(C.white, C.success, k);
+      a.L.style.color = mix(C.muted, C.white, k);
+      a.W.style.color = mix(C.ink, C.white, k);
+      const tp = popIn(t, 16.66);
+      a.T.style.opacity = tp.o; a.T.style.transform = `scale(${tp.s.toFixed(4)})`;
+    } else {
+      sh = 8 * (1 - k);
+      put(a.b, { s: pi.s, o: pi.o });
+      a.b.style.borderColor = mix(C.navy, C.control, k);
+      a.L.style.color = mix(C.muted, C.control, k);
+      a.W.style.color = mix(C.ink, C.control, k);
+    }
+    a.b.style.boxShadow = `0 ${sh.toFixed(2)}px 0 ${C.navy}`;
+  });
+  tapRing(ring6, t, 16.60, 755, 935);
+  const r = prog(t, 16.70, 0.30, E.OUT);
+  document.getElementById('bl6ok').style.clipPath = `inset(-10px ${((1 - r) * 100).toFixed(2)}% -10px 0)`;
+  document.getElementById('bl6ink').style.clipPath = `inset(0 0 0 ${(r * 100).toFixed(2)}%)`;
+  const po = popIn(t, 16.70);
+  put(ok6, { s: po.s, o: po.o, r: -3 * (1 - prog(t, 16.70, 0.45, E.OUT)) });
+  const pi = popIn(t, 16.75);
+  const jump = -60 * (1 - prog(t, 16.75, 0.45, E.SPRING));
+  const ph = bobPhase(t, 17.20, [[0, 0.8]]);
+  const b = bobV(ph, prog(t, 17.20, 0.25, E.OUT));
+  coalSet(coal6, 'cheer', { y: jump + b.y, sx: pi.s * b.sx, sy: pi.s * b.sy, o: pi.o });
+}
+
+function r7(t) {
+  setMask(m7a, prog(t, 18.70, 0.35, E.OUT));
+  setMask(m7b, prog(t, 19.20, 0.35, E.OUT));
+  // mốc hiện tại
+  let mi = -1;
+  for (let i = 0; i < MIL.length; i++) if (t >= MIL[i][0]) mi = i;
+  // bộ đếm
+  if (mi < 0) { cnt7.style.visibility = 'hidden'; }
+  else {
+    cnt7.style.visibility = 'visible';
+    const [ti, n] = MIL[mi];
+    const k = prog(t, ti, 0.2, E.OUT);
+    const prevN = mi > 0 ? MIL[mi - 1][1] : null;
+    numNew7.textContent = n;
+    numNew7.style.transform = `translateY(${((1 - k) * 180).toFixed(2)}px)`;
+    if (prevN !== null && k < 1) {
+      numOld7.style.display = 'inline-block'; numOld7.textContent = prevN;
+      numOld7.style.transform = `translateY(${(-k * 180).toFixed(2)}px)`;
+    } else numOld7.style.display = 'none';
+    const wn = lerp(prevN !== null ? numW7[prevN] : numW7[n], numW7[n], k);
+    slot7.style.width = wn.toFixed(2) + 'px';
+    const total = wn + 22 + numW7.lbl;
+    cnt7.style.left = (540 - total / 2).toFixed(2) + 'px';
+    const lk = prog(t, MIL[0][0], 0.2, E.OUT);
+    lbl7in.style.transform = `translateY(${((1 - lk) * 180).toFixed(2)}px)`;
+  }
+  // quầng tròn
+  let R = 0;
+  for (let i = 0; i < MIL.length; i++) {
+    const [ti, , , ri] = MIL[i];
+    if (t >= ti) R = lerp(R, ri, prog(t, ti, 0.3, E.SPRING));
+  }
+  halo7.style.width = halo7.style.height = (2 * R).toFixed(2) + 'px';
+  halo7.style.left = (540 - R).toFixed(2) + 'px';
+  halo7.style.top = (1063 - R).toFixed(2) + 'px';
+  // Coal
+  if (mi < 0) coalSet(coal7, 'happy', { o: 0 });
+  else {
+    const pi = popIn(t, MIL[0][0]);
+    const ps = mi > 0 ? popS(t, MIL[mi][0]) : 1;
+    const periods = MIL.map(m => [m[0], m[4]]);
+    const ph = bobPhase(t, 19.10, periods, popWins(MIL.slice(1).map(m => m[0])));
+    const b = bobV(ph, E.OUT(clamp(ph / 0.3)));
+    coalSet(coal7, MIL[mi][2], { y: b.y, sx: pi.s * ps * b.sx, sy: pi.s * ps * b.sy, o: pi.o });
+  }
+  // hàng mốc
+  pills7.forEach((p, i) => {
+    const ein = prog(t, 18.70 + 0.05 * i, 0.30, E.OUT);
+    const lit = t >= MIL[i][0];
+    const s = lit ? popS(t, MIL[i][0]) : 1;
+    put(p, { y: 30 * (1 - ein), s, o: ein });
+    p.style.background = lit ? C.marker : 'transparent';
+    p.style.borderColor = lit ? C.marker : C.dline;
+    p.style.color = lit ? C.navy : C.dmuted;
+  });
+  // cao trào 20.45
+  const T5 = 20.45;
+  const su = clamp((t - T5) / 0.30);
+  const shx = (su > 0 && su < 1) ? 6 * Math.sin(6 * Math.PI * su) * (1 - su * 0.4) : 0;
+  const shy = (su > 0 && su < 1) ? 5 * Math.sin(8 * Math.PI * su) * (1 - su * 0.4) : 0;
+  w7.style.transform = (shx || shy) ? `translate(${shx.toFixed(2)}px,${shy.toFixed(2)}px)` : 'none';
+  const spin = 20 * Math.max(0, t - T5);
+  rayEls.forEach((r, i) => {
+    const p = popIn(t, T5 + 0.015 * i);
+    r.style.opacity = p.o;
+    r.style.transform = `rotate(${(i * 30 + spin).toFixed(3)}deg) translateY(-400px) scale(${p.s.toFixed(4)})`;
+  });
+  sparkEls.forEach((sp, i) => {
+    const u = clamp((t - T5) / 0.5);
+    if (u <= 0 || u >= 1) { sp.style.opacity = 0; return; }
+    const ang = (i * 36 + 14 + (i % 3) * 7) * Math.PI / 180;
+    const dist = 260 + ((i * 67) % 161);
+    const d = lerp(150, dist, E.OUT(u));
+    sp.style.opacity = (1 - u).toFixed(3);
+    sp.style.transform = `translate(${(Math.sin(ang) * d).toFixed(2)}px,${(-Math.cos(ang) * d).toFixed(2)}px) rotate(${(45 + u * 180).toFixed(2)}deg)`;
+  });
+  // iris
+  const r1 = 2300 * prog(t, 21.30, 0.30, E.IN), r2 = 2300 * prog(t, 21.50, 0.30, E.IN);
+  iris1.style.display = t >= 21.30 ? 'block' : 'none';
+  iris1.style.clipPath = `circle(${r1.toFixed(2)}px at 540px 1063px)`;
+  iris2.style.display = t >= 21.50 ? 'block' : 'none';
+  iris2.style.clipPath = `circle(${r2.toFixed(2)}px at 540px 1063px)`;
+}
+
+function r8(t) {
+  const pl = popIn(t, 21.85);
+  put(logo8, { s: pl.s, o: pl.o });
+  setMask(m8a, prog(t, 21.95, 0.35, E.OUT));
+  setMask(m8b, prog(t, 22.05, 0.35, E.OUT));
+  setMarker(m8b, prog(t, 22.45, 0.30, E.OUT));
+  const pi = popIn(t, 22.00, 0.6);
+  const ph = Math.min(2, bobPhase(t, 22.45, [[0, 0.8]]));
+  const amp = prog(t, 22.45, 0.25, E.OUT) * (1 - prog(t, 23.70, 0.40, E.INOUT));
+  const b = bobV(ph, amp);
+  coalSet(coal8, 'fireM', { y: b.y, sx: pi.s * b.sx, sy: pi.s * b.sy, o: pi.o });
+  const u = clamp((t - 22.30) / 0.45);
+  const s = 1 + 0.04 * bump(t, 23.30, 0.40);
+  put(cta8, { y: 160 * (1 - E.SPRING(u)), s, o: E.OUT(clamp(u * 2.5)) });
+  setMask(m8c, prog(t, 22.50, 0.35, E.OUT));
+  setMask(m8d, prog(t, 22.60, 0.30, E.OUT));
+  const ap = (t >= 23.0 && t < 24.0) ? 10 * E.INOUT(tri(((t - 23.0) / 0.5) % 1)) : 0;
+  arr8.style.transform = `translateX(${ap.toFixed(2)}px)`;
+}
+
+/* ====================================================================
+   KHỞI TẠO: chờ font + ảnh, đo chữ, luật vừa khung
+   ==================================================================== */
+async function init() {
+  const VI = 'ÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴàáảãạăắằẳẵặâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ abcxyzABC0123456789/ˈɪɡ–·→…';
+  const loads = [];
+  for (const w of [800]) loads.push(document.fonts.load(`${w} 96px "Bricolage Grotesque"`, VI));
+  for (const w of [400, 600, 700, 800]) loads.push(document.fonts.load(`${w} 40px "Be Vietnam Pro"`, VI));
+  for (const w of [500, 600]) loads.push(document.fonts.load(`${w} 50px "Literata"`, VI));
+  loads.push(document.fonts.load(`italic 400 44px "Literata"`, VI));
+  await Promise.all(loads);
+  await document.fonts.ready;
+  await Promise.all(IMGS.map(im => im.decode().catch(() => null)));
+  // hiện mọi cảnh để đo
+  for (const s of SCENES) s.el.style.display = 'block';
+  // luật vừa khung: tiêu đề > 920px thì giảm 4px/lần (tối thiểu 80)
+  const report = [];
+  for (const m of MASKS) {
+    if (m.size < 80) continue;
+    let size = m.size;
+    while (m.span.getBoundingClientRect().width > 920 && size > 80) {
+      size -= 4;
+      m.outer.style.fontSize = size + 'px';
+    }
+    report.push([m.span.textContent, m.size, size, Math.round(m.span.getBoundingClientRect().width)]);
+  }
+  // flashcard: định nghĩa phải vừa thẻ
+  const def = document.getElementById('fcdef');
+  let ds = 60;
+  const defs = document.getElementById('fcdefs');
+  while (defs.getBoundingClientRect().width > 690 && ds > 44) { ds -= 2; def.style.fontSize = ds + 'px'; }
+  report.push(['def', 60, ds, Math.round(defs.getBoundingClientRect().width)]);
+  for (const m of MASKS) if (m.mk) layoutMarker(m);
+  // đo bề rộng số của bộ đếm
+  for (const [, n] of MIL) { numNew7.textContent = n; numW7[n] = numNew7.getBoundingClientRect().width; }
+  numW7.lbl = lbl7.getBoundingClientRect().width;
+  // khoảng cách nhãn "Hôm nay" với tên bài
+  const tagB = tag4.getBoundingClientRect(), titleB = days4[0].children[1].getBoundingClientRect();
+  report.push(['tag-gap', Math.round(tagB.left - titleB.right), Math.round(tagB.bottom - titleB.top)]);
+  // bề rộng số trong huy hiệu / chip để khỏi giật
+  report.push(['cta', Math.round(cta8.scrollWidth)]);
+  for (const s of SCENES) s.el.style.display = 'none';
+  window.__report = report;
+  render(0);
+  return report;
+}
+window.render = render;
+window.ready = init();
+</script>
+</body>
+</html>

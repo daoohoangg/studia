@@ -1,5 +1,6 @@
 import { clearCache } from "./cache";
 import { API_URL } from "./env";
+import { unregisterDevice } from "./push";
 import { supabase } from "./supabase";
 
 /**
@@ -27,6 +28,13 @@ const DEFAULT_TIMEOUT = 20_000;
 
 /** Bật khi API trả 401 và app tự đăng xuất; màn hình đăng nhập đọc một lần để báo "phiên đã hết hạn". */
 let sessionExpired = false;
+let intentionalSignOut = false;
+
+export function markIntentionalSignOut(active: boolean) {
+  intentionalSignOut = active;
+  if (active) sessionExpired = false;
+}
+
 export function takeSessionExpired(): boolean {
   const v = sessionExpired;
   sessionExpired = false;
@@ -69,7 +77,48 @@ export type RequestOptions = {
   timeoutMs?: number;
   /** Không gắn token (vd /config/public). */
   anonymous?: boolean;
+  /** Bỏ qua tự động đăng xuất khi gặp 401 (vd khi đang gỡ push-token lúc đăng xuất). */
+  skipAuthRecovery?: boolean;
 };
+
+let refreshPromise: Promise<string | null> | null = null;
+let authFailurePromise: Promise<void> | null = null;
+
+async function refreshAccessToken(failedToken: string | null): Promise<string | null> {
+  if (!supabase) return null;
+  // Nếu request song song vừa làm mới xong thì dùng luôn token mới, tránh refresh lần 2 làm hỏng rotation.
+  const current = await token();
+  if (current && failedToken && current !== failedToken) return current;
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const { data } = await supabase.auth.refreshSession();
+        return data.session?.access_token ?? null;
+      } catch {
+        return null;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
+async function handleAuthFailure(): Promise<void> {
+  if (!authFailurePromise) {
+    authFailurePromise = (async () => {
+      if (!intentionalSignOut) sessionExpired = true;
+      await unregisterDevice().catch(() => {});
+      await clearCache();
+      try {
+        await supabase?.auth.signOut({ scope: "local" });
+      } catch {}
+    })().finally(() => {
+      authFailurePromise = null;
+    });
+  }
+  return authFailurePromise;
+}
 
 async function token(): Promise<string | null> {
   if (!supabase) return null;
@@ -112,25 +161,16 @@ async function send(path: string, opts: RequestOptions, accessToken: string | nu
 
 /** Gọi API và trả JSON (đã kiểm tra lỗi). Kết quả là `unknown`-an-toàn: luôn chuẩn hoá trước khi dùng. */
 export async function api<T = unknown>(path: string, opts: RequestOptions = {}): Promise<T> {
-  let res = await send(path, opts, opts.anonymous ? null : await token());
+  const usedToken = opts.anonymous ? null : await token();
+  let res = await send(path, opts, usedToken);
 
-  // 401: token có thể vừa hết hạn, thử làm mới một lần rồi gửi lại.
-  if (res.status === 401 && supabase && !opts.anonymous) {
-    let fresh: string | null = null;
-    try {
-      const { data } = await supabase.auth.refreshSession();
-      fresh = data.session?.access_token ?? null;
-    } catch {
-      fresh = null;
-    }
+  // 401: token có thể vừa hết hạn, dùng khoá đơn (single-flight) làm mới một lần rồi gửi lại.
+  if (res.status === 401 && supabase && !opts.anonymous && !opts.skipAuthRecovery && !authFailurePromise) {
+    const fresh = await refreshAccessToken(usedToken);
     if (fresh) res = await send(path, opts, fresh);
     if (res.status === 401) {
       // Đăng xuất: AuthProvider nghe sự kiện và đưa người dùng về màn hình đăng nhập (có lời nhắn hết phiên).
-      sessionExpired = true;
-      await clearCache();
-      try {
-        await supabase.auth.signOut({ scope: "local" });
-      } catch {}
+      await handleAuthFailure();
       throw new ApiError(STATUS_FALLBACK[401], "auth", 401);
     }
   }

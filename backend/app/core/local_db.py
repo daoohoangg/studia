@@ -1,20 +1,21 @@
 """
 Local Fail-safe Database & Storage Engine for Studia
-Tự động fallback khi Supabase Cloud bị mất kết nối, lỗi DNS hoặc hết quota.
+Tự động dùng khi Supabase Cloud chưa cấu hình (dev/test).
 Lưu trữ dữ liệu vào backend/data/local_db.json và backend/data/storage/
 """
-import os
-import json
-import uuid
-import math
-import random
+import copy
 import functools
+import json
 import logging
-import threading
+import os
+import re as _re
 import secrets
+import shutil
+import threading
 import time
+import uuid
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 import jwt
 
@@ -49,16 +50,45 @@ DEFAULT_DB = {
     "flashcards": [],
     "flashcard_states": [],
     "ai_chat_sessions": [],
+    "vocabulary_items": [],
+    "error_logs": [],
     "document_blocks": [],
     "document_notes": [],
     "document_highlights": [],
     "document_block_revisions": [],
     "reading_progress": [],
     "exam_sets": [],
+    "exam_sessions": [],
+    "user_accounts": [],
+    "app_settings": [],
+    "credit_packs": [],
+    "payment_orders": [],
+    "credit_ledger": [],
+    "payment_transactions": [],
+    "user_profiles": [],
+    "placement_results": [],
     "study_slots": [],
     "study_moments": [],
-    "reminder_log": []
+    "reminder_log": [],
+    "friend_profiles": [],
+    "friendships": [],
+    "moment_reactions": [],
+    "push_tokens": [],
 }
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_now(value: Any) -> Any:
+    if isinstance(value, str) and value.strip().lower() == "now()":
+        return _now_iso()
+    return value
+
+
+def _normalize_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: _normalize_now(v) for k, v in record.items()}
 
 
 def _load_db() -> Dict[str, List[Dict[str, Any]]]:
@@ -68,13 +98,21 @@ def _load_db() -> Dict[str, List[Dict[str, Any]]]:
     try:
         with open(DB_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # Ensure all keys exist
-            for key in DEFAULT_DB:
-                if key not in data:
-                    data[key] = []
-            return data
+        if not isinstance(data, dict):
+            raise ValueError("local_db.json root is not a JSON object")
+        for key in DEFAULT_DB:
+            if key not in data or not isinstance(data[key], list):
+                data[key] = []
+        return data
     except Exception as e:
         logger.error(f"Error loading local_db.json: {e}")
+        try:
+            if os.path.getsize(DB_FILE) > 0:
+                backup = f"{DB_FILE}.corrupt.{int(time.time())}"
+                shutil.copy2(DB_FILE, backup)
+                logger.warning(f"Backed up corrupt local_db.json to {backup}")
+        except OSError as be:
+            logger.warning(f"Could not back up corrupt local_db.json: {be}")
         return json.loads(json.dumps(DEFAULT_DB))
 
 
@@ -102,18 +140,33 @@ def _locked(method):
     return wrapper
 
 
+_ISO_DATE_PREFIX = _re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def _try_parse_dt(val: str) -> Optional[datetime]:
+    if not _ISO_DATE_PREFIX.match(val):
+        return None
+    try:
+        dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 def _compare(a: Any, b: Any) -> int:
-    """So sánh số theo giá trị số, còn lại theo chuỗi (ISO timestamp so sánh đúng thứ tự)."""
+    """So sánh số theo giá trị số, ISO timestamp theo datetime UTC, còn lại theo chuỗi."""
     numeric = (int, float)
     if isinstance(a, numeric) and isinstance(b, numeric) and not isinstance(a, bool) and not isinstance(b, bool):
         return (a > b) - (a < b)
-    a, b = str(a), str(b)
-    return (a > b) - (a < b)
+    sa, sb = str(_normalize_now(a)), str(_normalize_now(b))
+    da, db = _try_parse_dt(sa), _try_parse_dt(sb)
+    if da is not None and db is not None:
+        return (da > db) - (da < db)
+    return (sa > sb) - (sa < sb)
 
 
-def _ilike_match(value: Any, pattern: str) -> bool:
-    """Khớp kiểu SQL ILIKE: % = chuỗi bất kỳ, _ = một ký tự, dấu gạch ngược thoát ký tự đặc biệt."""
-    import re as _re
+def _like_match(value: Any, pattern: str, ignore_case: bool = True) -> bool:
+    """Khớp kiểu SQL LIKE/ILIKE: % = chuỗi bất kỳ, _ = một ký tự, dấu gạch ngược thoát ký tự đặc biệt."""
     regex, i = "", 0
     while i < len(pattern):
         ch = pattern[i]
@@ -123,7 +176,42 @@ def _ilike_match(value: Any, pattern: str) -> bool:
             continue
         regex += ".*" if ch == "%" else "." if ch == "_" else _re.escape(ch)
         i += 1
-    return value is not None and _re.fullmatch(regex, str(value), _re.IGNORECASE | _re.DOTALL) is not None
+    flags = (_re.IGNORECASE | _re.DOTALL) if ignore_case else _re.DOTALL
+    return value is not None and _re.fullmatch(regex, str(value), flags) is not None
+
+
+def _row_matches(row: Dict[str, Any], filters: list) -> bool:
+    for op, col, val in filters:
+        row_val = row.get(col)
+        target = _normalize_now(val)
+        if op == "eq":
+            if str(row_val) != str(target):
+                return False
+        elif op == "neq":
+            if str(row_val) == str(target):
+                return False
+        elif op == "in":
+            if row_val not in val:
+                return False
+        elif op == "like":
+            if not _like_match(row_val, str(target), ignore_case=False):
+                return False
+        elif op == "ilike":
+            if not _like_match(row_val, str(target), ignore_case=True):
+                return False
+        elif op == "gt":
+            if row_val is None or _compare(row_val, target) <= 0:
+                return False
+        elif op == "lte":
+            if row_val is None or _compare(row_val, target) > 0:
+                return False
+        elif op == "gte":
+            if row_val is None or _compare(row_val, target) < 0:
+                return False
+        elif op == "lt":
+            if row_val is None or _compare(row_val, target) >= 0:
+                return False
+    return True
 
 
 class LocalResponse:
@@ -136,16 +224,24 @@ class LocalTableQuery:
     def __init__(self, table_name: str):
         self.table_name = table_name
         self._select_fields = "*"
-        self._filters = []
+        self._count_mode: Optional[str] = None
+        self._filters: list = []
         self._order_by = None
-        self._limit_val = None
+        self._limit_val: Optional[int] = None
+        self._range_val: Optional[tuple] = None
+        self._updates: Dict[str, Any] = {}
 
     def select(self, fields: str = "*", count: Optional[str] = None):
         self._select_fields = fields
+        self._count_mode = count
         return self
 
     def eq(self, column: str, value: Any):
         self._filters.append(("eq", column, value))
+        return self
+
+    def neq(self, column: str, value: Any):
+        self._filters.append(("neq", column, value))
         return self
 
     def lte(self, column: str, value: Any):
@@ -154,6 +250,10 @@ class LocalTableQuery:
 
     def gte(self, column: str, value: Any):
         self._filters.append(("gte", column, value))
+        return self
+
+    def like(self, column: str, pattern: str):
+        self._filters.append(("like", column, pattern))
         return self
 
     def ilike(self, column: str, pattern: str):
@@ -169,7 +269,7 @@ class LocalTableQuery:
         return self
 
     def in_(self, column: str, values: List[Any]):
-        self._filters.append(("in", column, values))
+        self._filters.append(("in", column, list(values)))
         return self
 
     def order(self, column: str, desc: bool = False):
@@ -180,55 +280,45 @@ class LocalTableQuery:
         self._limit_val = val
         return self
 
+    def range(self, start: int, end: int):
+        self._range_val = (start, end)
+        return self
+
     @_locked
     def execute(self) -> LocalResponse:
         db = _load_db()
         rows = db.get(self.table_name, [])
 
-        # Apply filters
-        filtered = []
-        for row in rows:
-            match = True
-            for op, col, val in self._filters:
-                row_val = row.get(col)
-                if op == "eq" and str(row_val) != str(val):
-                    match = False
-                    break
-                elif op == "in" and row_val not in val:
-                    match = False
-                    break
-                elif op == "ilike" and not _ilike_match(row_val, val):
-                    match = False
-                    break
-                elif op == "gt" and (row_val is None or _compare(row_val, val) <= 0):
-                    match = False
-                    break
-                elif op == "lte" and row_val is not None and _compare(row_val, val) > 0:
-                    match = False
-                    break
-                elif op == "gte" and row_val is not None and _compare(row_val, val) < 0:
-                    match = False
-                    break
-                elif op == "lt" and row_val is not None and _compare(row_val, val) >= 0:
-                    match = False
-                    break
-            if match:
-                filtered.append(row)
+        filtered = [copy.deepcopy(row) for row in rows if _row_matches(row, self._filters)]
 
-        # Order by
+        # Resolve simple relational embeds like `topics(name)` or `topics(name, difficulty_level)`
+        embed_match = _re.search(r"topics\(([^)]+)\)", self._select_fields or "")
+        if embed_match and self.table_name != "topics":
+            cols = [c.strip() for c in embed_match.group(1).split(",") if c.strip()]
+            topics_by_id = {str(t.get("id")): t for t in db.get("topics", [])}
+            for row in filtered:
+                tid = str(row.get("topic_id") or "")
+                topic = topics_by_id.get(tid)
+                row["topics"] = {c: topic.get(c) for c in cols} if topic else None
+
         if self._order_by:
             col, desc = self._order_by
-            # Số xếp theo giá trị số (order_index), còn lại xếp theo chuỗi
             def sort_key(r):
                 v = r.get(col, "")
                 return (0, v, "") if isinstance(v, (int, float)) and not isinstance(v, bool) else (1, 0, str(v))
             filtered.sort(key=sort_key, reverse=desc)
 
-        # Limit
-        if self._limit_val:
-            filtered = filtered[:self._limit_val]
+        total_count = len(filtered)
 
-        return LocalResponse(filtered, len(filtered))
+        if self._range_val is not None:
+            start, end = self._range_val
+            filtered = filtered[max(0, start) : max(0, end + 1)]
+
+        if self._limit_val is not None:
+            filtered = filtered[: self._limit_val]
+
+        resp_count = total_count if self._count_mode == "exact" else len(filtered)
+        return LocalResponse(filtered, resp_count)
 
     def insert(self, record: Any):
         return LocalTableQueryInsertWrapper(self.table_name, record)
@@ -249,7 +339,8 @@ class LocalTableQueryInsertWrapper:
 
     def __init__(self, table_name: str, record: Any, upsert: bool = False, on_conflict: Optional[str] = None):
         self.table_name = table_name
-        self.records = record if isinstance(record, list) else [record]
+        raw_list = record if isinstance(record, list) else [record]
+        self.records = [_normalize_record(dict(r)) for r in raw_list]
         self.upsert = upsert
         self.on_conflict = on_conflict
 
@@ -263,7 +354,7 @@ class LocalTableQueryInsertWrapper:
             if "id" not in r:
                 r["id"] = str(uuid.uuid4())
             if "created_at" not in r:
-                r["created_at"] = datetime.now(timezone.utc).isoformat()
+                r["created_at"] = _now_iso()
 
             match_index = -1
             if self.upsert:
@@ -274,11 +365,11 @@ class LocalTableQueryInsertWrapper:
             if match_index >= 0:
                 rows[match_index].update(r)
             else:
-                rows.append(r)
+                rows.append(copy.deepcopy(r))
 
         db[self.table_name] = rows
         _save_db(db)
-        return LocalResponse(self.records)
+        return LocalResponse(copy.deepcopy(self.records))
 
 
 class LocalRowsResult:
@@ -292,62 +383,74 @@ class LocalRowsResult:
         return LocalResponse(self.records)
 
 
-def _row_matches(row: Dict[str, Any], filters: list) -> bool:
-    for op, col, val in filters:
-        if op == "eq" and str(row.get(col)) != str(val):
-            return False
-        if op == "in" and row.get(col) not in val:
-            return False
-    return True
-
-
-class LocalTableQueryDeleteExecuter:
+class _FilteredExecuterBase:
     def __init__(self, query: LocalTableQuery):
         self.query = query
 
     def eq(self, column: str, value: Any):
         self.query.eq(column, value)
+        return self
+
+    def neq(self, column: str, value: Any):
+        self.query.neq(column, value)
         return self
 
     def in_(self, column: str, values: List[Any]):
         self.query.in_(column, values)
         return self
 
+    def like(self, column: str, pattern: str):
+        self.query.like(column, pattern)
+        return self
+
+    def ilike(self, column: str, pattern: str):
+        self.query.ilike(column, pattern)
+        return self
+
+    def gt(self, column: str, value: Any):
+        self.query.gt(column, value)
+        return self
+
+    def gte(self, column: str, value: Any):
+        self.query.gte(column, value)
+        return self
+
+    def lt(self, column: str, value: Any):
+        self.query.lt(column, value)
+        return self
+
+    def lte(self, column: str, value: Any):
+        self.query.lte(column, value)
+        return self
+
+
+class LocalTableQueryDeleteExecuter(_FilteredExecuterBase):
     @_locked
     def execute(self) -> LocalResponse:
         if not self.query._filters:
             return LocalResponse([])  # không bao giờ xoá cả bảng
         db = _load_db()
         rows = db.get(self.query.table_name, [])
-        deleted = [r for r in rows if _row_matches(r, self.query._filters)]
+        deleted = [copy.deepcopy(r) for r in rows if _row_matches(r, self.query._filters)]
         db[self.query.table_name] = [r for r in rows if not _row_matches(r, self.query._filters)]
         _save_db(db)
         return LocalResponse(deleted)
 
 
-class LocalTableQueryUpdateExecuter:
-    def __init__(self, query: LocalTableQuery):
-        self.query = query
-
-    def eq(self, column: str, value: Any):
-        self.query.eq(column, value)
-        return self
-
+class LocalTableQueryUpdateExecuter(_FilteredExecuterBase):
     @_locked
     def execute(self) -> LocalResponse:
+        if not self.query._filters:
+            return LocalResponse([])
         db = _load_db()
         rows = db.get(self.query.table_name, [])
+        updates = _normalize_record(self.query._updates)
         updated = []
 
         for row in rows:
-            match = True
-            for op, col, val in self.query._filters:
-                if str(row.get(col)) != str(val):
-                    match = False
-                    break
-            if match:
-                row.update(self.query._updates)
-                updated.append(row)
+            if _row_matches(row, self.query._filters):
+                row.update(copy.deepcopy(updates))
+                updated.append(copy.deepcopy(row))
 
         db[self.query.table_name] = rows
         _save_db(db)
@@ -428,8 +531,23 @@ class LocalStorageClient:
         return LocalStorageBucket(bucket_name)
 
 
+def _score_chunks(chunks: List[Dict[str, Any]], query_vec: List[float], threshold: float, top_k: int) -> List[Dict[str, Any]]:
+    scored = []
+    for c in chunks:
+        vec = c.get("embedding") or []
+        if vec and query_vec and len(vec) == len(query_vec):
+            dot = sum(a * b for a, b in zip(query_vec, vec))
+            similarity = round(dot, 4)
+        else:
+            similarity = 0.0
+        if similarity > threshold:
+            scored.append({**c, "similarity": similarity})
+    scored.sort(key=lambda x: x.get("similarity", 0), reverse=True)
+    return scored[:top_k]
+
+
 class LocalStoreClient:
-    """Mock Client thay thế Supabase Client khi offline."""
+    """Mock Client thay thế Supabase Client khi offline/dev."""
     def __init__(self):
         self.storage = LocalStorageClient()
 
@@ -437,43 +555,98 @@ class LocalStoreClient:
         return LocalTableQuery(table_name)
 
     @_locked
-    def rpc(self, fn_name: str, params: Dict[str, Any]) -> LocalTableQuery:
+    def rpc(self, fn_name: str, params: Dict[str, Any]) -> LocalRowsResult:
         db = _load_db()
         if fn_name == "match_document_chunks_by_doc":
             doc_id = params.get("target_document_id")
             query_vec = params.get("query_embedding", [])
-            top_k = params.get("match_count", 5)
-
+            threshold = float(params.get("match_threshold", 0.4))
+            top_k = int(params.get("match_count", 5))
             chunks = [c for c in db.get("document_chunks", []) if str(c.get("document_id")) == str(doc_id)]
-            scored = []
-            for c in chunks:
-                vec = c.get("embedding") or []
-                if vec and len(vec) == len(query_vec):
-                    dot = sum(a * b for a, b in zip(query_vec, vec))
-                    similarity = round(dot, 4)
-                else:
-                    similarity = 0.5
-                scored.append({**c, "similarity": similarity})
+            return LocalRowsResult(_score_chunks(chunks, query_vec, threshold, top_k))
 
-            scored.sort(key=lambda x: x.get("similarity", 0), reverse=True)
-            return LocalRowsResult(scored[:top_k])
+        elif fn_name == "match_document_chunks":
+            query_vec = params.get("query_embedding", [])
+            threshold = float(params.get("match_threshold", 0.4))
+            top_k = int(params.get("match_count", 5))
+            chunks = db.get("document_chunks", [])
+            return LocalRowsResult(_score_chunks(chunks, query_vec, threshold, top_k))
 
         elif fn_name == "get_due_flashcards":
-            uid = params.get("p_user_id")
-            limit = params.get("p_limit", 20)
-            now = datetime.now(timezone.utc).isoformat()
+            uid = str(params.get("p_user_id") or "")
+            limit = int(params.get("p_limit", 20))
+            now = _now_iso()
 
             cards = db.get("flashcards", [])
-            states = {s["flashcard_id"]: s for s in db.get("flashcard_states", []) if str(s.get("user_id")) == str(uid)}
+            states = {
+                str(s["flashcard_id"]): s
+                for s in db.get("flashcard_states", [])
+                if str(s.get("user_id")) == uid
+            }
+            accessible_docs = {
+                str(d["id"])
+                for d in db.get("documents", [])
+                if str(d.get("user_id")) == uid or (d.get("visibility") or "private") == "shared"
+            }
+            own_topics = {
+                str(t["id"])
+                for t in db.get("topics", [])
+                if str(t.get("document_id") or "") in accessible_docs
+                or any(
+                    str(t.get("slug") or "").startswith(prefix)
+                    for prefix in (f"deck-{uid}-", f"custom-{uid}-", f"vocab-{uid}-")
+                )
+            }
 
             due = []
             for fc in cards:
-                st = states.get(fc["id"], {})
-                next_rev = st.get("next_review_at", "1970-01-01T00:00:00Z")
-                if next_rev <= now:
-                    due.append({**fc, **st})
+                fc_id = str(fc["id"])
+                st = states.get(fc_id)
+                if st is None:
+                    doc_id = str(fc.get("document_id") or "")
+                    topic_id = str(fc.get("topic_id") or "")
+                    if doc_id not in accessible_docs and topic_id not in own_topics:
+                        continue
+                    due.append({
+                        **fc,
+                        "flashcard_id": fc["id"],
+                        "stability": 1.0,
+                        "difficulty_rating": 5.0,
+                        "mastery_score": 0.0,
+                        "next_review_at": now,
+                        "review_count": 0,
+                    })
+                else:
+                    next_rev = _normalize_now(st.get("next_review_at") or now)
+                    if _compare(next_rev, now) <= 0:
+                        merged = {**st, **fc, "flashcard_id": fc["id"], "next_review_at": next_rev}
+                        due.append(merged)
 
-            due.sort(key=lambda x: x.get("next_review_at", ""))
+            due.sort(key=lambda x: str(x.get("next_review_at", "")))
             return LocalRowsResult(due[:limit])
 
-        return LocalRowsResult([])
+        elif fn_name == "get_recurring_errors":
+            uid = str(params.get("p_user_id") or "")
+            min_occ = int(params.get("p_min_occurrences", 2))
+            limit = int(params.get("p_limit", 20))
+            rows = [
+                r for r in db.get("error_logs", [])
+                if str(r.get("user_id")) == uid and int(r.get("occurrence_count", 1)) >= min_occ
+            ]
+            rows.sort(key=lambda r: (int(r.get("occurrence_count", 1)), str(r.get("last_seen_at") or "")), reverse=True)
+            return LocalRowsResult(rows[:limit])
+
+        elif fn_name == "get_vocabulary_stats":
+            uid = str(params.get("p_user_id") or "")
+            items = [r for r in db.get("vocabulary_items", []) if str(r.get("user_id")) == uid]
+            total = len(items)
+            avg = sum(float(i.get("mastery_score") or 0) for i in items) / total if total else 0.0
+            mastered = sum(1 for i in items if float(i.get("mastery_score") or 0) >= 80)
+            return LocalRowsResult([{
+                "total_words": total,
+                "avg_mastery": avg,
+                "words_mastered": mastered,
+                "words_learning": total - mastered,
+            }])
+
+        raise NotImplementedError(f"RPC {fn_name} is not implemented in LocalStore")

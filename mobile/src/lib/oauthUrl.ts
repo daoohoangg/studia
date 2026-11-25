@@ -1,9 +1,16 @@
 /**
  * Đọc kết quả đăng nhập OAuth (Supabase) từ URL mà trình duyệt trả về app.
- * Supabase (luồng mặc định) trả token trong phần sau dấu # (`#access_token=...&refresh_token=...`);
+ * Hỗ trợ cả PKCE (`?code=...&sb_flow_id=...`) lẫn implicit (`#access_token=...&refresh_token=...`);
  * lỗi có thể nằm ở phần ? hoặc #. Hàm thuần, không phụ thuộc thư viện nên kiểm tra được bằng Node.
  */
-export type OAuthParams = { access_token?: string; refresh_token?: string; error?: string; error_description?: string };
+export type OAuthParams = {
+  access_token?: string;
+  refresh_token?: string;
+  code?: string;
+  sb_flow_id?: string;
+  error?: string;
+  error_description?: string;
+};
 
 const decode = (s: string) => {
   try {
@@ -26,10 +33,23 @@ export function parseAuthUrl(url: string): OAuthParams {
       const eq = pair.indexOf("=");
       const key = decode(eq >= 0 ? pair.slice(0, eq) : pair);
       const value = decode(eq >= 0 ? pair.slice(eq + 1) : "");
-      if (key === "access_token" || key === "refresh_token" || key === "error" || key === "error_description") out[key] = value;
+      if (
+        key === "access_token" ||
+        key === "refresh_token" ||
+        key === "code" ||
+        key === "sb_flow_id" ||
+        key === "error" ||
+        key === "error_description"
+      ) {
+        out[key] = value;
+      }
     }
   }
   return out;
+}
+
+export function hasAuthPayload(p: OAuthParams): boolean {
+  return !!(p.code || (p.access_token && p.refresh_token) || p.error || p.error_description);
 }
 
 /** Câu thông báo tiếng Việt cho lỗi OAuth trả về. */

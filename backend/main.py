@@ -199,21 +199,53 @@ async def download_local_storage_file(token: str):
     return FileResponse(path)
 
 
-@app.get("/health")
-async def health_check():
+def _probe_db():
     from app.core.supabase_client import get_supabase_client
     supabase = get_supabase_client()
-    db_status = "connected" if supabase else "disconnected"
-    
+    if not supabase:
+        return None, "Supabase Cloud (disconnected)"
+    supabase.table("app_settings").select("key").limit(1).execute()
+    backend_name = "Supabase Cloud" if getattr(supabase, "real_client", None) is not None else "LocalStore"
+    return True, f"{backend_name} (connected)"
+
+
+@app.get("/health")
+async def health_check():
+    from fastapi.concurrency import run_in_threadpool
     gemini_status = "configured" if (
         settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "your_gemini_api_key_here"
     ) else "not configured"
 
+    try:
+        ok, db_label = await run_in_threadpool(_probe_db)
+    except Exception as e:
+        logger.warning(f"Health probe failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": "Supabase Cloud (error)",
+                "llm": f"Gemini ({gemini_status})",
+                "version": settings.VERSION,
+            },
+        )
+
+    if not ok:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "database": db_label,
+                "llm": f"Gemini ({gemini_status})",
+                "version": settings.VERSION,
+            },
+        )
+
     return {
         "status": "healthy",
-        "database": f"Supabase Cloud ({db_status})",
+        "database": db_label,
         "llm": f"Gemini ({gemini_status})",
-        "version": settings.VERSION
+        "version": settings.VERSION,
     }
 
 if __name__ == "__main__":

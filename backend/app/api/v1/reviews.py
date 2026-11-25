@@ -1,28 +1,28 @@
 """
 Reviews API v2 — Real Supabase data, FSRS-based due queue
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from datetime import datetime, timezone, timedelta
-from app.services.fsrs_engine import FSRSEngine
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from app.core.auth import current_user_id, require_topic_owned
 from app.core.supabase_client import get_supabase_client
-from app.config import settings
-from app.core.auth import current_user_id
+from app.services.fsrs_engine import FSRSEngine
 
 router = APIRouter(prefix="/reviews", tags=["Spaced Repetition Review Queue"])
 
 
-
 class CompleteReviewRequest(BaseModel):
     topic_id: str
-    rating: int = 3  # 1=Again, 2=Hard, 3=Good, 4=Easy
-    response_time_ms: int = 5000
+    rating: int = Field(3, ge=1, le=4)  # 1=Again, 2=Hard, 3=Good, 4=Easy
+    response_time_ms: int = Field(5000, ge=0, le=600000)
     user_id: Optional[str] = None
 
 
 @router.get("/queue")
-async def get_review_queue(user_id: Optional[str] = None):
+def get_review_queue(user_id: Optional[str] = None):
     """
     Lấy danh sách topics đến hạn ôn tập từ Supabase (FSRS schedule).
     """
@@ -36,7 +36,6 @@ async def get_review_queue(user_id: Optional[str] = None):
         now = datetime.now(timezone.utc)
         tomorrow = (now + timedelta(days=1)).isoformat()
 
-        # Lấy knowledge states đến hạn hoặc sắp đến hạn (trong 24h)
         ks_resp = supabase.table("knowledge_states") \
             .select("topic_id, mastery_score, retention_score, stability, next_review_at, topics(name, difficulty_level)") \
             .eq("user_id", uid) \
@@ -78,7 +77,6 @@ async def get_review_queue(user_id: Optional[str] = None):
                 )
             })
 
-        # Sort: High urgency first
         urgency_order = {"High": 0, "Medium": 1, "Low": 2}
         review_items.sort(key=lambda x: urgency_order.get(x["urgency"], 3))
 
@@ -93,17 +91,17 @@ async def get_review_queue(user_id: Optional[str] = None):
 
 
 @router.post("/complete")
-async def complete_review(req: CompleteReviewRequest):
+def complete_review(req: CompleteReviewRequest):
     """
     Đánh dấu review hoàn thành và cập nhật FSRS state.
     """
     uid = current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
     supabase = get_supabase_client()
 
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    # Lấy state hiện tại
     ks_resp = supabase.table("knowledge_states") \
         .select("*") \
         .eq("user_id", uid) \
@@ -125,7 +123,6 @@ async def complete_review(req: CompleteReviewRequest):
         response_time_ms=req.response_time_ms
     )
 
-    # Update Supabase
     supabase.table("knowledge_states").update({
         "mastery_score": fsrs_result["mastery_score"],
         "confidence_score": fsrs_result["confidence_score"],
@@ -133,7 +130,7 @@ async def complete_review(req: CompleteReviewRequest):
         "stability": fsrs_result["stability"],
         "difficulty_rating": fsrs_result["difficulty_rating"],
         "next_review_at": fsrs_result["next_review_at"],
-        "last_reviewed_at": "now()"
+        "last_reviewed_at": datetime.now(timezone.utc).isoformat()
     }).eq("user_id", uid).eq("topic_id", req.topic_id).execute()
 
     return {
@@ -146,7 +143,7 @@ async def complete_review(req: CompleteReviewRequest):
 
 
 @router.get("/stats")
-async def get_review_stats(user_id: Optional[str] = None):
+def get_review_stats(user_id: Optional[str] = None):
     """Thống kê tổng quan về tình trạng học tập của user."""
     uid = current_user_id()
     supabase = get_supabase_client()

@@ -106,6 +106,14 @@ class SessionLifecycleTests(SessionTestCase):
                                           json={"task": "task9", "content": "x"}).status_code, 422)
         self.assertEqual(self.client.post("/api/v1/exam/sessions", json={"exam_type": "karaoke"}).status_code, 422)
 
+        # Phiên chỉ có listening phải chặn ghi vào reading/writing
+        listening_only = self.create_session(set_id, exam_type="listening")["session"]["session_id"]
+        self.assertEqual(self.answer(listening_only, "reading", 1, "TRUE").status_code, 422)
+        self.assertEqual(
+            self.client.post(f"/api/v1/exam/sessions/{listening_only}/writing", json={"task": "task1", "content": "x"}).status_code,
+            422,
+        )
+
         foreign_doc = self.upload_pdf(user_id=OTHER_USER)
         with patch.object(settings, "DEFAULT_USER_ID", OTHER_USER):
             foreign_set = self.build(foreign_doc).json()["exam_sets"][0]["id"]

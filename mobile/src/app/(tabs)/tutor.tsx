@@ -7,6 +7,8 @@ import { Coal } from "@/components/Coal";
 import { PressScale, Reveal } from "@/components/motion";
 import { Button, Chip, FeatureOff, Row, Text } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { scopedStorageKey } from "@/lib/cache";
 import { useConfig } from "@/lib/config";
 import { askTutor } from "@/lib/studia";
 import { fonts, radius, space, useTheme } from "@/lib/theme";
@@ -24,11 +26,13 @@ const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 export default function Tutor() {
   const { on } = useConfig();
+  const { session } = useAuth();
   if (!on("tutor")) return <FeatureOff name="Gia sư Coal" />;
-  return <Chat />;
+  const uid = session?.user?.id ?? null;
+  return <Chat key={uid || "anon"} storeKey={scopedStorageKey(STORE, uid)} />;
 }
 
-function Chat() {
+function Chat({ storeKey }: { storeKey: string }) {
   const { c } = useTheme();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -40,7 +44,7 @@ function Chat() {
 
   // Giữ cuộc trò chuyện gần nhất trên máy
   useEffect(() => {
-    AsyncStorage.getItem(STORE)
+    AsyncStorage.getItem(storeKey)
       .then((raw) => {
         if (!raw) return;
         const d = JSON.parse(raw) as { sessionId?: unknown; messages?: unknown };
@@ -51,11 +55,11 @@ function Chat() {
       })
       .catch(() => {})
       .finally(() => { restored.current = true; });
-  }, []);
+  }, [storeKey]);
   useEffect(() => {
     if (!restored.current) return;
-    AsyncStorage.setItem(STORE, JSON.stringify({ sessionId, messages: messages.filter((m) => !m.failed).slice(-40) })).catch(() => {});
-  }, [messages, sessionId]);
+    AsyncStorage.setItem(storeKey, JSON.stringify({ sessionId, messages: messages.filter((m) => !m.failed).slice(-40) })).catch(() => {});
+  }, [messages, sessionId, storeKey]);
 
   const send = async (text: string, retryOf?: string) => {
     const q = text.trim();
@@ -83,12 +87,12 @@ function Chat() {
     setMessages([]);
     setSessionId(null);
     setFollowUps([]);
-    AsyncStorage.removeItem(STORE).catch(() => {});
+    AsyncStorage.removeItem(storeKey).catch(() => {});
   };
 
   return (
     <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: c.canvas }}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Row style={[styles.header, { borderColor: c.hairline }]}>
           <Coal sprite="smile" size={40} still />
           <View style={{ flex: 1 }}>

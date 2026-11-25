@@ -1,5 +1,6 @@
 import type { Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { markIntentionalSignOut } from "./api";
 import { clearCache, setCacheScope } from "./cache";
 import { unregisterDevice } from "./push";
 import { supabase } from "./supabase";
@@ -18,18 +19,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let alive = true;
     supabase.auth
       .getSession()
-      .then(({ data }) => { if (alive) setSession(data.session); })
+      .then(({ data }) => {
+        if (!alive) return;
+        setCacheScope(data.session?.user?.id ?? null);
+        setSession(data.session);
+      })
       .catch(() => {})
       .finally(() => { if (alive) setReady(true); });
-    const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    const { data } = supabase.auth.onAuthStateChange((_event, s) => {
+      setCacheScope(s?.user?.id ?? null);
+      setSession(s);
+    });
     return () => {
       alive = false;
       data.subscription.unsubscribe();
     };
   }, []);
-
-  // Bộ đệm dữ liệu tách theo tài khoản (đặt ngay khi render để màn hình đầu tiên đọc đúng chỗ)
-  setCacheScope(session?.user?.id ?? null);
 
   const meta = (session?.user?.user_metadata || {}) as Record<string, unknown>;
   const email = session?.user?.email || "";
@@ -37,13 +42,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     if (!supabase) return;
-    await unregisterDevice(); // trước khi mất phiên: gỡ mã thiết bị để máy dùng chung không nhận thông báo của người trước
-    await clearCache();
+    markIntentionalSignOut(true);
     try {
-      await supabase.auth.signOut();
-    } catch {
-      // Mất mạng vẫn phải xoá phiên trên máy
-      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      await unregisterDevice(); // trước khi mất phiên: gỡ mã thiết bị để máy dùng chung không nhận thông báo của người trước
+      await clearCache();
+      setCacheScope(null);
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        // Mất mạng vẫn phải xoá phiên trên máy
+        await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      }
+    } finally {
+      markIntentionalSignOut(false);
     }
   };
 

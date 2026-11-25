@@ -24,7 +24,11 @@ export type Account = {
 
 let cache: Account | null = null;
 let inflight: Promise<Account | null> | null = null;
+let authEpoch = 0;
 const listeners = new Set<(a: Account | null) => void>();
+
+const AUTH_DISABLED =
+  process.env.NEXT_PUBLIC_AUTH_DISABLED === "true" && process.env.NODE_ENV !== "production";
 
 function emit(a: Account | null) {
   cache = a;
@@ -34,18 +38,32 @@ function emit(a: Account | null) {
 /** Tải lại tài khoản hiện tại (vai trò + lượt upload). Gọi sau khi upload, thanh toán... */
 export function refreshAccount(): Promise<Account | null> {
   if (inflight) return inflight;
-  inflight = apiFetch("/account/me")
-    .then(async (res) => (res.ok ? ((await res.json()) as Account) : null))
-    .catch(() => null)
-    .then((a) => {
-      emit(a);
+  const epoch = authEpoch;
+  inflight = (async () => {
+    try {
+      if (!AUTH_DISABLED) {
+        const { data } = await supabase.auth.getSession();
+        if (!data.session) {
+          if (epoch === authEpoch) emit(null);
+          return null;
+        }
+      }
+      const res = await apiFetch("/account/me");
+      const acc = res.ok ? ((await res.json()) as Account) : null;
+      if (epoch === authEpoch) emit(acc);
+      return acc;
+    } catch {
+      if (epoch === authEpoch) emit(null);
+      return null;
+    } finally {
       inflight = null;
-      return a;
-    });
+    }
+  })();
   return inflight;
 }
 
 export function clearAccount() {
+  authEpoch += 1;
   emit(null);
 }
 
@@ -54,9 +72,18 @@ let authBound = false;
 function bindAuth() {
   if (authBound || typeof window === "undefined") return;
   authBound = true;
-  supabase.auth.onAuthStateChange((event) => {
-    if (event === "SIGNED_OUT") emit(null);
-    else if (event === "SIGNED_IN" || event === "USER_UPDATED") refreshAccount();
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT") {
+      clearAccount();
+    } else if (
+      event === "INITIAL_SESSION" ||
+      event === "SIGNED_IN" ||
+      event === "TOKEN_REFRESHED" ||
+      event === "USER_UPDATED"
+    ) {
+      if (session || AUTH_DISABLED) refreshAccount();
+      else clearAccount();
+    }
   });
 }
 

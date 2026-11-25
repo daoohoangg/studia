@@ -49,3 +49,30 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
   res.then((r) => { if (!r.ok) cache.delete(url); }, () => cache.delete(url));
   return (await res).clone();
 }
+
+/** Tải tệp có xác thực Bearer token qua apiFetch và kích hoạt tải xuống trình duyệt. */
+export async function downloadAuthFile(pathOrUrl: string, fallbackFilename: string): Promise<void> {
+  const res = await apiFetch(pathOrUrl, { cache: "no-store" });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(typeof d.detail === "string" ? d.detail : "Không xuất được tệp.");
+  }
+  const cd = res.headers.get("content-disposition") || "";
+  const utf8Match = cd.match(/filename\*=UTF-8''([^;]+)/i);
+  const plainMatch = cd.match(/filename="?([^";]+)"?/i);
+  let filename = fallbackFilename;
+  if (utf8Match?.[1]) {
+    try { filename = decodeURIComponent(utf8Match[1].trim()); } catch { filename = utf8Match[1].trim(); }
+  } else if (plainMatch?.[1]) {
+    filename = plainMatch[1].trim();
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}

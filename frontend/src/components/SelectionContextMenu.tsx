@@ -48,6 +48,7 @@ export default function SelectionContextMenu() {
   const [flashcardModalOpen, setFlashcardModalOpen] = useState(false);
   const [loadingDict, setLoadingDict] = useState(false);
   const [dictData, setDictData] = useState<DictionaryData | null>(null);
+  const [dictError, setDictError] = useState("");
 
   // Flashcard form state
   const [fcFront, setFcFront] = useState("");
@@ -63,8 +64,18 @@ export default function SelectionContextMenu() {
   const fcBackTouched = useRef(false);
   const [fcSaved, setFcSaved] = useState(false);
   const [fcSaving, setFcSaving] = useState(false);
+  const [fcError, setFcError] = useState("");
 
   const menuRef = useRef<HTMLDivElement>(null);
+  const lookupSeqRef = useRef(0);
+  const fcLookupSeqRef = useRef(0);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   // Phòng thi đặt body[data-exam-mode]: "real" chỉ cho tô sáng như thi thật, "practice" thêm từ điển/ghi chú/flashcard
   const examMode = typeof document !== "undefined" ? document.body.dataset.examMode : undefined;
@@ -167,74 +178,51 @@ export default function SelectionContextMenu() {
     };
   }, [showColorPicker, dictModalOpen, flashcardModalOpen]);
 
-  // Instant translation helper (<50ms response)
-  const fetchQuickTranslation = async (word: string, sentence: string): Promise<DictionaryData> => {
-    let meaningVi = "";
-    try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&q=${encodeURIComponent(word)}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const json = await res.json();
-        if (json && json[0]) {
-          meaningVi = json[0].map((part: any) => part[0]).join("").trim();
-        }
-      }
-    } catch {}
-
-    const isPhrase = word.trim().split(/\s+/).length > 1;
-    return {
-      word: word,
-      word_type: isPhrase ? "phrase" : "noun",
-      meaning_vi: meaningVi || `Nghĩa tiếng Việt của '${word}'`,
-      pronunciation: `/${word.toLowerCase().replace(/\s+/g, "·")}/`,
-      source_sentence: sentence,
-      example_sentences: [
-        {
-          en: sentence || `The term '${word}' is commonly used in literature.`,
-          vi: `Ngữ cảnh: "${sentence || word}"`
-        }
-      ],
-      collocations: [`key ${word}`, `understand ${word}`, `apply ${word}`],
-      usage_note: "Dịch nhanh ngữ cảnh."
-    };
-  };
-
-  // 1. Tra cứu Từ điển (Dictionary Lookup - Sub 50ms)
+  // 1. Tra cứu Từ điển (qua backend Studia, không gửi văn bản sang dịch vụ ngoài)
   const handleLookupDictionary = async () => {
-    if (!selectedText) return;
+    const word = selectedText;
+    const sentence = sourceSentence;
+    if (!word) return;
+    const seq = ++lookupSeqRef.current;
     setVisible(false);
     setShowColorPicker(false);
     setDictModalOpen(true);
+    setDictData(null);
+    setDictError("");
     setLoadingDict(true);
-    // Step 1: Render instant translation immediately (<50ms)
-    const instantResult = await fetchQuickTranslation(selectedText, sourceSentence);
-    setDictData(instantResult);
-    setLoadingDict(false);
 
-    // Step 2: Fetch AI-enriched data from backend in background
     try {
       const res = await apiFetch("/vocabulary/card", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          word: selectedText,
-          source_sentence: sourceSentence,
+          word,
+          source_sentence: sentence,
         }),
       });
-
-      if (res.ok) {
-        const aiData = await res.json();
-        if (aiData && aiData.meaning_vi) {
-          setDictData((prev) => ({
-            ...instantResult,
-            ...aiData,
-            meaning_vi: (aiData.meaning_vi.includes("Vui lòng tra") || !aiData.meaning_vi)
-              ? instantResult.meaning_vi
-              : aiData.meaning_vi
-          }));
-        }
+      if (seq !== lookupSeqRef.current) return;
+      const aiData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof aiData.detail === "string" ? aiData.detail : "Không tra cứu được từ vựng lúc này.");
       }
-    } catch {}
+      const isPhrase = word.trim().split(/\s+/).length > 1;
+      setDictData({
+        word: aiData.word || word,
+        word_type: aiData.word_type || (isPhrase ? "phrase" : "noun"),
+        meaning_vi: aiData.meaning_vi || "Chưa có nghĩa tiếng Việt cho từ này.",
+        pronunciation: aiData.pronunciation || "",
+        source_sentence: aiData.source_sentence || sentence,
+        example_sentences: aiData.example_sentences || [],
+        collocations: aiData.collocations || [],
+        synonyms: aiData.synonyms || [],
+        usage_note: aiData.usage_note || "",
+      });
+    } catch (e: any) {
+      if (seq !== lookupSeqRef.current) return;
+      setDictError(e?.message || "Không kết nối được máy chủ để tra từ điển.");
+    } finally {
+      if (seq === lookupSeqRef.current) setLoadingDict(false);
+    }
   };
 
   // 2. Highlight text color
@@ -269,6 +257,12 @@ export default function SelectionContextMenu() {
   // 3. Open Flashcard Modal: tự điền nghĩa của chữ vừa bôi đen vào mặt sau
   const handleOpenFlashcardModal = async () => {
     const word = selectedText;
+    const sentence = sourceSentence;
+    const seq = ++fcLookupSeqRef.current;
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
     setVisible(false);
     setShowColorPicker(false);
     setFcFront(word);
@@ -276,6 +270,7 @@ export default function SelectionContextMenu() {
     setFcBack(known);
     fcBackTouched.current = false;
     setFcSaved(false);
+    setFcError("");
     setNewDeckOpen(false);
     setNewDeckName("");
     setDeckError("");
@@ -283,22 +278,24 @@ export default function SelectionContextMenu() {
 
     apiFetch("/flashcards/decks").then(async (r) => { if (r.ok) setDecks((await r.json()).decks || []); }).catch(() => {});
 
-    if (known) return;
+    if (known) {
+      setFcBackLoading(false);
+      return;
+    }
     setFcBackLoading(true);
-    const quick = await fetchQuickTranslation(word, sourceSentence);
-    if (!fcBackTouched.current && !quick.meaning_vi.startsWith("Nghĩa tiếng Việt của")) setFcBack(quick.meaning_vi);
-    setFcBackLoading(false);
-    // Nghĩa sát ngữ cảnh hơn từ AI thì thay vào, trừ khi người dùng đã tự sửa
     try {
       const res = await apiFetch("/vocabulary/card", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ word, source_sentence: sourceSentence }),
+        body: JSON.stringify({ word, source_sentence: sentence }),
       });
+      if (seq !== fcLookupSeqRef.current) return;
       if (res.ok) {
         const ai = await res.json();
         if (ai?.meaning_vi && !ai.meaning_vi.includes("Vui lòng tra") && !fcBackTouched.current) setFcBack(ai.meaning_vi);
       }
-    } catch {}
+    } catch {} finally {
+      if (seq === fcLookupSeqRef.current) setFcBackLoading(false);
+    }
   };
 
   const handleCreateDeck = async () => {
@@ -324,37 +321,53 @@ export default function SelectionContextMenu() {
 
   // Save Flashcard
   const handleSaveFlashcard = async () => {
+    if (!fcFront.trim() || !fcBack.trim()) {
+      setFcError("Vui lòng nhập đầy đủ mặt trước và mặt sau.");
+      return;
+    }
     setFcSaving(true);
+    setFcError("");
     try {
-      await apiFetch("/vocabulary/save", {
+      const res = await apiFetch("/vocabulary/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          word: fcFront,
-          meaning_vi: fcBack,
+          word: fcFront.trim(),
+          meaning_vi: fcBack.trim(),
           source_sentence: sourceSentence,
           topic_id: fcDeckId || undefined,
           create_flashcard: true,
         }),
       });
-    } catch {}
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Không lưu được flashcard.");
+      }
 
-    // Save to local storage cache as well
-    const existing = JSON.parse(localStorage.getItem("studia_user_flashcards") || "[]");
-    existing.push({
-      id: Date.now(),
-      front: fcFront,
-      back: fcBack,
-      deck: decks.find((d) => d.id === fcDeckId)?.name || "Từ vựng tự học",
-      createdAt: new Date().toISOString()
-    });
-    localStorage.setItem("studia_user_flashcards", JSON.stringify(existing));
+      // Save to local storage cache only after server confirms
+      try {
+        const existing = JSON.parse(localStorage.getItem("studia_user_flashcards") || "[]");
+        existing.push({
+          id: Date.now(),
+          front: fcFront.trim(),
+          back: fcBack.trim(),
+          deck: decks.find((d) => d.id === fcDeckId)?.name || "Từ vựng tự học",
+          createdAt: new Date().toISOString()
+        });
+        localStorage.setItem("studia_user_flashcards", JSON.stringify(existing));
+      } catch {}
 
-    setFcSaving(false);
-    setFcSaved(true);
-    setTimeout(() => {
-      setFlashcardModalOpen(false);
-    }, 1200);
+      setFcSaved(true);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = setTimeout(() => {
+        setFlashcardModalOpen(false);
+        closeTimerRef.current = null;
+      }, 1200);
+    } catch (e: any) {
+      setFcError(e?.message || "Không lưu được flashcard. Vui lòng thử lại.");
+    } finally {
+      setFcSaving(false);
+    }
   };
 
   // Ebook: giao việc in đậm / ghi chú cho trang đọc, nơi giữ nội dung khối và gọi API lưu
@@ -575,6 +588,10 @@ export default function SelectionContextMenu() {
               <div style={{ padding: "40px 0", textAlign: "center" }}>
                 <div style={{ width: 36, height: 36, border: "3px solid var(--ink-secondary)", borderTopColor: "var(--brand)", borderRadius: "50%", margin: "0 auto 16px", animation: "spin 1s linear infinite" }} />
                 <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Đang phân tích ngữ cảnh bài đọc...</p>
+              </div>
+            ) : dictError ? (
+              <div role="alert" style={{ padding: "18px", borderRadius: "10px", background: "var(--danger-tint)", color: "var(--danger)", fontSize: "0.9rem" }}>
+                {dictError}
               </div>
             ) : dictData ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -808,6 +825,7 @@ export default function SelectionContextMenu() {
                 </div>
 
                 {/* Save Button */}
+                {fcError && <div role="alert" style={{ color: "var(--danger)", fontSize: "0.85rem" }}>{fcError}</div>}
                 <button
                   onClick={handleSaveFlashcard}
                   disabled={fcSaving}

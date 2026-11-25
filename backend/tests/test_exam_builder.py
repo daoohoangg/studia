@@ -260,6 +260,43 @@ class LlmRefineTests(unittest.TestCase):
         self.assertIs(refine_group(self.FakeLLM(None), group, self.BODY), group)
         self.assertIs(refine_group(self.FakeLLM(error=RuntimeError("quota")), group, self.BODY), group)
 
+    def test_invented_shared_options_are_rejected(self):
+        group = parse_group(17, 18, [
+            block("Match each item. Write the correct letter, A or B, next to Questions 17-18."),
+            block("17 Prepping an actor 18 Continuity A being organised B being flexible"),
+        ])
+        bad = {
+            "type": "matching_features",
+            "shared_options": [{"key": "A", "text": "invented spacecraft launch"}],
+            "questions": [
+                {"number": 17, "question": "Prepping an actor", "options": None},
+                {"number": 18, "question": "Continuity", "options": None},
+            ],
+        }
+        self.assertIs(refine_group(self.FakeLLM(bad), group, "17 Prepping an actor 18 Continuity A being organised B being flexible"), group)
+
+    def test_explain_question_respects_any_order_with_consumption(self):
+        from app.services import exam_explain
+        content = {"sections": {"reading": {"passages": [{"index": 1, "body_markdown": "B and D are correct.", "groups": [
+            {"type": "multiple_select", "questions": [{"number": 21, "question": "Q21"}, {"number": 22, "question": "Q22"}]}
+        ]}]}}}
+        key = {"reading": build_answer_entries({21: "B [either:21-22]", 22: "D [either:21-22]"})}
+        answers = {"reading_21": "B", "reading_22": "B"}
+        self.assertTrue(exam_explain.explain_question(content, key, answers, "reading", 21)["is_correct"])
+        self.assertFalse(exam_explain.explain_question(content, key, answers, "reading", 22)["is_correct"])
+
+    def test_validator_handles_non_numeric_answer_key(self):
+        content = {
+            "schema_version": 1,
+            "sections": {"listening": {"audio_url": None, "parts": [{"part": 1, "groups": [{
+                "type": "multiple_choice", "instruction": "i", "range": [1, 1], "word_limit": 1,
+                "questions": [{"number": 1, "question": "Q1", "options": [{"key": "A", "text": "x"}, {"key": "B", "text": "y"}]}],
+            }]}]}},
+        }
+        res = validate_exam(content, {"listening": {"1": {"accept": ["A"]}, "bad_key": {"accept": ["B"]}}}, has_audio=True)
+        self.assertTrue(res["ok"])
+        self.assertTrue(any(w["code"] == "INVALID_KEY" for w in res["warnings"]))
+
 
 class ValidatorTests(unittest.TestCase):
     def content(self, questions, gtype="multiple_choice", options=True):

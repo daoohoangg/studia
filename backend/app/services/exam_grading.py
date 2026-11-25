@@ -2,8 +2,11 @@
 Chấm điểm bài thi IELTS: quy đổi band, chấm Writing (AI theo 4 tiêu chí, có phương án heuristic) và phân tích điểm yếu.
 """
 import logging
+import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
+import anyio
 
 logger = logging.getLogger(__name__)
 
@@ -176,18 +179,34 @@ def grade_writing(task: int, prompt: str, text: str, min_words: int, llm: Any = 
         return {**base, "band": 0.0, "scored_by": "none", "feedback_vi": "Chưa có bài viết."}
 
     if llm is not None:
+        from app.services.ai_engine import _sanitize_prompt_input, ai_feature_enabled
+        from app.services.exam_builder.extractor import GeminiJsonLLM
+
+        if isinstance(llm, GeminiJsonLLM) and llm.feature is None and not ai_feature_enabled("writing"):
+            llm = None
+
+    if llm is not None:
         try:
+            safe_prompt = _sanitize_prompt_input(prompt, 2500)
+            safe_text = _sanitize_prompt_input(text, 6000)
             result = llm.generate_json(WRITING_PROMPT.format(
-                task=task, prompt=(prompt or "")[:2500], words=words, min_words=min_words, text=text[:6000]) + _exam_calibration())
-            if isinstance(result, dict) and all(isinstance(result.get(c), (int, float)) for c in CRITERIA):
+                task=task, prompt=safe_prompt, words=words, min_words=min_words, text=safe_text) + _exam_calibration())
+            if isinstance(result, dict) and all(
+                isinstance(result.get(c), (int, float))
+                and not isinstance(result.get(c), bool)
+                and math.isfinite(float(result.get(c)))
+                for c in CRITERIA
+            ):
                 criteria = {c: round_ielts(max(0.0, min(9.0, float(result[c])))) for c in CRITERIA}
                 band = round_ielts(sum(criteria.values()) / 4)
                 cap = length_cap(words, min_words)
                 if cap is not None:
                     band = min(band, cap)
+                strengths = result.get("strengths")
+                improvements = result.get("improvements")
                 return {**base, "band": band, "criteria": criteria, "scored_by": "ai",
-                        "strengths": [str(x) for x in (result.get("strengths") or [])][:5],
-                        "improvements": [str(x) for x in (result.get("improvements") or [])][:5],
+                        "strengths": [str(x) for x in strengths][:5] if isinstance(strengths, list) else [],
+                        "improvements": [str(x) for x in improvements][:5] if isinstance(improvements, list) else [],
                         "feedback_vi": str(result.get("feedback_vi") or "")}
         except Exception as e:
             logger.warning(f"Writing AI grading failed: {e}")
@@ -195,6 +214,10 @@ def grade_writing(task: int, prompt: str, text: str, min_words: int, llm: Any = 
     return {**base, "band": heuristic_writing_band(words, min_words), "scored_by": "heuristic",
             "feedback_vi": "Chưa chấm được bằng AI: điểm này chỉ ước lượng theo độ dài bài viết, "
                            "không phản ánh chất lượng nội dung."}
+
+
+async def agrade_writing(task: int, prompt: str, text: str, min_words: int, llm: Any = None) -> Dict[str, Any]:
+    return await anyio.to_thread.run_sync(grade_writing, task, prompt, text, min_words, llm)
 
 
 def combine_writing(task1: Dict[str, Any], task2: Dict[str, Any]) -> Optional[float]:

@@ -82,6 +82,39 @@ class ProfileTestCase(unittest.TestCase):
         bad = self.client.post(f"{self.api}/profile/delete-account", json={"confirm_email": "khac@x.com"})
         self.assertIn(bad.status_code, (400, 403))
 
+    def test_delete_account_cleans_storage_and_social_tables(self):
+        from app.core.supabase_client import get_supabase_client
+        db = get_supabase_client()
+        uid = settings.DEFAULT_USER_ID
+        accounts.ensure_account(uid, "hoc@example.com")
+        db.storage.from_("documents").upload(f"{uid}/d1/book.pdf", b"%PDF-1.4")
+        db.storage.from_("moments").upload(f"{uid}/m1.jpg", b"jpg")
+        db.storage.from_("exam-audio").upload(f"{uid}/a1.mp3", b"mp3")
+        db.storage.from_("exam-media").upload(f"{uid}/img1.png", b"png")
+        db.table("documents").insert({"id": "d1", "user_id": uid, "title": "Book", "file_path": f"{uid}/d1/book.pdf"}).execute()
+        db.table("study_moments").insert({"id": "m1", "user_id": uid, "moment_date": "2026-01-01", "path": f"{uid}/m1.jpg"}).execute()
+        db.table("exam_sets").insert({
+            "id": "es1", "user_id": uid, "title": "Set",
+            "listening_audio_path": f"{uid}/a1.mp3",
+            "content": {"sections": {"writing": {"task1": {"image_url": f"media://{uid}/img1.png"}}}},
+        }).execute()
+        db.table("friend_profiles").insert({"user_id": uid, "code": "ABC234"}).execute()
+        db.table("friendships").insert({"id": "fr1", "requester_id": uid, "addressee_id": "22222222-2222-2222-2222-222222222222", "status": "accepted"}).execute()
+        db.table("moment_reactions").insert({"id": "mr1", "moment_id": "m1", "user_id": uid, "kind": "flame"}).execute()
+        db.table("push_tokens").insert({"token": "ExponentPushToken[abc]", "user_id": uid, "platform": "android"}).execute()
+
+        res = self.client.post(f"{self.api}/profile/delete-account", json={"confirm_email": "hoc@example.com"})
+        self.assertEqual(res.status_code, 200, res.text)
+        for tbl in ("documents", "study_moments", "exam_sets", "friend_profiles", "friendships", "moment_reactions", "push_tokens", "user_accounts"):
+            self.assertEqual(db.table(tbl).select("*").execute().data, [], tbl)
+        for bucket, path in (
+            ("documents", f"{uid}/d1/book.pdf"),
+            ("moments", f"{uid}/m1.jpg"),
+            ("exam-audio", f"{uid}/a1.mp3"),
+            ("exam-media", f"{uid}/img1.png"),
+        ):
+            self.assertFalse(os.path.exists(local_db.resolve_storage_path(bucket, path)), (bucket, path))
+
     def test_anki_all_empty_is_404(self):
         self.assertEqual(self.client.get(f"{self.api}/export/flashcards/anki-all").status_code, 404)
 

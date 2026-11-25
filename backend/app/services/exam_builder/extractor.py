@@ -47,10 +47,13 @@ class JsonLLM(Protocol):
 class GeminiJsonLLM:
     """Gọi Gemini qua AIEngine; trả None khi chưa cấu hình hoặc lỗi."""
 
+    def __init__(self, feature: Optional[str] = None):
+        self.feature = feature
+
     def generate_json(self, prompt: str) -> Optional[Dict[str, Any]]:
         from app.services.ai_engine import _call_gemini
 
-        result = _call_gemini(prompt, expect_json=True)
+        result = _call_gemini(prompt, expect_json=True, feature=self.feature)
         return result if isinstance(result, dict) else None
 
 
@@ -617,6 +620,8 @@ def validate_llm_group(result: Optional[Dict[str, Any]], heuristic: Dict[str, An
     if not isinstance(questions, list):
         return None
     try:
+        if any(not isinstance(q, dict) or isinstance(q.get("number"), bool) for q in questions):
+            return None
         numbers = sorted(int(q["number"]) for q in questions)
     except (KeyError, TypeError, ValueError):
         return None
@@ -641,17 +646,26 @@ def validate_llm_group(result: Optional[Dict[str, Any]], heuristic: Dict[str, An
         cleaned.append(_make_question(int(q["number"]), text, options))
 
     shared = result.get("shared_options")
-    if isinstance(shared, list) and shared and all(isinstance(o, dict) and "key" in o and "text" in o for o in shared):
-        shared = [{"key": str(o["key"]).strip(), "text": str(o["text"]).strip()} for o in shared]
+    if shared is not None:
+        if not isinstance(shared, list) or not all(isinstance(o, dict) and "key" in o and "text" in o for o in shared):
+            return None
+        if shared:
+            shared_tokens = _tokens(" ".join(str(o.get("text", "")) for o in shared))
+            if shared_tokens and len(shared_tokens & source_tokens) / len(shared_tokens) < 0.8:
+                return None
+            shared = [{"key": str(o["key"]).strip(), "text": str(o["text"]).strip()} for o in shared]
+        else:
+            shared = heuristic.get("shared_options")
     else:
         shared = heuristic.get("shared_options")
 
+    ctx_title = result.get("context_title")
     refined = dict(heuristic)
     refined.update({
         "type": qtype,
         "questions": cleaned,
         "shared_options": shared,
-        "context_title": result.get("context_title") or heuristic.get("context_title"),
+        "context_title": str(ctx_title).strip() if isinstance(ctx_title, str) and ctx_title.strip() else heuristic.get("context_title"),
         "source": "ai",
     })
     refined.pop("needs_review", None)

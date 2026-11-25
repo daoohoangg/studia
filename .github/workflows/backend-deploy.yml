@@ -4,7 +4,7 @@ name: backend
 
 on:
   pull_request:
-    paths: ["backend/**", ".github/workflows/backend-deploy.yml"]
+    paths: ["backend/**", "deploy/ec2/**", ".github/workflows/backend-deploy.yml"]
   push:
     branches: [main]
     paths: ["backend/**", "deploy/ec2/**", ".github/workflows/backend-deploy.yml"]
@@ -81,12 +81,17 @@ jobs:
           envs: GHCR_USER,GHCR_TOKEN,API_IMAGE
           script_stop: true
           script: |
+            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
             cd ~/studia
             git fetch origin main && git reset --hard origin/main
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd deploy/ec2
-            echo "API_IMAGE=$API_IMAGE" > .env
+            touch .env
+            grep -v '^API_IMAGE=' .env > .env.tmp || true
+            printf 'API_IMAGE=%s\n' "$API_IMAGE" >> .env.tmp
+            mv .env.tmp .env
             docker compose pull api
+            docker logout ghcr.io >/dev/null 2>&1 || true
             docker compose up -d --remove-orphans
             docker image prune -f
             # chờ healthcheck, fail job nếu bản mới không lên

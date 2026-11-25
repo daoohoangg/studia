@@ -2,17 +2,19 @@
 Scenarios API v2 — Task-Based Language Teaching (TBLT) & AI Roleplay Interactive Sessions
 Feature E: Auto-save vocabulary & errors sau mỗi roleplay step
 """
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+import logging
+import uuid
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
-from app.services.scenario_engine import ScenarioEngine
+from pydantic import BaseModel, Field
+
+from app.core.auth import current_user_id, require_owned, require_topic_owned, validate_uuid
+from app.core.supabase_client import get_supabase_client
 from app.services.ai_engine import AIEngine, require_ai_feature
 from app.services.rag_engine import RAGEngine
-from app.core.supabase_client import get_supabase_client
-from app.config import settings
-from app.core.auth import current_user_id
-import uuid
-import logging
+from app.services.scenario_engine import ScenarioEngine
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +22,9 @@ router = APIRouter(prefix="/scenarios", tags=["Scenarios & Roleplay"])
 
 
 class GenerateScenariosRequest(BaseModel):
-    document_id: str
+    document_id: Optional[str] = None
     topic_name: str
-    count: int = 3
+    count: int = Field(3, ge=1, le=10)
 
 
 class InteractStepRequest(BaseModel):
@@ -38,26 +40,30 @@ class InteractStepRequest(BaseModel):
 
 
 @router.post("/generate")
-async def generate_scenarios(req: GenerateScenariosRequest):
+def generate_scenarios(req: GenerateScenariosRequest):
     """
     Sinh các nhiệm vụ tình huống thực tế (TBLT Scenarios) từ RAG context của sách.
     """
     require_ai_feature("scenarios", "Tạo tình huống hội thoại")
+    current_user_id()
+    doc_id = validate_uuid(req.document_id, "document_id", required=False)
+    if doc_id:
+        require_owned("documents", doc_id)
+
     supabase = get_supabase_client()
     document_title = "Tài liệu chuyên ngành"
 
-    if supabase and req.document_id:
-        doc_resp = supabase.table("documents").select("title").eq("id", req.document_id).execute()
+    if supabase and doc_id:
+        doc_resp = supabase.table("documents").select("title").eq("id", doc_id).execute()
         if doc_resp.data:
             document_title = doc_resp.data[0].get("title", "")
 
-    # RAG Context
     rag_chunks = []
-    if supabase and req.document_id:
+    if supabase and doc_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
             query=req.topic_name,
             supabase_client=supabase,
-            document_id=req.document_id,
+            document_id=doc_id,
             top_k=5
         )
 
@@ -71,27 +77,35 @@ async def generate_scenarios(req: GenerateScenariosRequest):
     )
 
     return {
-        "document_id": req.document_id,
+        "document_id": doc_id,
         "topic_name": req.topic_name,
         "scenarios": scenarios
     }
 
 
 @router.post("/interact")
-async def interact_scenario_step(req: InteractStepRequest):
+def interact_scenario_step(req: InteractStepRequest):
     """
     Lượt tương tác nhập vai (Roleplay Turn) với AI.
     Trả về phản hồi của nhân vật AI + điểm đánh giá truyền thông & thuật ngữ.
     """
     require_ai_feature("scenarios", "Nhập vai hội thoại với AI")
+    uid = current_user_id()
+    doc_id = validate_uuid(req.document_id, "document_id", required=False)
+    topic_id = validate_uuid(req.topic_id, "topic_id", required=False)
+    if doc_id:
+        require_owned("documents", doc_id)
+    if topic_id:
+        require_topic_owned(topic_id, missing_ok=True)
+
     supabase = get_supabase_client()
     rag_chunks = []
 
-    if supabase and req.document_id:
+    if supabase and doc_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
             query=req.user_message,
             supabase_client=supabase,
-            document_id=req.document_id,
+            document_id=doc_id,
             top_k=4
         )
 
@@ -106,10 +120,9 @@ async def interact_scenario_step(req: InteractStepRequest):
         rag_context=rag_texts
     )
 
-    # Feature E: Auto-extract & save vocabulary + errors
     vocab_saved = []
     errors_logged = 0
-    if req.save_vocabulary:
+    if req.save_vocabulary and supabase:
         try:
             extracted = AIEngine.extract_scenario_vocabulary(
                 scenario_title=req.scenario_title,
@@ -118,9 +131,6 @@ async def interact_scenario_step(req: InteractStepRequest):
                 rag_context=rag_texts
             )
 
-            uid = current_user_id()
-
-            # Lưu vocabulary items
             vocab_items = extracted.get("vocabulary_items", [])
             for item in vocab_items:
                 word = item.get("word", "").strip()
@@ -132,8 +142,8 @@ async def interact_scenario_step(req: InteractStepRequest):
                     supabase.table("vocabulary_items").insert({
                         "id": v_id,
                         "user_id": uid,
-                        "document_id": req.document_id,
-                        "topic_id": req.topic_id,
+                        "document_id": doc_id,
+                        "topic_id": topic_id,
                         "word": word,
                         "meaning_vi": meaning,
                         "source_sentence": item.get("source_sentence", ""),
@@ -144,7 +154,7 @@ async def interact_scenario_step(req: InteractStepRequest):
                 except Exception as ve:
                     logger.warning(f"Vocab save failed for '{word}': {ve}")
 
-            # Lưu errors
+            now_iso = datetime.now(timezone.utc).isoformat()
             user_errors = extracted.get("errors_in_user_input", [])
             for err in user_errors:
                 if not err.get("error_detail"):
@@ -159,12 +169,12 @@ async def interact_scenario_step(req: InteractStepRequest):
                     if existing.data:
                         supabase.table("error_logs").update({
                             "occurrence_count": existing.data[0]["occurrence_count"] + 1,
-                            "last_seen_at": "now()"
+                            "last_seen_at": now_iso
                         }).eq("id", existing.data[0]["id"]).execute()
                     else:
                         supabase.table("error_logs").insert({
                             "user_id": uid,
-                            "topic_id": req.topic_id,
+                            "topic_id": topic_id,
                             "error_type": err.get("error_type", "grammar"),
                             "error_detail": err.get("error_detail", "")[:500],
                             "user_input": err.get("user_input", ""),

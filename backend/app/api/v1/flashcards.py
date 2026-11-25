@@ -1,33 +1,38 @@
 """
 Flashcards API — Generate, Review (FSRS), Due Queue
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
-from app.services.ai_engine import AIEngine, require_ai_feature
-from app.services.rag_engine import RAGEngine
-from app.services.fsrs_engine import FSRSEngine
-from app.core.supabase_client import get_supabase_client
-from app.config import settings
-from app.core.auth import current_user_id
+from datetime import datetime, timezone
+from typing import Optional
 import uuid
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from app.core.auth import current_user_id, require_owned, require_topic_owned
+from app.core.supabase_client import get_supabase_client
+from app.services.ai_engine import AIEngine, require_ai_feature
+from app.services.fsrs_engine import FSRSEngine
+from app.services.rag_engine import RAGEngine
 
 router = APIRouter(prefix="/flashcards", tags=["Flashcards"])
 
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class GenerateFlashcardsRequest(BaseModel):
     topic_id: str
     topic_name: str
     document_id: Optional[str] = None
-    count: int = 10
+    count: int = Field(10, ge=1, le=30)
     user_id: Optional[str] = None
 
 
 class ReviewFlashcardRequest(BaseModel):
     flashcard_id: str
-    rating: int  # 1=Again, 2=Hard, 3=Good, 4=Easy
-    response_time_ms: int = 5000
+    rating: int = Field(..., ge=1, le=4)  # 1=Again, 2=Hard, 3=Good, 4=Easy
+    response_time_ms: int = Field(5000, ge=0, le=600000)
     user_id: Optional[str] = None
 
 
@@ -47,7 +52,7 @@ class DeckCreate(BaseModel):
 
 
 @router.get("/decks")
-async def list_decks():
+def list_decks():
     """Các bộ thẻ người dùng tự tạo (topic có slug deck-<user_id>-...)."""
     uid = current_user_id()
     supabase = get_supabase_client()
@@ -61,7 +66,7 @@ async def list_decks():
 
 
 @router.post("/decks")
-async def create_deck(req: DeckCreate):
+def create_deck(req: DeckCreate):
     """Tạo bộ thẻ mới; trả về id để gắn thẻ vào bộ này."""
     uid = current_user_id()
     name = req.name.strip()[:80]
@@ -85,12 +90,16 @@ async def create_deck(req: DeckCreate):
 
 
 @router.post("/custom-create")
-async def create_custom_flashcard(req: CustomFlashcardCreate):
+def create_custom_flashcard(req: CustomFlashcardCreate):
     """
     Người dùng tự tạo thẻ flashcard tùy chỉnh (Manual Custom Flashcard).
     Hệ thống tự động tạo topic (nếu chưa có) và khởi tạo FSRS state.
     """
     user_id = current_user_id()
+    if req.document_id:
+        require_owned("documents", req.document_id)
+    if req.topic_id:
+        require_topic_owned(req.topic_id)
     supabase = get_supabase_client()
 
     if not supabase:
@@ -99,18 +108,17 @@ async def create_custom_flashcard(req: CustomFlashcardCreate):
     card_id = str(uuid.uuid4())
     topic_id = req.topic_id or str(uuid.uuid4())
 
-    # Check/insert topic record if missing
-    try:
-        if not req.topic_id:
+    if not req.topic_id:
+        try:
             supabase.table("topics").insert({
                 "id": topic_id,
                 "name": req.topic_name,
-                "slug": f"custom-{topic_id[:8]}",
+                "slug": f"custom-{user_id}-{topic_id[:8]}",
                 "description": "Bộ thẻ flashcard tự tạo bởi người dùng",
                 "difficulty_level": 1
             }).execute()
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     try:
         supabase.table("flashcards").insert({
@@ -123,14 +131,13 @@ async def create_custom_flashcard(req: CustomFlashcardCreate):
             "card_type": req.card_type
         }).execute()
 
-        # Khởi tạo FSRS state cho user
         supabase.table("flashcard_states").insert({
             "user_id": user_id,
             "flashcard_id": card_id,
             "stability": 1.0,
             "difficulty_rating": 5.0,
             "mastery_score": 0.0,
-            "next_review_at": "now()"
+            "next_review_at": _now_iso()
         }).execute()
 
         return {
@@ -152,19 +159,21 @@ async def create_custom_flashcard(req: CustomFlashcardCreate):
 
 
 @router.post("/generate")
-async def generate_flashcards(req: GenerateFlashcardsRequest):
+def generate_flashcards(req: GenerateFlashcardsRequest):
     """
     Sinh flashcards cho topic từ RAG context (content trong sách).
     Lưu vào Supabase với topic_id.
     """
     require_ai_feature("flashcards", "Tạo flashcard")
     user_id = current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
+    if req.document_id:
+        require_owned("documents", req.document_id)
     supabase = get_supabase_client()
 
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    # 1. RAG: lấy context liên quan
     rag_chunks = []
     if req.document_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
@@ -176,15 +185,14 @@ async def generate_flashcards(req: GenerateFlashcardsRequest):
 
     rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
 
-    # 2. Sinh flashcards qua Gemini
     flashcard_data = AIEngine.generate_flashcards(
         topic_name=req.topic_name,
         rag_context=rag_texts,
         count=req.count
     )
 
-    # 3. Lưu vào Supabase
     saved_cards = []
+    now_iso = _now_iso()
     for card in flashcard_data:
         card_id = str(uuid.uuid4())
         try:
@@ -198,14 +206,13 @@ async def generate_flashcards(req: GenerateFlashcardsRequest):
                 "card_type": card.get("card_type", "concept")
             }).execute()
 
-            # Khởi tạo FSRS state cho user
             supabase.table("flashcard_states").insert({
                 "user_id": user_id,
                 "flashcard_id": card_id,
                 "stability": 1.0,
                 "difficulty_rating": 5.0,
                 "mastery_score": 0.0,
-                "next_review_at": "now()"
+                "next_review_at": now_iso
             }).execute()
 
             saved_cards.append({**card, "id": card_id})
@@ -222,22 +229,23 @@ async def generate_flashcards(req: GenerateFlashcardsRequest):
 
 
 @router.get("/due")
-async def get_due_flashcards(
+def get_due_flashcards(
     user_id: Optional[str] = None,
-    limit: int = 20,
-    topic_id: Optional[str] = None
+    limit: int = Query(20, ge=1, le=100),
+    topic_id: Optional[str] = None,
 ):
     """
     Lấy danh sách flashcards đến hạn ôn tập (FSRS schedule).
     """
     uid = current_user_id()
+    if topic_id:
+        require_topic_owned(topic_id)
     supabase = get_supabase_client()
 
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
     try:
-        # Dùng RPC function get_due_flashcards nếu có
         resp = supabase.rpc("get_due_flashcards", {
             "p_user_id": uid,
             "p_limit": limit
@@ -254,12 +262,11 @@ async def get_due_flashcards(
             "flashcards": cards
         }
     except Exception:
-        # Fallback: query trực tiếp
         try:
             fs_resp = supabase.table("flashcard_states") \
                 .select("flashcard_id, stability, difficulty_rating, mastery_score, next_review_at, review_count") \
                 .eq("user_id", uid) \
-                .lte("next_review_at", "now()") \
+                .lte("next_review_at", _now_iso()) \
                 .order("next_review_at") \
                 .limit(limit) \
                 .execute()
@@ -271,8 +278,10 @@ async def get_due_flashcards(
             if card_ids:
                 fc_resp = supabase.table("flashcards").select("*").in_("id", card_ids).execute()
                 for fc in (fc_resp.data or []):
+                    if topic_id and fc.get("topic_id") != topic_id:
+                        continue
                     state = fs_map.get(fc["id"], {})
-                    cards.append({**fc, **state})
+                    cards.append({**state, **fc, "flashcard_id": fc["id"]})
 
             return {"user_id": uid, "due_count": len(cards), "flashcards": cards}
         except Exception as e:
@@ -280,7 +289,7 @@ async def get_due_flashcards(
 
 
 @router.post("/review")
-async def review_flashcard(req: ReviewFlashcardRequest):
+def review_flashcard(req: ReviewFlashcardRequest):
     """
     Submit kết quả review một flashcard.
     Cập nhật FSRS state (stability, difficulty, next_review_at).
@@ -291,7 +300,15 @@ async def review_flashcard(req: ReviewFlashcardRequest):
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    # Lấy FSRS state hiện tại
+    fc_rows = supabase.table("flashcards").select("id, topic_id, document_id").eq("id", req.flashcard_id).limit(1).execute().data or []
+    if not fc_rows:
+        raise HTTPException(status_code=404, detail="Không tìm thấy flashcard")
+    fc = fc_rows[0]
+    if fc.get("topic_id"):
+        require_topic_owned(fc["topic_id"])
+    elif fc.get("document_id"):
+        require_owned("documents", fc["document_id"])
+
     state_resp = supabase.table("flashcard_states") \
         .select("*") \
         .eq("user_id", uid) \
@@ -299,13 +316,11 @@ async def review_flashcard(req: ReviewFlashcardRequest):
         .execute()
 
     if not state_resp.data:
-        # Tạo mới nếu chưa có
         current_state = {"stability": 1.0, "difficulty_rating": 5.0, "mastery_score": 0.0, "review_count": 0}
     else:
         current_state = state_resp.data[0]
 
-    # Tính FSRS
-    is_correct = req.rating >= 3  # Good hoặc Easy = correct
+    is_correct = req.rating >= 3
     fsrs_result = FSRSEngine.calculate_next_review(
         stability=current_state.get("stability", 1.0),
         difficulty_rating=current_state.get("difficulty_rating", 5.0),
@@ -315,7 +330,6 @@ async def review_flashcard(req: ReviewFlashcardRequest):
         response_time_ms=req.response_time_ms
     )
 
-    # Cập nhật FSRS state
     try:
         supabase.table("flashcard_states").upsert({
             "user_id": uid,
@@ -327,7 +341,7 @@ async def review_flashcard(req: ReviewFlashcardRequest):
             "next_review_at": fsrs_result["next_review_at"],
             "review_count": current_state.get("review_count", 0) + 1,
             "last_rating": req.rating,
-            "updated_at": "now()"
+            "updated_at": _now_iso()
         }, on_conflict="user_id,flashcard_id").execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi cập nhật FSRS state: {e}")
@@ -345,9 +359,10 @@ async def review_flashcard(req: ReviewFlashcardRequest):
 
 
 @router.get("/topic/{topic_id}")
-async def get_topic_flashcards(topic_id: str, user_id: Optional[str] = None):
+def get_topic_flashcards(topic_id: str, user_id: Optional[str] = None):
     """Lấy tất cả flashcards của một topic."""
     uid = current_user_id()
+    require_topic_owned(topic_id)
     supabase = get_supabase_client()
 
     if not supabase:
@@ -356,7 +371,6 @@ async def get_topic_flashcards(topic_id: str, user_id: Optional[str] = None):
     fc_resp = supabase.table("flashcards").select("*").eq("topic_id", topic_id).execute()
     flashcards = fc_resp.data or []
 
-    # Attach FSRS state
     if flashcards:
         card_ids = [fc["id"] for fc in flashcards]
         fs_resp = supabase.table("flashcard_states") \

@@ -27,9 +27,9 @@ class OcrProvider(Protocol):
 
 class GeminiVisionOcr:
     def __init__(self, api_key: str, model_name: str, retries: int = 2):
-        import google.generativeai as genai
+        from app.services.ai_engine import configure_genai
 
-        genai.configure(api_key=api_key)
+        genai = configure_genai(api_key)
         self._model = genai.GenerativeModel(model_name)
         self._retries = retries
 

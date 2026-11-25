@@ -43,7 +43,13 @@ def send_email(to: str, subject: str, html: str, text: str) -> Tuple[bool, str]:
     msg.add_alternative(html, subtype="html")
 
     try:
-        security = settings.SMTP_SECURITY.strip().lower()
+        security = (settings.SMTP_SECURITY or "starttls").strip().lower()
+        if security not in ("ssl", "starttls", "none"):
+            logger.error(f"Unsupported SMTP_SECURITY={security!r}")
+            return False, "invalid_smtp_security"
+        if security == "none" and (settings.SMTP_USER or settings.SMTP_PASSWORD):
+            logger.error("Refusing cleartext SMTP authentication when SMTP_SECURITY=none")
+            return False, "cleartext_auth_rejected"
         if security == "ssl":
             server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20,
                                       context=ssl.create_default_context())

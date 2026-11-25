@@ -287,23 +287,30 @@ def read_pdf_text_layer(pdf_bytes: bytes) -> Tuple[List[Dict[str, Any]], int, Li
 
 def ocr_pdf_pages(pdf_bytes: bytes, page_numbers: List[int], ocr: Any,
                   workers: int = 4, dpi: int = 200) -> Dict[int, List[Dict[str, Any]]]:
-    """OCR các trang được chọn; trả về {số trang: [khối]}. Trang lỗi/không có chữ bị bỏ qua."""
-    images: Dict[int, bytes] = {}
-    with _PDFIUM_LOCK:
-        pdf = pdfium.PdfDocument(pdf_bytes)
-        try:
-            for number in page_numbers:
-                page = pdf[number - 1]
-                try:
-                    images[number] = _render_png(page, dpi)
-                finally:
-                    page.close()
-        finally:
-            pdf.close()
+    """OCR các trang được chọn theo từng lô nhỏ để tránh giữ toàn bộ ảnh PNG trong RAM; trả về {số trang: [khối]}."""
     out: Dict[int, List[Dict[str, Any]]] = {}
-    for number, markdown in _run_ocr(ocr, images, workers).items():
-        if markdown.strip():
-            out[number] = [{**b, "page_number": number} for b in blocks_from_text(markdown)]
+    if not page_numbers:
+        return out
+    batch_size = max(1, workers * 2)
+    for start in range(0, len(page_numbers), batch_size):
+        batch = page_numbers[start:start + batch_size]
+        images: Dict[int, bytes] = {}
+        with _PDFIUM_LOCK:
+            pdf = pdfium.PdfDocument(pdf_bytes)
+            try:
+                for number in batch:
+                    page = pdf[number - 1]
+                    try:
+                        images[number] = _render_png(page, dpi)
+                    finally:
+                        page.close()
+            finally:
+                pdf.close()
+        ocr_results = _run_ocr(ocr, images, workers)
+        images.clear()
+        for number, markdown in ocr_results.items():
+            if markdown.strip():
+                out[number] = [{**b, "page_number": number} for b in blocks_from_text(markdown)]
     return out
 
 
@@ -331,10 +338,22 @@ def extract_pdf_blocks(
 def _render_png(page, dpi: int) -> bytes:
     import io
 
-    image = page.render(scale=dpi / 72.0).to_pil().convert("RGB")
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
+    bitmap = page.render(scale=dpi / 72.0)
+    try:
+        pil_img = bitmap.to_pil()
+    finally:
+        bitmap.close()
+    try:
+        rgb_img = pil_img.convert("RGB") if pil_img.mode != "RGB" else pil_img
+        try:
+            buffer = io.BytesIO()
+            rgb_img.save(buffer, format="PNG")
+            return buffer.getvalue()
+        finally:
+            if rgb_img is not pil_img:
+                rgb_img.close()
+    finally:
+        pil_img.close()
 
 
 def _run_ocr(ocr: Any, images: Dict[int, bytes], workers: int) -> Dict[int, str]:

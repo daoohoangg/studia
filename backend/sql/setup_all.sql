@@ -1,6 +1,6 @@
 -- ============================================================
 -- Studia - THIẾT LẬP CƠ SỞ DỮ LIỆU ĐẦY ĐỦ (an toàn khi chạy lại)
--- Gộp theo thứ tự: schema.sql, migration_v2 ... v7 (KHÔNG gồm seed.sql).
+-- Gộp theo thứ tự: schema.sql, migration_v2 ... v14 (KHÔNG gồm seed.sql).
 -- Mỗi CREATE POLICY được đặt sau DROP POLICY IF EXISTS để chạy lại không lỗi.
 -- Cách dùng: Supabase Dashboard > SQL Editor > New query > dán toàn bộ > Run.
 -- ============================================================
@@ -762,6 +762,247 @@ ALTER TABLE public.exam_sessions
 -- Lưu ý: mỗi câu trả lời được ghi qua backend dưới khoá theo phiên (đọc-sửa-ghi cột answers_json),
 -- nên hai câu trả lời đến gần nhau không ghi đè lên nhau khi chạy một tiến trình backend.
 
+-- ===== migration_v8.sql =====
+CREATE TABLE IF NOT EXISTS public.user_accounts (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email TEXT,
+    full_name TEXT,
+    role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student', 'admin')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'locked')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_user_accounts_role ON public.user_accounts(role, status);
+CREATE INDEX IF NOT EXISTS idx_user_accounts_email ON public.user_accounts(lower(email));
+
+CREATE TABLE IF NOT EXISTS public.app_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.credit_packs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    books INT NOT NULL CHECK (books > 0),
+    price_vnd BIGINT NOT NULL DEFAULT 0 CHECK (price_vnd >= 0),
+    description TEXT,
+    highlight BOOLEAN NOT NULL DEFAULT false,
+    active BOOLEAN NOT NULL DEFAULT false,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.payment_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    pack_id UUID REFERENCES public.credit_packs(id) ON DELETE SET NULL,
+    pack_name TEXT NOT NULL,
+    books INT NOT NULL,
+    amount_vnd BIGINT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'paid', 'review', 'expired', 'cancelled', 'rejected')),
+    paid_method TEXT CHECK (paid_method IN ('webhook', 'manual')),
+    paid_amount_vnd BIGINT,
+    paid_at TIMESTAMPTZ,
+    approved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    note TEXT,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_payment_orders_user ON public.payment_orders(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_orders_status ON public.payment_orders(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.credit_ledger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    delta INT NOT NULL,
+    reason TEXT NOT NULL CHECK (reason IN ('purchase', 'upload', 'admin_adjust', 'refund')),
+    note TEXT,
+    order_id UUID REFERENCES public.payment_orders(id) ON DELETE SET NULL,
+    document_id UUID REFERENCES public.documents(id) ON DELETE SET NULL,
+    actor_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_credit_ledger_user ON public.credit_ledger(user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_ledger_order_purchase
+    ON public.credit_ledger(order_id) WHERE reason = 'purchase';
+
+CREATE TABLE IF NOT EXISTS public.payment_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider TEXT NOT NULL DEFAULT 'sepay',
+    provider_txn_id TEXT NOT NULL,
+    amount_vnd BIGINT NOT NULL,
+    content TEXT,
+    code TEXT,
+    match_status TEXT NOT NULL DEFAULT 'unmatched'
+        CHECK (match_status IN ('matched', 'underpaid', 'unmatched', 'duplicate_order', 'assigned', 'ignored')),
+    order_id UUID REFERENCES public.payment_orders(id) ON DELETE SET NULL,
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (provider, provider_txn_id)
+);
+CREATE INDEX IF NOT EXISTS idx_payment_tx_status ON public.payment_transactions(match_status, received_at DESC);
+
+ALTER TABLE public.documents
+    ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private';
+DO $$ BEGIN
+    ALTER TABLE public.documents ADD CONSTRAINT documents_visibility_check
+        CHECK (visibility IN ('private', 'shared', 'shared_draft'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS idx_documents_visibility ON public.documents(visibility, created_at DESC);
+
+ALTER TABLE public.user_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Read own account" ON public.user_accounts;
+CREATE POLICY "Read own account" ON public.user_accounts FOR SELECT TO authenticated USING (id = (SELECT auth.uid()));
+
+ALTER TABLE public.credit_ledger ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Read own ledger" ON public.credit_ledger;
+CREATE POLICY "Read own ledger" ON public.credit_ledger FOR SELECT TO authenticated USING (user_id = (SELECT auth.uid()));
+
+ALTER TABLE public.payment_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Read own orders" ON public.payment_orders;
+CREATE POLICY "Read own orders" ON public.payment_orders FOR SELECT TO authenticated USING (user_id = (SELECT auth.uid()));
+
+ALTER TABLE public.credit_packs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Read active packs" ON public.credit_packs;
+CREATE POLICY "Read active packs" ON public.credit_packs FOR SELECT TO authenticated USING (active);
+
+ALTER TABLE public.payment_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Read shared documents" ON public.documents;
+CREATE POLICY "Read shared documents" ON public.documents FOR SELECT TO authenticated USING (visibility = 'shared');
+
+INSERT INTO public.app_settings (key, value) VALUES
+    ('free_book_limit', '1'::jsonb),
+    ('order_ttl_minutes', '15'::jsonb),
+    ('bank', '{"bank_id": "", "account_no": "", "account_name": ""}'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO public.credit_packs (name, books, price_vnd, description, highlight, active, sort_order)
+SELECT * FROM (VALUES
+    ('Gói nhỏ', 3, 0::bigint, 'Cho một bộ đề và vài sách bổ trợ', false, false, 1),
+    ('Gói vừa', 10, 0::bigint, 'Đủ cho cả lộ trình ôn thi', true, false, 2),
+    ('Gói lớn', 30, 0::bigint, 'Cho người học lâu dài hoặc giáo viên', false, false, 3)
+) AS v(name, books, price_vnd, description, highlight, active, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM public.credit_packs);
+
+-- ===== migration_v9.sql =====
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS processing_step INT;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS processing_detail TEXT;
+
+CREATE TABLE IF NOT EXISTS public.user_profiles (
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.placement_results (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    band NUMERIC(2,1) NOT NULL CHECK (band BETWEEN 0 AND 9),
+    per_section JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_placement_user ON public.placement_results(user_id, created_at DESC);
+
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.placement_results ENABLE ROW LEVEL SECURITY;
+
+-- ===== migration_v10.sql =====
+CREATE TABLE IF NOT EXISTS public.study_slots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    slot_date DATE NOT NULL,
+    start_time TEXT NOT NULL CHECK (start_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+    end_time TEXT NOT NULL CHECK (end_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
+    title TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    skill TEXT NOT NULL DEFAULT 'other',
+    status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'done', 'skipped')),
+    remind BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_study_slots_user_day ON public.study_slots(user_id, slot_date);
+CREATE INDEX IF NOT EXISTS idx_study_slots_day ON public.study_slots(slot_date);
+
+CREATE TABLE IF NOT EXISTS public.study_moments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    moment_date DATE NOT NULL,
+    path TEXT NOT NULL,
+    caption TEXT NOT NULL DEFAULT '',
+    meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_study_moments_user_day ON public.study_moments(user_id, moment_date);
+
+CREATE TABLE IF NOT EXISTS public.reminder_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'slot',
+    ref TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'sending',
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.study_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.study_moments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reminder_log ENABLE ROW LEVEL SECURITY;
+
+-- ===== migration_v11.sql =====
+CREATE TABLE IF NOT EXISTS public.friend_profiles (
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    code TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.friendships (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    requester_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    addressee_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    accepted_at TIMESTAMPTZ,
+    CHECK (requester_id <> addressee_id),
+    UNIQUE (requester_id, addressee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_friendships_requester ON public.friendships(requester_id, status);
+CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON public.friendships(addressee_id, status);
+
+CREATE TABLE IF NOT EXISTS public.moment_reactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    moment_id UUID NOT NULL REFERENCES public.study_moments(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('flame', 'heart', 'clap')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (moment_id, user_id)
+);
+
+ALTER TABLE public.study_moments ADD COLUMN IF NOT EXISTS shared BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_study_moments_shared ON public.study_moments(user_id, created_at DESC) WHERE shared;
+
+ALTER TABLE public.friend_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.friendships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.moment_reactions ENABLE ROW LEVEL SECURITY;
+
+-- ===== migration_v12.sql =====
+CREATE TABLE IF NOT EXISTS public.push_tokens (
+    token TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL DEFAULT 'unknown',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON public.push_tokens(user_id);
+
+ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
+
 -- ===== migration_v13.sql (T24): exam_sessions chỉ backend (service_role) truy cập =====
 ALTER TABLE public.exam_sessions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Owner access" ON public.exam_sessions;
@@ -780,9 +1021,22 @@ REVOKE ALL ON TABLE public.exam_sessions FROM anon, authenticated;
 REVOKE ALL ON TABLE public.exam_sessions FROM PUBLIC;
 GRANT ALL ON TABLE public.exam_sessions TO service_role;
 
+-- ===== migration_v14.sql =====
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS page_count INT;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS pages_done INT;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS ocr_page_count INT;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS processing_heartbeat TIMESTAMPTZ;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS resume_count INT NOT NULL DEFAULT 0;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS ingest_error TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_documents_in_progress
+    ON public.documents (processing_status)
+    WHERE processing_status IN ('pending', 'processing');
+
 -- ===== Kho tệp riêng tư (bucket) =====
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('documents', 'documents', false),
        ('exam-audio', 'exam-audio', false),
-       ('exam-media', 'exam-media', false)
+       ('exam-media', 'exam-media', false),
+       ('moments', 'moments', false)
 ON CONFLICT (id) DO UPDATE SET public = false;

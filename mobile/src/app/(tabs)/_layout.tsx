@@ -20,8 +20,8 @@ function useFriendBadge(enabled: boolean) {
 /** Tab dưới cùng (thanh nổi chỉ có icon, xem components/TabBar). Tính năng bị quản lý tắt thì ẩn tab (href: null). */
 export default function TabsLayout() {
   const { c } = useTheme();
-  const { on } = useConfig();
-  useFriendBadge(on("friends"));
+  const { on, ready: configReady } = useConfig();
+  useFriendBadge(configReady && on("friends"));
 
   return (
     <Tabs

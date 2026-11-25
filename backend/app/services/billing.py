@@ -16,8 +16,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import math
 import re
 import secrets
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -28,6 +30,8 @@ from fastapi import HTTPException
 from app.config import settings
 
 logger = logging.getLogger("studia.billing")
+
+_BILLING_LOCK = threading.RLock()
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "free_book_limit": 1,
@@ -68,10 +72,31 @@ def _parse_dt(v: Any) -> Optional[datetime]:
 
 
 def _int(v: Any, default: int = 0) -> int:
-    try:
-        return int(v)
-    except (TypeError, ValueError):
+    if isinstance(v, bool) or v is None:
         return default
+    if isinstance(v, float) and not math.isfinite(v):
+        return default
+    try:
+        if isinstance(v, str):
+            f = float(v.strip())
+            if not math.isfinite(f):
+                return default
+            return int(f)
+        return int(v)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def _parse_amount(v: Any) -> int:
+    if isinstance(v, bool) or v is None:
+        return 0
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return 0
+    if not math.isfinite(f):
+        return 0
+    return int(f)
 
 
 # ---------------------------------------------------------------- settings
@@ -146,6 +171,46 @@ def ledger_rows(uid: str) -> list[dict]:
     return _db().table("credit_ledger").select("*").eq("user_id", uid).order("created_at", desc=True).execute().data or []
 
 
+def _walk_ledger(rows: list[dict], free: int) -> tuple[int, set[str]]:
+    """
+    Tính số lượt còn lại theo thứ tự thời gian (cũ → mới) để việc hạ free_book_limit
+    không khiến các lượt upload miễn phí trước đó trừ vào gói trả phí mua sau.
+    Trả về (remaining, uncovered_upload_ids).
+    """
+    ordered = sorted(
+        rows,
+        key=lambda r: (str(r.get("created_at") or ""), str(r.get("id") or "")),
+    )
+    free_rem = max(0, int(free))
+    paid_rem = 0
+    uncovered: set[str] = set()
+    for r in ordered:
+        reason = r.get("reason")
+        delta = _int(r.get("delta"))
+        if reason == "purchase":
+            paid_rem += delta
+        elif reason in ("admin_adjust", "refund"):
+            if delta >= 0:
+                paid_rem += delta
+            else:
+                debt = -delta
+                take_paid = min(max(0, paid_rem), debt)
+                paid_rem -= take_paid
+                debt -= take_paid
+                if debt > 0:
+                    free_rem = max(0, free_rem - debt)
+        elif reason == "upload":
+            cost = max(0, -delta)
+            if free_rem + paid_rem < cost and r.get("id") is not None:
+                uncovered.add(str(r["id"]))
+            use_free = min(free_rem, cost)
+            free_rem -= use_free
+            cost -= use_free
+            if cost > 0:
+                paid_rem = max(0, paid_rem - cost)
+    return max(0, free_rem + paid_rem), uncovered
+
+
 def quota(uid: str, role: Optional[str] = None) -> dict:
     if role is None:
         from app.core.accounts import get_account
@@ -155,14 +220,14 @@ def quota(uid: str, role: Optional[str] = None) -> dict:
     used = -sum(_int(r.get("delta")) for r in rows if r.get("reason") == "upload")
     adjusted = sum(_int(r.get("delta")) for r in rows if r.get("reason") in ("admin_adjust", "refund"))
     free = free_book_limit()
-    remaining = free + purchased - used + adjusted
+    remaining, _ = _walk_ledger(rows, free)
     return {
         "unlimited": role == "admin",
         "free": free,
         "purchased": purchased,
         "adjusted": adjusted,
         "used": used,
-        "remaining": max(0, remaining),
+        "remaining": remaining,
     }
 
 
@@ -175,16 +240,27 @@ def consume_upload_credit(uid: str, title: str) -> Optional[str]:
     acc = get_account(uid)
     if acc.get("role") == "admin":
         return None
-    q = quota(uid, acc.get("role"))
-    if q["remaining"] <= 0:
-        raise HTTPException(
-            status_code=402,
-            detail="Bạn đã dùng hết lượt upload sách. Mua thêm lượt trong mục Gói & lượt upload để tải sách mới.",
-        )
-    row = {"user_id": uid, "delta": -1, "reason": "upload", "note": (title or "")[:200], "created_at": _iso()}
-    res = _db().table("credit_ledger").insert(row).execute()
-    data = getattr(res, "data", None) or [row]
-    return data[0].get("id")
+    with _BILLING_LOCK:
+        q = quota(uid, acc.get("role"))
+        if q["remaining"] <= 0:
+            raise HTTPException(
+                status_code=402,
+                detail="Bạn đã dùng hết lượt upload sách. Mua thêm lượt trong mục Gói & lượt upload để tải sách mới.",
+            )
+        row = {"user_id": uid, "delta": -1, "reason": "upload", "note": (title or "")[:200], "created_at": _iso()}
+        res = _db().table("credit_ledger").insert(row).execute()
+        data = getattr(res, "data", None) or [row]
+        ledger_id = data[0].get("id")
+        # Kiểm tra lại sau khi ghi để chặn race giữa nhiều worker process
+        if ledger_id is not None:
+            _, uncovered = _walk_ledger(ledger_rows(uid), free_book_limit())
+            if str(ledger_id) in uncovered:
+                refund_upload(ledger_id)
+                raise HTTPException(
+                    status_code=402,
+                    detail="Bạn đã dùng hết lượt upload sách. Mua thêm lượt trong mục Gói & lượt upload để tải sách mới.",
+                )
+        return ledger_id
 
 
 def attach_document(ledger_id: Optional[str], document_id: str) -> None:
@@ -230,7 +306,7 @@ def get_pack(pack_id: str) -> dict:
     return rows[0]
 
 
-def validate_pack(data: dict, partial: bool = False) -> dict:
+def validate_pack(data: dict, partial: bool = False, current: Optional[dict] = None) -> dict:
     out: dict = {}
     if "name" in data or not partial:
         name = str(data.get("name") or "").strip()
@@ -255,7 +331,12 @@ def validate_pack(data: dict, partial: bool = False) -> dict:
             out[k] = bool(data.get(k))
     if "sort_order" in data:
         out["sort_order"] = _int(data.get("sort_order"), 0)
-    if out.get("active") and out.get("price_vnd", 1) == 0:
+    if current is not None:
+        merged_active = out.get("active", bool(current.get("active")))
+        merged_price = out.get("price_vnd", _int(current.get("price_vnd"), 0))
+        if merged_active and merged_price <= 0:
+            raise HTTPException(status_code=400, detail="Đặt giá lớn hơn 0 trước khi mở bán gói")
+    elif out.get("active") and out.get("price_vnd", 1) <= 0:
         raise HTTPException(status_code=400, detail="Đặt giá lớn hơn 0 trước khi mở bán gói")
     return out
 
@@ -311,32 +392,50 @@ def create_order(uid: str, pack_id: str) -> dict:
     if not pack.get("active") or _int(pack.get("price_vnd")) <= 0:
         raise HTTPException(status_code=400, detail="Gói này hiện không mở bán")
     db = _db()
-    pending = [refresh_status(o) for o in
-               (db.table("payment_orders").select("*").eq("user_id", uid).eq("status", "pending").execute().data or [])]
-    pending = [o for o in pending if o.get("status") == "pending"]
-    # Đang có đơn chờ cùng gói, cùng giá → dùng lại mã cũ (tránh hai mã cho một lần chuyển)
-    for o in pending:
-        if str(o.get("pack_id")) == str(pack_id) and _int(o.get("amount_vnd")) == _int(pack.get("price_vnd")):
-            return o
-    if len(pending) >= MAX_PENDING_ORDERS:
-        raise HTTPException(status_code=429, detail="Bạn có quá nhiều đơn đang chờ. Huỷ bớt đơn cũ rồi thử lại.")
-    ttl = max(5, _int(get_setting("order_ttl_minutes"), 15))
-    now = _now()
-    order = {
-        "user_id": uid,
-        "pack_id": pack["id"],
-        "pack_name": pack.get("name") or f"+{pack.get('books')} sách",
-        "books": _int(pack.get("books")),
-        "amount_vnd": _int(pack.get("price_vnd")),
-        "code": _new_code(),
-        "status": "pending",
-        "expires_at": _iso(now + timedelta(minutes=ttl)),
-        "created_at": _iso(now),
-        "updated_at": _iso(now),
-    }
-    res = db.table("payment_orders").insert(order).execute()
-    data = getattr(res, "data", None) or [order]
-    return {**order, **data[0]}
+    with _BILLING_LOCK:
+        pending = [refresh_status(o) for o in
+                   (db.table("payment_orders").select("*").eq("user_id", uid).eq("status", "pending").execute().data or [])]
+        pending = [o for o in pending if o.get("status") == "pending"]
+        # Đang có đơn chờ cùng gói, cùng giá → dùng lại mã cũ (tránh hai mã cho một lần chuyển)
+        for o in pending:
+            if str(o.get("pack_id")) == str(pack_id) and _int(o.get("amount_vnd")) == _int(pack.get("price_vnd")):
+                return o
+        if len(pending) >= MAX_PENDING_ORDERS:
+            raise HTTPException(status_code=429, detail="Bạn có quá nhiều đơn đang chờ. Huỷ bớt đơn cũ rồi thử lại.")
+        ttl = max(5, _int(get_setting("order_ttl_minutes"), 15))
+        now = _now()
+        order = {
+            "user_id": uid,
+            "pack_id": pack["id"],
+            "pack_name": pack.get("name") or f"+{pack.get('books')} sách",
+            "books": _int(pack.get("books")),
+            "amount_vnd": _int(pack.get("price_vnd")),
+            "code": _new_code(),
+            "status": "pending",
+            "expires_at": _iso(now + timedelta(minutes=ttl)),
+            "created_at": _iso(now),
+            "updated_at": _iso(now),
+        }
+        res = db.table("payment_orders").insert(order).execute()
+        data = getattr(res, "data", None) or [order]
+        created = {**order, **data[0]}
+        # Kiểm tra lại sau khi chèn để xử lý race giữa nhiều worker
+        all_pending = sorted(
+            [o for o in (db.table("payment_orders").select("*").eq("user_id", uid).eq("status", "pending").execute().data or [])
+             if (_parse_dt(o.get("expires_at")) or now) >= now],
+            key=lambda o: (str(o.get("created_at") or ""), str(o.get("id") or "")),
+        )
+        same = [
+            o for o in all_pending
+            if str(o.get("pack_id")) == str(pack_id) and _int(o.get("amount_vnd")) == _int(pack.get("price_vnd"))
+        ]
+        if len(same) > 1 and created.get("id") and str(same[0].get("id")) != str(created.get("id")):
+            db.table("payment_orders").delete().eq("id", created["id"]).execute()
+            return same[0]
+        if len(all_pending) > MAX_PENDING_ORDERS and created.get("id") and str(created.get("id")) in {str(o.get("id")) for o in all_pending[MAX_PENDING_ORDERS:]}:
+            db.table("payment_orders").delete().eq("id", created["id"]).execute()
+            raise HTTPException(status_code=429, detail="Bạn có quá nhiều đơn đang chờ. Huỷ bớt đơn cũ rồi thử lại.")
+        return created
 
 
 def get_order(order_id: str) -> dict:
@@ -363,35 +462,48 @@ def mark_paid(order: dict, method: str, paid_amount: Optional[int] = None,
               actor_id: Optional[str] = None, note: Optional[str] = None) -> dict:
     """Duyệt đơn và cộng lượt. Idempotent: gọi lại với đơn đã paid không cộng thêm."""
     db = _db()
-    fresh = get_order(order["id"])
-    if fresh.get("status") == "paid":
-        return fresh
-    if fresh.get("status") in ("cancelled", "rejected") and method == "webhook":
-        # Tiền về cho đơn đã huỷ/bị từ chối: không tự cộng, để quản lý quyết định
-        db.table("payment_orders").update({"status": "review", "note": "Tiền về sau khi đơn đã huỷ/từ chối",
-                                           "paid_amount_vnd": paid_amount, "updated_at": _iso()}).eq("id", fresh["id"]).execute()
-        return {**fresh, "status": "review"}
-    updates = {
-        "status": "paid",
-        "paid_method": method,
-        "paid_amount_vnd": paid_amount if paid_amount is not None else fresh.get("amount_vnd"),
-        "paid_at": _iso(),
-        "updated_at": _iso(),
-    }
-    if actor_id:
-        updates["approved_by"] = actor_id
-    if note:
-        updates["note"] = note[:300]
-    db.table("payment_orders").update(updates).eq("id", fresh["id"]).execute()
-    already = db.table("credit_ledger").select("id").eq("order_id", fresh["id"]).eq("reason", "purchase").limit(1).execute().data or []
-    if not already:
-        db.table("credit_ledger").insert({
-            "user_id": fresh["user_id"], "delta": _int(fresh.get("books")), "reason": "purchase",
-            "note": f"Đơn {fresh.get('code')} · {fresh.get('pack_name')}", "order_id": fresh["id"],
-            "actor_id": actor_id, "created_at": _iso(),
-        }).execute()
-    logger.info(f"Order {fresh.get('code')} paid via {method}")
-    return {**fresh, **updates}
+    with _BILLING_LOCK:
+        fresh = get_order(order["id"])
+        if fresh.get("status") == "paid":
+            return fresh
+        if fresh.get("status") in ("cancelled", "rejected") and method == "webhook":
+            # Tiền về cho đơn đã huỷ/bị từ chối: không tự cộng, để quản lý quyết định
+            db.table("payment_orders").update({"status": "review", "note": "Tiền về sau khi đơn đã huỷ/từ chối",
+                                               "paid_amount_vnd": paid_amount, "updated_at": _iso()}).eq("id", fresh["id"]).execute()
+            return {**fresh, "status": "review"}
+        updates = {
+            "status": "paid",
+            "paid_method": method,
+            "paid_amount_vnd": paid_amount if paid_amount is not None else fresh.get("amount_vnd"),
+            "paid_at": _iso(),
+            "updated_at": _iso(),
+        }
+        if actor_id:
+            updates["approved_by"] = actor_id
+        if note:
+            updates["note"] = note[:300]
+        db.table("payment_orders").update(updates).eq("id", fresh["id"]).execute()
+        already = db.table("credit_ledger").select("id, created_at").eq("order_id", fresh["id"]).eq("reason", "purchase").execute().data or []
+        if not already:
+            try:
+                res = db.table("credit_ledger").insert({
+                    "user_id": fresh["user_id"], "delta": _int(fresh.get("books")), "reason": "purchase",
+                    "note": f"Đơn {fresh.get('code')} · {fresh.get('pack_name')}", "order_id": fresh["id"],
+                    "actor_id": actor_id, "created_at": _iso(),
+                }).execute()
+                inserted = (getattr(res, "data", None) or [{}])[0]
+                ins_id = inserted.get("id")
+                if ins_id is not None:
+                    rows = sorted(
+                        db.table("credit_ledger").select("id, created_at").eq("order_id", fresh["id"]).eq("reason", "purchase").execute().data or [],
+                        key=lambda r: (str(r.get("created_at") or ""), str(r.get("id") or "")),
+                    )
+                    if len(rows) > 1 and str(rows[0].get("id")) != str(ins_id):
+                        db.table("credit_ledger").delete().eq("id", ins_id).execute()
+            except Exception as e:
+                logger.warning(f"Purchase credit insert skipped for order {fresh['id']}: {e}")
+        logger.info(f"Order {fresh.get('code')} paid via {method}")
+        return {**fresh, **updates}
 
 
 def reject_order(order: dict, actor_id: str, note: str = "") -> dict:
@@ -438,42 +550,68 @@ def verify_sepay_ipn(headers: dict) -> None:
         raise HTTPException(status_code=401, detail="Secret key không hợp lệ")
 
 
+def _insert_tx_once(db, provider: str, provider_txn_id: str, tx_row: dict) -> bool:
+    """Chèn payment_transactions với chống trùng đa tiến trình; trả True nếu là bản ghi thắng."""
+    try:
+        res = db.table("payment_transactions").insert(tx_row).execute()
+    except Exception:
+        return False
+    inserted = (getattr(res, "data", None) or [{}])[0]
+    ins_id = inserted.get("id")
+    if ins_id is not None:
+        rows = sorted(
+            db.table("payment_transactions").select("id, received_at")
+            .eq("provider", provider).eq("provider_txn_id", provider_txn_id).execute().data or [],
+            key=lambda r: (str(r.get("received_at") or ""), str(r.get("id") or "")),
+        )
+        if len(rows) > 1 and str(rows[0].get("id")) != str(ins_id):
+            db.table("payment_transactions").delete().eq("id", ins_id).execute()
+            return False
+    return True
+
+
 def handle_sepay_ipn(payload: dict) -> dict:
     """Xử lý IPN của cổng thanh toán SePay (ORDER_PAID: duyệt đơn theo order_invoice_number = mã đơn)."""
+    if not isinstance(payload, dict):
+        return {"result": "ignored_invalid"}
     if str(payload.get("notification_type") or "").upper() != "ORDER_PAID":
         return {"result": "ignored_type"}
-    order_info = payload.get("order") or {}
-    txn = payload.get("transaction") or {}
+    raw_order = payload.get("order")
+    raw_txn = payload.get("transaction")
+    if (raw_order is not None and not isinstance(raw_order, dict)) or (raw_txn is not None and not isinstance(raw_txn, dict)):
+        return {"result": "ignored_invalid"}
+    order_info = raw_order or {}
+    txn = raw_txn or {}
     if str(txn.get("transaction_status") or "APPROVED").upper() != "APPROVED":
         return {"result": "ignored_status"}
     code = str(order_info.get("order_invoice_number") or "").strip().upper()
     txn_id = str(txn.get("transaction_id") or txn.get("id") or order_info.get("order_id") or "").strip()
     if not code or not txn_id:
         return {"result": "ignored_no_id"}
-    try:
-        amount = int(float(order_info.get("order_amount") or txn.get("transaction_amount") or 0))
-    except (TypeError, ValueError):
-        amount = 0
+    amount = max(0, _parse_amount(order_info.get("order_amount") or txn.get("transaction_amount") or 0))
     db = _db()
-    if db.table("payment_transactions").select("id").eq("provider", "sepay_pg").eq("provider_txn_id", txn_id).limit(1).execute().data:
-        return {"result": "duplicate"}
-    rows = db.table("payment_orders").select("*").eq("code", code).limit(1).execute().data or []
-    order = rows[0] if rows else None
-    status = "unmatched"
-    if order:
-        status = "duplicate_order" if order.get("status") == "paid" else "matched" if amount >= _int(order.get("amount_vnd")) else "underpaid"
-    db.table("payment_transactions").insert({
-        "provider": "sepay_pg", "provider_txn_id": txn_id, "amount_vnd": amount, "content": f"Cổng SePay · {code}",
-        "code": code, "match_status": status, "order_id": order["id"] if order else None, "raw": payload, "received_at": _iso(),
-    }).execute()
-    if order and status == "matched":
-        mark_paid(order, "webhook", paid_amount=amount)
-    elif order and status == "underpaid":
-        db.table("payment_orders").update({
-            "status": "review", "paid_amount_vnd": amount, "updated_at": _iso(),
-            "note": f"Thiếu tiền: nhận {amount}đ / cần {_int(order.get('amount_vnd'))}đ",
-        }).eq("id", order["id"]).execute()
-    return {"result": status, "code": code}
+    with _BILLING_LOCK:
+        if db.table("payment_transactions").select("id").eq("provider", "sepay_pg").eq("provider_txn_id", txn_id).limit(1).execute().data:
+            return {"result": "duplicate"}
+        rows = db.table("payment_orders").select("*").eq("code", code).limit(1).execute().data or []
+        order = rows[0] if rows else None
+        status = "unmatched"
+        if order:
+            status = "duplicate_order" if order.get("status") == "paid" else "matched" if amount >= _int(order.get("amount_vnd")) else "underpaid"
+        tx_row = {
+            "provider": "sepay_pg", "provider_txn_id": txn_id, "amount_vnd": amount, "content": f"Cổng SePay · {code}",
+            "code": code, "match_status": status, "order_id": order["id"] if order else None, "raw": payload, "received_at": _iso(),
+        }
+        if not _insert_tx_once(db, "sepay_pg", txn_id, tx_row):
+            return {"result": "duplicate"}
+        if order and status == "matched":
+            mark_paid(order, "webhook", paid_amount=amount)
+        elif order and status == "underpaid":
+            db.table("payment_orders").update({
+                "status": "review", "paid_amount_vnd": amount, "updated_at": _iso(),
+                "note": f"Thiếu tiền: nhận {amount}đ / cần {_int(order.get('amount_vnd'))}đ",
+            }).eq("id", order["id"]).execute()
+        return {"result": status, "code": code}
 
 
 def extract_code(code_field: Any, content: str) -> Optional[str]:
@@ -494,62 +632,67 @@ def extract_code(code_field: Any, content: str) -> Optional[str]:
 
 def handle_sepay(payload: dict) -> dict:
     """Xử lý một giao dịch SePay. Luôn trả về dict mô tả kết quả (endpoint vẫn trả success để SePay không gửi lại)."""
+    if not isinstance(payload, dict):
+        return {"result": "ignored_invalid"}
     if str(payload.get("transferType") or "").lower() != "in":
         return {"result": "ignored_out"}
     txn_id = str(payload.get("id") or "").strip()
     if not txn_id:
         return {"result": "ignored_no_id"}
     db = _db()
-    exists = db.table("payment_transactions").select("id").eq("provider", "sepay").eq("provider_txn_id", txn_id).limit(1).execute().data or []
-    if exists:
-        return {"result": "duplicate"}
+    with _BILLING_LOCK:
+        exists = db.table("payment_transactions").select("id").eq("provider", "sepay").eq("provider_txn_id", txn_id).limit(1).execute().data or []
+        if exists:
+            return {"result": "duplicate"}
 
-    amount = _int(payload.get("transferAmount"))
-    content = str(payload.get("content") or payload.get("description") or "")
-    code = extract_code(payload.get("code"), content)
-    tx = {
-        "provider": "sepay", "provider_txn_id": txn_id, "amount_vnd": amount, "content": content[:500],
-        "code": code, "match_status": "unmatched", "order_id": None, "raw": payload, "received_at": _iso(),
-    }
-    order = None
-    if code:
-        rows = db.table("payment_orders").select("*").eq("code", code).limit(1).execute().data or []
-        order = rows[0] if rows else None
+        amount = max(0, _int(payload.get("transferAmount")))
+        content = str(payload.get("content") or payload.get("description") or "")
+        code = extract_code(payload.get("code"), content)
+        tx = {
+            "provider": "sepay", "provider_txn_id": txn_id, "amount_vnd": amount, "content": content[:500],
+            "code": code, "match_status": "unmatched", "order_id": None, "raw": payload, "received_at": _iso(),
+        }
+        order = None
+        if code:
+            rows = db.table("payment_orders").select("*").eq("code", code).limit(1).execute().data or []
+            order = rows[0] if rows else None
 
-    if order:
-        tx["order_id"] = order["id"]
-        if order.get("status") == "paid":
-            tx["match_status"] = "duplicate_order"
-        elif amount >= _int(order.get("amount_vnd")):
-            tx["match_status"] = "matched"
-        else:
-            tx["match_status"] = "underpaid"
-    db.table("payment_transactions").insert(tx).execute()
+        if order:
+            tx["order_id"] = order["id"]
+            if order.get("status") == "paid":
+                tx["match_status"] = "duplicate_order"
+            elif amount >= _int(order.get("amount_vnd")):
+                tx["match_status"] = "matched"
+            else:
+                tx["match_status"] = "underpaid"
+        if not _insert_tx_once(db, "sepay", txn_id, tx):
+            return {"result": "duplicate"}
 
-    if order and tx["match_status"] == "matched":
-        mark_paid(order, "webhook", paid_amount=amount)
-    elif order and tx["match_status"] == "underpaid":
-        db.table("payment_orders").update({
-            "status": "review", "paid_amount_vnd": amount, "updated_at": _iso(),
-            "note": f"Thiếu tiền: nhận {amount}đ / cần {_int(order.get('amount_vnd'))}đ",
-        }).eq("id", order["id"]).execute()
-    return {"result": tx["match_status"], "code": code}
+        if order and tx["match_status"] == "matched":
+            mark_paid(order, "webhook", paid_amount=amount)
+        elif order and tx["match_status"] == "underpaid":
+            db.table("payment_orders").update({
+                "status": "review", "paid_amount_vnd": amount, "updated_at": _iso(),
+                "note": f"Thiếu tiền: nhận {amount}đ / cần {_int(order.get('amount_vnd'))}đ",
+            }).eq("id", order["id"]).execute()
+        return {"result": tx["match_status"], "code": code}
 
 
 def assign_transaction(tx_id: str, order_id: str, actor_id: str) -> dict:
     db = _db()
-    rows = db.table("payment_transactions").select("*").eq("id", tx_id).limit(1).execute().data or []
-    if not rows:
-        raise HTTPException(status_code=404, detail="Không tìm thấy giao dịch")
-    tx = rows[0]
-    if tx.get("match_status") in ("matched", "assigned"):
-        raise HTTPException(status_code=409, detail="Giao dịch đã được gán cho đơn")
-    order = get_order(order_id)
-    if order.get("status") == "paid":
-        raise HTTPException(status_code=409, detail="Đơn này đã thanh toán")
-    db.table("payment_transactions").update({"match_status": "assigned", "order_id": order_id}).eq("id", tx_id).execute()
-    return mark_paid(order, "manual", paid_amount=_int(tx.get("amount_vnd")), actor_id=actor_id,
-                     note=f"Gán giao dịch {tx.get('provider_txn_id')}")
+    with _BILLING_LOCK:
+        rows = db.table("payment_transactions").select("*").eq("id", tx_id).limit(1).execute().data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Không tìm thấy giao dịch")
+        tx = rows[0]
+        if tx.get("match_status") in ("matched", "assigned"):
+            raise HTTPException(status_code=409, detail="Giao dịch đã được gán cho đơn")
+        order = get_order(order_id)
+        if order.get("status") == "paid":
+            raise HTTPException(status_code=409, detail="Đơn này đã thanh toán")
+        db.table("payment_transactions").update({"match_status": "assigned", "order_id": order_id}).eq("id", tx_id).execute()
+        return mark_paid(order, "manual", paid_amount=_int(tx.get("amount_vnd")), actor_id=actor_id,
+                         note=f"Gán giao dịch {tx.get('provider_txn_id')}")
 
 
 def ignore_transaction(tx_id: str) -> None:

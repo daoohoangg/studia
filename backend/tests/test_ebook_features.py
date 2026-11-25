@@ -220,6 +220,21 @@ class SearchProgressHighlightTests(EbookApiTestCase):
         for method, url, body in calls:
             self.assertEqual(self.client.request(method, url, json=body).status_code, 404, url)
 
+    def test_highlights_on_shared_book_do_not_leak_between_students(self):
+        self.store.table("documents").update({"visibility": "shared"}).eq("id", self.doc_id).execute()
+        block = self.blocks_all[2]
+        url = f"{self.url}/highlights"
+
+        # Default student creates a highlight
+        h1 = self.client.post(url, json={"block_id": block["id"], "start": 0, "end": 5}).json()
+        # Other student creates a highlight on the same shared book
+        with patch.object(settings, "DEFAULT_USER_ID", OTHER_USER):
+            h2 = self.client.post(url, json={"block_id": block["id"], "start": 6, "end": 10}).json()
+            other_list = [h["id"] for h in self.client.get(url).json()["highlights"]]
+        self.assertEqual(other_list, [h2["id"]])
+        own_list = [h["id"] for h in self.client.get(url).json()["highlights"]]
+        self.assertEqual(own_list, [h1["id"]])
+
 
 class SplitMergeRevisionExportTests(EbookApiTestCase):
     def setUp(self):

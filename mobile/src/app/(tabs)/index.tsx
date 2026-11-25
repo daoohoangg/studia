@@ -8,7 +8,7 @@ import { Banner, Button, ErrorView, LoadingView, Row, Screen, Text } from "@/com
 import { errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { setBadge } from "@/lib/badges";
-import { prefetch } from "@/lib/cache";
+import { peekCache, prefetch } from "@/lib/cache";
 import { useConfig } from "@/lib/config";
 import { daysBetween, monthEnd, monthStart, prettyDate, todayIso, WEEKDAYS_SHORT, weekdayIdx } from "@/lib/dates";
 import { pickMood } from "@/lib/mascot";
@@ -34,44 +34,59 @@ function greeting(h = new Date().getHours()) {
 export default function Today() {
   const { c } = useTheme();
   const { name } = useAuth();
-  const { on, announcement } = useConfig();
+  const { on, ready: configReady, announcement } = useConfig();
   const cardsOn = on("flashcards");
   const planOn = on("plan");
+  const configReadyRef = useRef(configReady);
+  configReadyRef.current = configReady;
+  const dueFetched = useRef(false);
 
   const load = useLoad<HomeData>(async () => {
+    const fetchDue = configReadyRef.current && cardsOn;
+    if (configReadyRef.current) dueFetched.current = fetchDue;
     const [plan, streak, profile, due] = await Promise.allSettled([
       fetchToday(),
       fetchStreak(),
       fetchProfile(),
-      cardsOn ? fetchDueCards(50) : Promise.resolve(null),
+      fetchDue ? fetchDueCards(50) : Promise.resolve(null),
     ]);
-    const all = cardsOn ? [plan, streak, profile, due] : [plan, streak, profile];
+    const all = fetchDue ? [plan, streak, profile, due] : [plan, streak, profile];
     const failed = all.filter((r): r is PromiseRejectedResult => r.status === "rejected");
     // Hỏng hết (thường là mất mạng): báo lỗi thay vì trang trống
     if (failed.length === all.length) throw failed[0].reason;
     const val = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : null);
+    const cachedDue = peekCache<HomeData>("home")?.due ?? null;
     return {
       plan: val(plan),
       streak: val(streak),
       profile: val(profile),
-      due: val(due)?.count ?? null,
+      due: fetchDue ? (val(due)?.count ?? null) : cachedDue,
       partialError: failed.length ? `Một phần dữ liệu chưa tải được: ${errorMessage(failed[0].reason)}` : null,
     };
   }, [cardsOn], { cacheKey: "home" });
+
+  // Khi khởi động lạnh: đợi /config/public xong mới gọi /flashcards/due nếu tính năng đang bật
+  useEffect(() => {
+    if (!configReady || !cardsOn || dueFetched.current || !load.data) return;
+    dueFetched.current = true;
+    fetchDueCards(50)
+      .then((res) => load.setData((d) => (d ? { ...d, due: res.count } : d)))
+      .catch(() => {});
+  }, [configReady, cardsOn, load.data, load.setData]);
 
   // Số thẻ đến hạn hiện trên icon tab Ôn thẻ
   useEffect(() => { if (load.data?.due != null) setBadge("flashcards", load.data.due); }, [load.data?.due]);
 
   // Tải trước lịch tháng này khi màn hình đã yên, để mở tab Lịch học là có ngay
   useEffect(() => {
-    if (!load.data || !planOn) return;
+    if (!load.data || !configReady || !planOn) return;
     const t = setTimeout(() => {
       const m = monthStart(todayIso());
       prefetch(`summary:${m}`, () => fetchSummary(m, monthEnd(m)));
       prefetch("streak", fetchStreak);
     }, 800);
     return () => clearTimeout(t);
-  }, [load.data, planOn]);
+  }, [load.data, configReady, planOn]);
 
   // Quay lại tab (vd sau khi ôn thẻ) thì làm mới nhẹ, bỏ qua lần đầu vì useLoad đã tải.
   const firstFocus = useRef(true);
@@ -160,7 +175,7 @@ export default function Today() {
             <View style={styles.heroStat}>
               <Row gap={6}>
                 <Ionicons name="flag" size={18} color={c.onNavy} style={{ opacity: 0.85 }} />
-                <Text variant="display" style={{ color: c.onNavy, fontSize: 28, lineHeight: 32 }}>{examLeft === null ? "–" : Math.max(0, examLeft)}</Text>
+                <Text variant="display" style={{ color: c.onNavy, fontSize: 28, lineHeight: 32 }}>{examLeft === null || examLeft < 0 ? "–" : examLeft}</Text>
               </Row>
               <Text variant="caption" style={{ color: c.onNavy, opacity: 0.72 }}>{examLabel}</Text>
             </View>

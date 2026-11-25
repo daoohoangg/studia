@@ -4,10 +4,10 @@ import { useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import { Banner, Button, Card, Chip, ErrorView, Field, LoadingView, Row, Screen, Text } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
-import { fmtMinutes, isHHMM, isIsoDay, prettyDate, todayIso } from "@/lib/dates";
+import { addDays, fmtMinutes, isHHMM, isIsoDay, prettyDate, todayIso } from "@/lib/dates";
 import {
   createSlot, deleteSlot, fetchDay, setTaskStatus, skillLabel, SKILLS, taskDone, taskMeta, updateSlotStatus,
-  type Skill, type Slot,
+  type DayStat, type PlanTask, type Skill, type Slot,
 } from "@/lib/studia";
 import { radius, space, useTheme } from "@/lib/theme";
 import { useLoad } from "@/lib/useLoad";
@@ -21,10 +21,35 @@ export default function DayScreen() {
   return <DayDetail day={day} />;
 }
 
+function recalcStats(prev: DayStat, planMinutes: number, tasks: PlanTask[], slots: Slot[]): DayStat {
+  const tasks_total = tasks.length;
+  const tasks_done = tasks.filter(taskDone).length;
+  const slots_count = slots.length;
+  const slots_done = slots.filter((s) => s.status === "done").length;
+  const taskMinutes = tasks.reduce((n, t) => n + (taskDone(t) ? t.duration_min : 0), 0);
+  const slotMinutes = slots.reduce((n, s) => n + (s.status === "done" ? s.minutes : 0), 0);
+  const plannedTaskMin = planMinutes || tasks.reduce((n, t) => n + t.duration_min, 0);
+  const plannedSlotMin = slots.reduce((n, s) => n + s.minutes, 0);
+  return {
+    ...prev,
+    tasks_total,
+    tasks_done,
+    slots: slots_count,
+    slots_done,
+    minutes: taskMinutes + slotMinutes,
+    minutes_planned: plannedTaskMin + plannedSlotMin,
+    active: tasks_done > 0 || slots_done > 0 || prev.attempts > 0 || (prev.active && prev.moments > 0),
+  };
+}
+
 function DayDetail({ day }: { day: string }) {
   const { c } = useTheme();
   const today = todayIso();
+  const yesterday = addDays(today, -1);
   const past = day < today;
+  const olderPast = day < yesterday;
+  // Khớp luật backend (can_mark_done): chỉ đánh dấu hoàn thành cho hôm nay hoặc hôm qua.
+  const canMarkDone = day === today || day === yesterday;
   const load = useLoad(() => fetchDay(day), [day], { cacheKey: `day:${day}` });
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -51,17 +76,41 @@ function DayDetail({ day }: { day: string }) {
   const toggleTask = (i: number) => run(`t${i}`, async () => {
     const t = tasks[i];
     const res = await setTaskStatus(day, i, taskDone(t) ? "pending" : "completed");
-    load.setData((x) => (x && x.plan ? { ...x, plan: { ...x.plan, tasks: res.tasks.length ? res.tasks : x.plan.tasks, status: res.status } } : x));
+    load.setData((x) => {
+      if (!x || !x.plan) return x;
+      const nextTasks = res.tasks.length ? res.tasks : x.plan.tasks;
+      return {
+        ...x,
+        plan: { ...x.plan, tasks: nextTasks, status: res.status },
+        stats: recalcStats(x.stats, x.plan.total_minutes, nextTasks, x.slots),
+      };
+    });
   });
 
   const setSlot = (s: Slot, status: Slot["status"]) => run(s.id, async () => {
     const updated = await updateSlotStatus(s.id, status);
-    load.setData((x) => (x ? { ...x, slots: x.slots.map((y) => (y.id === s.id ? updated ?? { ...y, status } : y)) } : x));
+    load.setData((x) => {
+      if (!x) return x;
+      const nextSlots = x.slots.map((y) => (y.id === s.id ? updated ?? { ...y, status } : y));
+      return {
+        ...x,
+        slots: nextSlots,
+        stats: recalcStats(x.stats, x.plan?.total_minutes ?? 0, x.plan?.tasks ?? [], nextSlots),
+      };
+    });
   });
 
   const removeSlot = (s: Slot) => run(s.id, async () => {
     await deleteSlot(s.id);
-    load.setData((x) => (x ? { ...x, slots: x.slots.filter((y) => y.id !== s.id) } : x));
+    load.setData((x) => {
+      if (!x) return x;
+      const nextSlots = x.slots.filter((y) => y.id !== s.id);
+      return {
+        ...x,
+        slots: nextSlots,
+        stats: recalcStats(x.stats, x.plan?.total_minutes ?? 0, x.plan?.tasks ?? [], nextSlots),
+      };
+    });
   });
 
   return (
@@ -69,7 +118,8 @@ function DayDetail({ day }: { day: string }) {
       <Stack.Screen options={{ title: day === today ? "Hôm nay" : prettyDate(day).split(",")[0] }} />
       <View>
         <Text variant="title">{prettyDate(day)}</Text>
-        {past ? <Text tone="muted">Ngày đã qua: chỉ xem, không thêm hay sửa được.</Text> : null}
+        {olderPast ? <Text tone="muted">Ngày đã qua: chỉ xem, không thêm hay sửa được.</Text> : null}
+        {day === yesterday ? <Text tone="muted">Hôm qua: có thể đánh dấu hoàn thành bù, không thêm khung giờ mới.</Text> : null}
       </View>
 
       {load.error ? <Banner text={load.error} onRetry={load.refresh} /> : null}
@@ -90,7 +140,7 @@ function DayDetail({ day }: { day: string }) {
         <Text variant="heading">Nhiệm vụ trong lộ trình</Text>
         {tasks.length ? tasks.map((t, i) => {
           const isDone = taskDone(t);
-          const editable = day === today;
+          const editable = canMarkDone;
           return (
             <Pressable
               key={i}
@@ -122,9 +172,9 @@ function DayDetail({ day }: { day: string }) {
             </Row>
             <Text variant="label">{s.title}</Text>
             {s.note ? <Text variant="small" tone="secondary">{s.note}</Text> : null}
-            {!past ? (
+            {!olderPast ? (
               <Row gap={space[2]} style={{ flexWrap: "wrap" }}>
-                {s.status !== "done" ? <Button small title="Đã học" variant="secondary" onPress={() => setSlot(s, "done")} disabled={!!busy} /> : null}
+                {canMarkDone && s.status !== "done" ? <Button small title="Đã học" variant="secondary" onPress={() => setSlot(s, "done")} disabled={!!busy} /> : null}
                 {s.status !== "planned" ? <Button small title="Đặt lại" variant="secondary" onPress={() => setSlot(s, "planned")} disabled={!!busy} /> : null}
                 {s.status === "planned" ? <Button small title="Bỏ qua" variant="ghost" onPress={() => setSlot(s, "skipped")} disabled={!!busy} /> : null}
                 <Button small title="Xoá" variant="danger" onPress={() => removeSlot(s)} disabled={!!busy} />
@@ -134,7 +184,15 @@ function DayDetail({ day }: { day: string }) {
         )) : <Text tone="secondary">{past ? "Ngày này không có khung giờ nào." : "Chưa có khung giờ nào. Thêm một khung bên dưới nhé."}</Text>}
       </Card>
 
-      {!past ? <AddSlot day={day} onAdded={(s) => load.setData((x) => (x ? { ...x, slots: [...x.slots, s].sort((a, b) => a.start.localeCompare(b.start)) } : x))} /> : null}
+      {!past ? <AddSlot day={day} onAdded={(s) => load.setData((x) => {
+        if (!x) return x;
+        const nextSlots = [...x.slots, s].sort((a, b) => a.start.localeCompare(b.start));
+        return {
+          ...x,
+          slots: nextSlots,
+          stats: recalcStats(x.stats, x.plan?.total_minutes ?? 0, x.plan?.tasks ?? [], nextSlots),
+        };
+      })} /> : null}
 
       {d.moments.length ? (
         <Card>

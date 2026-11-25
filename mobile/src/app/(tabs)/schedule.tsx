@@ -40,6 +40,7 @@ function Calendar() {
   const count = Number(monthEnd(month).slice(8, 10));
   const cells: (string | null)[] = [...Array(lead).fill(null), ...Array.from({ length: count }, (_, i) => addDays(month, i))];
   while (cells.length % 7) cells.push(null);
+  const weeks = Array.from({ length: cells.length / 7 }, (_, r) => cells.slice(r * 7, r * 7 + 7));
 
   const monthStats = Object.values(days);
   const activeDays = monthStats.filter((d) => d.active).length;
@@ -82,30 +83,36 @@ function Calendar() {
         {summary.error ? <Banner text={summary.error} onRetry={summary.reload} /> : null}
 
         <View style={styles.grid}>
-          {WEEKDAYS_SHORT.map((w) => (
-            <View key={w} style={styles.cell}><Text variant="caption" tone="muted">{w}</Text></View>
+          <View style={styles.weekRow}>
+            {WEEKDAYS_SHORT.map((w) => (
+              <View key={w} style={styles.cell}><Text variant="caption" tone="muted">{w}</Text></View>
+            ))}
+          </View>
+          {weeks.map((week, r) => (
+            <View key={r} style={styles.weekRow}>
+              {week.map((d, i) => {
+                if (!d) return <View key={`b${r}-${i}`} style={styles.cell} />;
+                const st = days[d];
+                const h = heat(st);
+                const isToday = d === today;
+                const past = d < today;
+                return (
+                  <View key={d} style={styles.cell}>
+                    <PressScale
+                      accessibilityRole="button"
+                      accessibilityLabel={`Ngày ${Number(d.slice(8))}${st?.active ? `, đã học ${st.minutes} phút` : ""}`}
+                      onPress={() => router.push(`/day/${d}`)}
+                      scaleTo={0.9}
+                      style={[styles.day, { backgroundColor: h ? mix(c.surface, c.accent, HEAT_ALPHA[h]) : c.surfaceSunken }, isToday && { borderWidth: 2, borderColor: c.brand }]}
+                    >
+                      <Text variant="label" style={{ color: h >= 3 ? c.onAccent : past ? c.inkMuted : c.ink }}>{Number(d.slice(8))}</Text>
+                      {st && st.slots > 0 && !st.active ? <View style={[styles.mark, { backgroundColor: c.brand }]} /> : null}
+                    </PressScale>
+                  </View>
+                );
+              })}
+            </View>
           ))}
-          {cells.map((d, i) => {
-            if (!d) return <View key={`b${i}`} style={styles.cell} />;
-            const st = days[d];
-            const h = heat(st);
-            const isToday = d === today;
-            const past = d < today;
-            return (
-              <View key={d} style={styles.cell}>
-                <PressScale
-                  accessibilityRole="button"
-                  accessibilityLabel={`Ngày ${Number(d.slice(8))}${st?.active ? `, đã học ${st.minutes} phút` : ""}`}
-                  onPress={() => router.push(`/day/${d}`)}
-                  scaleTo={0.9}
-                  style={[styles.day, { backgroundColor: h ? mix(c.surface, c.accent, HEAT_ALPHA[h]) : c.surfaceSunken }, isToday && { borderWidth: 2, borderColor: c.brand }]}
-                >
-                  <Text variant="label" style={{ color: h >= 3 ? c.onAccent : past ? c.inkMuted : c.ink }}>{Number(d.slice(8))}</Text>
-                  {st && st.slots > 0 && !st.active ? <View style={[styles.mark, { backgroundColor: c.brand }]} /> : null}
-                </PressScale>
-              </View>
-            );
-          })}
         </View>
 
         <Row style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
@@ -145,8 +152,9 @@ function Stat({ label, value, tone }: { label: string; value: string; tone: stri
 
 const styles = StyleSheet.create({
   nav: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
-  cell: { width: `${100 / 7}%`, aspectRatio: 1, padding: 3, alignItems: "center", justifyContent: "center" },
+  grid: { gap: 0 },
+  weekRow: { flexDirection: "row" },
+  cell: { flex: 1, aspectRatio: 1, padding: 3, alignItems: "center", justifyContent: "center" },
   day: { width: "100%", height: "100%", borderRadius: radius.md, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   mark: { position: "absolute", bottom: 4, width: 5, height: 5, borderRadius: 3 },
   legend: { width: 14, height: 14, borderRadius: 4 },

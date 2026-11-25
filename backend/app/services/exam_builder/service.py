@@ -119,13 +119,27 @@ def refine_with_ai(supabase, set_id: str, llm: JsonLLM) -> None:
                     changed += 1
 
         # Chỉ ghi nếu người dùng chưa kịp sửa tay trong lúc AI chạy
-        current = supabase.table("exam_sets").select("updated_at").eq("id", set_id).execute().data[0]
+        current_rows = supabase.table("exam_sets").select("updated_at").eq("id", set_id).execute().data or []
+        if not current_rows:
+            return
+        current = current_rows[0]
         validation = revalidate({**row, "content": content})
         validation["build"] = {"state": "ready", "ai": True, "groups_refined": changed}
-        update: Dict[str, Any] = {"validation": validation}
-        if current.get("updated_at") == row.get("updated_at"):
-            update.update({"content": content, "updated_at": now()})
-        supabase.table("exam_sets").update(update).eq("id", set_id).execute()
+        expected_updated_at = row.get("updated_at")
+        if current.get("updated_at") == expected_updated_at and expected_updated_at is not None:
+            update_payload = {"content": content, "validation": validation, "updated_at": now()}
+            res = (
+                supabase.table("exam_sets")
+                .update(update_payload)
+                .eq("id", set_id)
+                .eq("updated_at", expected_updated_at)
+                .execute()
+            )
+            if not getattr(res, "data", None):
+                # Dữ liệu vừa bị người dùng sửa đồng thời → chỉ cập nhật validation, không ghi đè content
+                supabase.table("exam_sets").update({"validation": validation}).eq("id", set_id).execute()
+        else:
+            supabase.table("exam_sets").update({"validation": validation}).eq("id", set_id).execute()
     except Exception as e:
         logger.error(f"[{set_id}] AI refinement failed: {e}", exc_info=True)
         try:

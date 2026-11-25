@@ -13,7 +13,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
         <div className="st-card" style={{ textAlign: "center", padding: 40 }}>
           <h1 className="heading-2">Trang dành cho quản lý</h1>
           <p className="ink2" style={{ marginTop: 6 }}>Tài khoản của bạn không có quyền truy cập khu vực quản trị.</p>
-          <Link className="st-btn st-btn-primary" href="/" style={{ marginTop: 16 }}>Về trang Hôm nay</Link>
+          <Link className="st-btn st-btn-primary" href="/home" style={{ marginTop: 16 }}>Về trang Hôm nay</Link>
         </div>
       </div>
     );

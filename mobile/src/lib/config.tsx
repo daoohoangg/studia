@@ -9,16 +9,18 @@ import { fetchPublicConfig } from "./studia";
 type Ctx = {
   features: Record<string, boolean>;
   announcement: { text: string; level: string } | null;
+  ready: boolean;
   on: (id: string) => boolean;
   refresh: (force?: boolean) => void;
 };
 
 const TTL = 60_000;
-const ConfigCtx = createContext<Ctx>({ features: {}, announcement: null, on: () => true, refresh: () => {} });
+const ConfigCtx = createContext<Ctx>({ features: {}, announcement: null, ready: false, on: () => true, refresh: () => {} });
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
   const [features, setFeatures] = useState<Record<string, boolean>>({});
   const [announcement, setAnnouncement] = useState<Ctx["announcement"]>(null);
+  const [ready, setReady] = useState(false);
 
   const lastAt = useRef(0);
   const inflight = useRef(false);
@@ -34,7 +36,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         setAnnouncement((old) => (JSON.stringify(old) === JSON.stringify(cfg.announcement) ? old : cfg.announcement));
       })
       .catch(() => {}) // giữ cấu hình cũ khi lỗi
-      .finally(() => { inflight.current = false; });
+      .finally(() => {
+        inflight.current = false;
+        setReady(true);
+      });
   }, []);
 
   useEffect(() => {
@@ -44,7 +49,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const on = useCallback((id: string) => features[id] !== false, [features]);
-  return <ConfigCtx.Provider value={{ features, announcement, on, refresh }}>{children}</ConfigCtx.Provider>;
+  return <ConfigCtx.Provider value={{ features, announcement, ready, on, refresh }}>{children}</ConfigCtx.Provider>;
 }
 
 export const useConfig = () => useContext(ConfigCtx);

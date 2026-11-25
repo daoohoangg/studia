@@ -12,6 +12,9 @@ function AuthCallbackContent() {
 
   useEffect(() => {
     let active = true;
+    let sub: { unsubscribe: () => void } | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let errTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Kiểm tra nếu có lỗi trả về từ OAuth (query params hoặc hash)
     const err = searchParams?.get("error_description") || searchParams?.get("error");
@@ -28,7 +31,7 @@ function AuthCallbackContent() {
           if (error) {
             console.error("Lỗi xác thực code:", error);
             if (active) setErrorMsg(error.message);
-            setTimeout(() => {
+            errTimer = setTimeout(() => {
               if (active) router.replace(`/login?error=${encodeURIComponent(error.message)}`);
             }, 1800);
             return;
@@ -37,46 +40,51 @@ function AuthCallbackContent() {
 
         // Lấy session hiện tại
         const { data: { session } } = await supabase.auth.getSession();
+        if (!active) return;
         if (session) {
-          if (active) router.replace("/home");
+          router.replace("/home");
           return;
         }
 
         // Lắng nghe sự kiện đăng nhập nếu phiên đang xử lý
-        const { data: sub } = supabase.auth.onAuthStateChange((event, currentSession) => {
+        const authSub = supabase.auth.onAuthStateChange((event, currentSession) => {
           if (currentSession && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION")) {
             if (active) router.replace("/home");
           }
         });
+        sub = authSub.data.subscription;
+        if (!active) {
+          sub.unsubscribe();
+          return;
+        }
 
         // Hạn thời gian chờ an toàn (tối đa 4 giây)
-        const timeout = setTimeout(async () => {
+        timeout = setTimeout(async () => {
           if (!active) return;
           const { data } = await supabase.auth.getSession();
+          if (!active) return;
           if (data.session) {
             router.replace("/home");
           } else {
             router.replace("/login");
           }
         }, 4000);
-
-        return () => {
-          sub.subscription.unsubscribe();
-          clearTimeout(timeout);
-        };
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : "Đã xảy ra lỗi khi đăng nhập";
         if (active) setErrorMsg(message);
-        setTimeout(() => {
+        errTimer = setTimeout(() => {
           if (active) router.replace(`/login?error=${encodeURIComponent(message)}`);
         }, 1800);
       }
     }
 
-    handleAuth();
+    void handleAuth();
 
     return () => {
       active = false;
+      sub?.unsubscribe();
+      if (timeout) clearTimeout(timeout);
+      if (errTimer) clearTimeout(errTimer);
     };
   }, [router, searchParams]);
 

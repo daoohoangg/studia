@@ -3,29 +3,33 @@ Vocabulary API — Feature C: Contextual Vocabulary Learning
 Quản lý từ vựng ngữ cảnh: trích xuất từ bài học, sinh vocabulary card chi tiết,
 lưu vào FSRS flashcard, theo dõi mastery từ vựng của user.
 """
-from fastapi import APIRouter, HTTPException
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+import logging
+import uuid
+
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+
+from app.core.auth import current_user_id, require_owned, require_topic_owned
+from app.core.supabase_client import get_supabase_client
 from app.services.ai_engine import AIEngine
 from app.services.rag_engine import RAGEngine
-from app.services.fsrs_engine import FSRSEngine
-from app.core.supabase_client import get_supabase_client
-from app.config import settings
-from app.core.auth import current_user_id
-import uuid
-import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/vocabulary", tags=["Vocabulary Learning"])
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
 
 class ExtractVocabularyRequest(BaseModel):
     lesson_content: str
     topic_id: Optional[str] = None
     document_id: Optional[str] = None
-    vocabulary_highlights: Optional[List[Dict[str, Any]]] = []  # Từ lesson_with_vocabulary
+    vocabulary_highlights: Optional[List[Dict[str, Any]]] = []
     user_id: Optional[str] = None
 
 
@@ -59,13 +63,17 @@ class ReviewVocabularyRequest(BaseModel):
 
 
 @router.post("/extract")
-async def extract_vocabulary_from_lesson(req: ExtractVocabularyRequest):
+def extract_vocabulary_from_lesson(req: ExtractVocabularyRequest):
     """
     Trích xuất và lưu danh sách từ vựng từ nội dung bài học.
     Nhận vocabulary_highlights từ generate_lesson_with_vocabulary,
     hoặc tự trích xuất từ lesson_content nếu không có.
     """
     user_id = current_user_id()
+    if req.document_id:
+        require_owned("documents", req.document_id)
+    if req.topic_id:
+        require_topic_owned(req.topic_id, missing_ok=True)
     supabase = get_supabase_client()
 
     if not supabase:
@@ -73,7 +81,6 @@ async def extract_vocabulary_from_lesson(req: ExtractVocabularyRequest):
 
     vocab_to_save = req.vocabulary_highlights or []
 
-    # Nếu không có highlights từ AI, tự extract từ RAG context
     if not vocab_to_save and req.document_id and req.topic_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
             query=req.lesson_content[:200],
@@ -82,7 +89,6 @@ async def extract_vocabulary_from_lesson(req: ExtractVocabularyRequest):
             top_k=3
         )
         rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
-        # Sinh lesson với vocabulary để có highlights
         lesson_data = AIEngine.generate_lesson_with_vocabulary(
             topic_name="Từ vựng bài học",
             user_mastery=0,
@@ -123,15 +129,18 @@ async def extract_vocabulary_from_lesson(req: ExtractVocabularyRequest):
 
 
 @router.post("/card")
-async def get_vocabulary_card(req: VocabularyCardRequest):
+def get_vocabulary_card(req: VocabularyCardRequest):
     """
     Sinh Vocabulary Card chi tiết cho một từ vựng.
     Trả về meaning_vi, examples, collocations, pronunciation.
     """
-    user_id = current_user_id()
+    current_user_id()
+    if req.document_id:
+        require_owned("documents", req.document_id)
+    if req.topic_id:
+        require_topic_owned(req.topic_id, missing_ok=True)
     supabase = get_supabase_client()
 
-    # Lấy RAG context nếu có document_id
     rag_chunks = []
     if supabase and req.document_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
@@ -142,7 +151,6 @@ async def get_vocabulary_card(req: VocabularyCardRequest):
         )
     rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
 
-    # Sinh vocabulary card via Gemini
     card_data = AIEngine.generate_vocabulary_card(
         word=req.word,
         source_sentence=req.source_sentence,
@@ -158,12 +166,16 @@ async def get_vocabulary_card(req: VocabularyCardRequest):
 
 
 @router.post("/save")
-async def save_vocabulary_item(req: SaveVocabularyRequest):
+def save_vocabulary_item(req: SaveVocabularyRequest):
     """
     Lưu một vocabulary item vào database.
     Tùy chọn tạo flashcard FSRS tương ứng.
     """
     user_id = current_user_id()
+    if req.document_id:
+        require_owned("documents", req.document_id)
+    if req.topic_id:
+        require_topic_owned(req.topic_id, missing_ok=True)
     supabase = get_supabase_client()
 
     if not supabase:
@@ -172,17 +184,15 @@ async def save_vocabulary_item(req: SaveVocabularyRequest):
     vocab_id = str(uuid.uuid4())
     flashcard_id = None
 
-    # Tạo flashcard nếu yêu cầu
     if req.create_flashcard:
         topic_id = req.topic_id
         if not topic_id:
-            # Tạo topic "Vocabulary" nếu chưa có
             topic_id = str(uuid.uuid4())
             try:
                 supabase.table("topics").insert({
                     "id": topic_id,
                     "name": "Từ vựng tự học",
-                    "slug": f"vocab-{topic_id[:8]}",
+                    "slug": f"vocab-{user_id}-{topic_id[:8]}",
                     "description": "Từ vựng tự tích lũy trong quá trình học",
                     "difficulty_level": 2
                 }).execute()
@@ -190,7 +200,6 @@ async def save_vocabulary_item(req: SaveVocabularyRequest):
                 pass
 
         flashcard_id = str(uuid.uuid4())
-        # Front: từ vựng | Back: nghĩa + ví dụ
         back_content = f"**{req.meaning_vi}**"
         if req.example_sentences:
             ex = req.example_sentences[0]
@@ -209,20 +218,18 @@ async def save_vocabulary_item(req: SaveVocabularyRequest):
                 "card_type": "definition"
             }).execute()
 
-            # Khởi tạo FSRS state
             supabase.table("flashcard_states").insert({
                 "user_id": user_id,
                 "flashcard_id": flashcard_id,
                 "stability": 1.0,
                 "difficulty_rating": 5.0,
                 "mastery_score": 0.0,
-                "next_review_at": "now()"
+                "next_review_at": _now_iso()
             }).execute()
         except Exception as e:
             logger.warning(f"Flashcard creation failed for '{req.word}': {e}")
             flashcard_id = None
 
-    # Lưu vocabulary item
     try:
         supabase.table("vocabulary_items").insert({
             "id": vocab_id,
@@ -252,13 +259,13 @@ async def save_vocabulary_item(req: SaveVocabularyRequest):
 
 
 @router.get("/list")
-async def get_vocabulary_list(
+def get_vocabulary_list(
     user_id: Optional[str] = None,
     topic_id: Optional[str] = None,
     document_id: Optional[str] = None,
     source: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=10000),
 ):
     """
     Lấy danh sách từ vựng đã học của user.
@@ -287,7 +294,6 @@ async def get_vocabulary_list(
         resp = query.execute()
         items = resp.data or []
 
-        # Lấy vocab stats
         try:
             stats_resp = supabase.rpc("get_vocabulary_stats", {"p_user_id": uid}).execute()
             stats = stats_resp.data[0] if stats_resp.data else {"total_words": 0, "avg_mastery": 0}
@@ -305,7 +311,7 @@ async def get_vocabulary_list(
 
 
 @router.get("/stats")
-async def get_vocabulary_stats(user_id: Optional[str] = None):
+def get_vocabulary_stats(user_id: Optional[str] = None):
     """Thống kê từ vựng của user: tổng số, mastery trung bình, phân bổ theo nguồn."""
     uid = current_user_id()
     supabase = get_supabase_client()
@@ -314,7 +320,6 @@ async def get_vocabulary_stats(user_id: Optional[str] = None):
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
     try:
-        # Tổng count
         total_resp = supabase.table("vocabulary_items") \
             .select("id, source, mastery_score") \
             .eq("user_id", uid) \
@@ -344,7 +349,7 @@ async def get_vocabulary_stats(user_id: Optional[str] = None):
 
 
 @router.delete("/{vocabulary_id}")
-async def delete_vocabulary_item(vocabulary_id: str, user_id: Optional[str] = None):
+def delete_vocabulary_item(vocabulary_id: str, user_id: Optional[str] = None):
     """Xóa một vocabulary item của user."""
     uid = current_user_id()
     supabase = get_supabase_client()

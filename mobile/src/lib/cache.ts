@@ -6,6 +6,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
  * Tách theo tài khoản; đăng xuất thì xoá sạch để máy dùng chung không lộ dữ liệu.
  */
 const PREFIX = "studia-cache:";
+const CLEAR_PREFIXES = [PREFIX, "studia-tutor-chat", "studia-writing-draft", "studia-push-token"];
 const MAX_AGE = 3 * 24 * 3600_000; // dữ liệu quá 3 ngày thì bỏ
 type Entry = { at: number; v: unknown };
 
@@ -13,6 +14,15 @@ const mem = new Map<string, Entry>();
 let scope = "";
 
 const full = (key: string) => `${PREFIX}${scope}:${key}`;
+
+export function getCacheScope(): string {
+  return scope;
+}
+
+export function scopedStorageKey(base: string, userId?: string | null): string {
+  const id = userId !== undefined ? (userId || "") : scope;
+  return id ? `${base}:${id}` : base;
+}
 
 export function setCacheScope(userId: string | null) {
   const next = userId || "";
@@ -66,7 +76,9 @@ export function prefetch(key: string, loader: () => Promise<unknown>, maxAge = 6
 export async function clearCache() {
   mem.clear();
   try {
-    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(PREFIX));
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
+      CLEAR_PREFIXES.some((p) => k.startsWith(p)),
+    );
     if (keys.length) await AsyncStorage.multiRemove(keys);
   } catch {}
 }

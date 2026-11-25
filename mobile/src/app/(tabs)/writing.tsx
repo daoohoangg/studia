@@ -5,21 +5,26 @@ import { Coal } from "@/components/Coal";
 import { ProgressBar, Reveal } from "@/components/motion";
 import { Banner, Button, Card, Chip, FeatureOff, Field, Row, Screen, Text } from "@/components/ui";
 import { ApiError, errorMessage } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { scopedStorageKey } from "@/lib/cache";
 import { useConfig } from "@/lib/config";
 import { countWords, CRIT_ORDER, CRIT_VI, gradeWriting, ISSUE_LABEL, type GradeResult } from "@/lib/studia";
 import { bandColor, radius, space, useTheme } from "@/lib/theme";
 
 const DRAFT_KEY = "studia-writing-draft";
 const MIN_TO_GRADE = 30;
+const MAX_WORDS = 700;
 const MIN_WORDS = { task1: 150, task2: 250 } as const;
 
 export default function Writing() {
   const { on } = useConfig();
+  const { session } = useAuth();
   if (!on("writing")) return <FeatureOff name="Chấm Writing" />;
-  return <Grader />;
+  const uid = session?.user?.id ?? null;
+  return <Grader key={uid || "anon"} draftKey={scopedStorageKey(DRAFT_KEY, uid)} />;
 }
 
-function Grader() {
+function Grader({ draftKey }: { draftKey: string }) {
   const [task, setTask] = useState<"task1" | "task2">("task2");
   const [prompt, setPrompt] = useState("");
   const [essay, setEssay] = useState("");
@@ -30,7 +35,7 @@ function Grader() {
 
   // Giữ bản nháp trên máy để lỡ thoát app không mất bài
   useEffect(() => {
-    AsyncStorage.getItem(DRAFT_KEY)
+    AsyncStorage.getItem(draftKey)
       .then((raw) => {
         if (!raw) return;
         const d = JSON.parse(raw) as { task?: string; prompt?: string; essay?: string };
@@ -40,18 +45,19 @@ function Grader() {
       })
       .catch(() => {})
       .finally(() => { restored.current = true; });
-  }, []);
+  }, [draftKey]);
   useEffect(() => {
     if (!restored.current) return;
-    const t = setTimeout(() => AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ task, prompt, essay })).catch(() => {}), 600);
+    const t = setTimeout(() => AsyncStorage.setItem(draftKey, JSON.stringify({ task, prompt, essay })).catch(() => {}), 600);
     return () => clearTimeout(t);
-  }, [task, prompt, essay]);
+  }, [task, prompt, essay, draftKey]);
 
   const words = countWords(essay);
 
   const submit = async () => {
     if (busy) return;
     if (words < MIN_TO_GRADE) return setError({ text: `Bài viết cần ít nhất ${MIN_TO_GRADE} từ để chấm (hiện có ${words} từ).`, unavailable: false });
+    if (words > MAX_WORDS) return setError({ text: `Bài viết quá dài (${words} từ). Tối đa ${MAX_WORDS} từ.`, unavailable: false });
     setBusy(true);
     setError(null);
     try {
@@ -83,7 +89,9 @@ function Grader() {
         <Field label="Bài viết" value={essay} onChangeText={setEssay} multiline style={{ minHeight: 260 }} placeholder="Dán hoặc gõ bài viết tiếng Anh ở đây…" autoCorrect={false} spellCheck={false} />
 
         <Row style={{ justifyContent: "space-between" }}>
-          <Text variant="small" tone={words >= MIN_WORDS[task] ? "success" : "muted"} style={{ flex: 1 }}>{words} từ, cần tối thiểu {MIN_WORDS[task]} từ cho {task === "task1" ? "Task 1" : "Task 2"}</Text>
+          <Text variant="small" tone={words > MAX_WORDS ? "danger" : words >= MIN_WORDS[task] ? "success" : "muted"} style={{ flex: 1 }}>
+            {words > MAX_WORDS ? `${words} từ (tối đa ${MAX_WORDS} từ)` : `${words} từ, cần tối thiểu ${MIN_WORDS[task]} từ cho ${task === "task1" ? "Task 1" : "Task 2"}`}
+          </Text>
           {essay ? <Button small variant="ghost" title="Xoá bài" onPress={() => { setEssay(""); setError(null); }} /> : null}
         </Row>
 

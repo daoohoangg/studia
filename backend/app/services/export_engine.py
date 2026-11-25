@@ -4,8 +4,30 @@ Tích hợp xuất dữ liệu Flashcard sang định dạng Anki CSV / JSON và
 """
 from typing import Dict, List, Any, Optional
 import csv
+import html
 import io
 import json
+import re
+
+_FORMULA_PREFIX_RE = re.compile(r"^\s*[=+\-@\t\r]")
+_ICAL_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _csv_safe(value: Any) -> str:
+    """Neutralize spreadsheet formula injection and escape HTML for safe Anki TSV export."""
+    text = str(value or "")
+    if _FORMULA_PREFIX_RE.match(text):
+        text = "'" + text
+    return text
+
+
+def _ical_escape(value: Any) -> str:
+    """Escape text per RFC 5545 and strip control chars/newlines to prevent VEVENT injection."""
+    text = _ICAL_CTRL_RE.sub("", str(value or ""))
+    text = text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+    text = text.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
+    return text
+
 
 class ExportEngine:
     """
@@ -33,10 +55,11 @@ class ExportEngine:
         writer.writerow(["# tags column:3"])
 
         for card in flashcards:
-            front = card.get("front", "").replace("\n", "<br>")
-            back = card.get("back", "").replace("\n", "<br>")
-            tags = card.get("card_type", "studia_card")
-            source = card.get("source_chunk", "")[:200].replace("\n", " ")
+            front = _csv_safe(html.escape(str(card.get("front") or ""), quote=True)).replace("\n", "<br>")
+            back = _csv_safe(html.escape(str(card.get("back") or ""), quote=True)).replace("\n", "<br>")
+            tags_raw = re.sub(r"\s+", "_", str(card.get("card_type") or "studia_card").strip())
+            tags = _csv_safe(html.escape(tags_raw, quote=True))
+            source = _csv_safe(html.escape(str(card.get("source_chunk") or "")[:200], quote=True)).replace("\n", " ")
 
             writer.writerow([front, back, tags, source])
 
@@ -58,15 +81,18 @@ class ExportEngine:
             "PRODID:-//Studia Intelligence//Adaptive Learning Platform//VN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
-            f"X-WR-CALNAME:{title}"
+            f"X-WR-CALNAME:{_ical_escape(title)}"
         ]
 
         for idx, plan in enumerate(plans):
-            date_str = plan.get("plan_date", "")
-            # Định dạng date YYYYMMDD
-            clean_date = date_str.replace("-", "") if date_str else "20261003"
-            tasks = plan.get("tasks", [])
-            task_desc = "\\n".join([f"- {t.get('title', 'Nhiệm vụ')}" for t in tasks])
+            date_str = str(plan.get("plan_date") or "")
+            digits = re.sub(r"[^0-9]", "", date_str)[:8]
+            clean_date = digits if len(digits) == 8 else "20261003"
+            tasks = plan.get("tasks", []) or []
+            task_desc = "\\n".join([
+                f"- {_ical_escape(t.get('title') or t.get('topic_name') or 'Nhiệm vụ')}"
+                for t in tasks if isinstance(t, dict)
+            ])
 
             ics_lines.extend([
                 "BEGIN:VEVENT",

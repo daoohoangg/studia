@@ -59,6 +59,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (AUTH_DISABLED) return <>{children}</>;
   if (isPublic || isOpen) return <>{children}</>;
-  if (!session) return null;
+  if (!session) {
+    return (
+      <div className="wrap" style={{ minHeight: "60vh", display: "grid", placeItems: "center" }} aria-busy="true" aria-label="Đang kiểm tra phiên đăng nhập">
+        <div className="st-spinner" />
+      </div>
+    );
+  }
   return <>{children}</>;
 }

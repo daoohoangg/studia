@@ -1,31 +1,34 @@
 """
 Documents API v2 — Upload PDF/Text, Real Supabase Storage
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Form, Response
-from pydantic import BaseModel
-from typing import Optional, List
-from app.services.rag_engine import RAGEngine
-from app.services.ai_engine import AIEngine
-from app.core.supabase_client import get_supabase_client
+from collections import OrderedDict
+import logging
+import threading
+import uuid
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field
+
 from app.config import settings
-from app.core.auth import current_user_id, forget_owned, require_owned
 from app.core.accounts import current_account
-from app.services import billing, sysconfig
+from app.core.auth import current_user_id, forget_owned, require_owned, require_topic_owned
+from app.core.supabase_client import get_supabase_client
 from app.core.uploads import (
     DOCUMENTS_BUCKET, safe_filename, storage_path_from, validate_docx_bytes, validate_pdf_bytes,
 )
+from app.services import billing, sysconfig
 from app.services.doc_ingest import pdf_has_text_layer
 from app.services.doc_ingest.ocr import get_ocr_provider
 from app.services.doc_ingest.render import render_page_png
 from app.services.document_pipeline import process_text_document, process_uploaded_file
-from fastapi.concurrency import run_in_threadpool
-import uuid
-import logging
-from collections import OrderedDict
+from app.services.rag_engine import RAGEngine
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
+ALLOWED_SOURCE_TYPES = ("pdf", "url", "youtube", "text")
 
 
 class DocumentTextCreate(BaseModel):
@@ -37,7 +40,7 @@ class DocumentTextCreate(BaseModel):
 
 
 @router.post("/upload")
-async def upload_document_text(
+def upload_document_text(
     doc_in: DocumentTextCreate,
     background_tasks: BackgroundTasks
 ):
@@ -46,19 +49,26 @@ async def upload_document_text(
     Processing chạy background, trả về ngay document_id.
     """
     user_id = current_user_id()
-    doc_id = str(uuid.uuid4())
+    title = doc_in.title.strip()
+    if not title or len(title) > 300:
+        raise HTTPException(status_code=422, detail="Tiêu đề tài liệu phải có 1–300 ký tự")
+    if doc_in.source_type not in ALLOWED_SOURCE_TYPES:
+        raise HTTPException(status_code=422, detail=f"source_type phải thuộc {ALLOWED_SOURCE_TYPES}")
+    if not (doc_in.raw_content or "").strip():
+        raise HTTPException(status_code=422, detail="Nội dung tài liệu không được để trống")
 
+    doc_id = str(uuid.uuid4())
     supabase = get_supabase_client()
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
     visibility = _upload_visibility(doc_in.shared)
-    ledger_id = await run_in_threadpool(billing.consume_upload_credit, user_id, doc_in.title)
+    ledger_id = billing.consume_upload_credit(user_id, title)
     try:
         supabase.table("documents").insert({
             "id": doc_id,
             "user_id": user_id,
-            "title": doc_in.title,
+            "title": title,
             "source_type": doc_in.source_type,
             "raw_content": doc_in.raw_content,
             "processing_status": "pending",
@@ -69,12 +79,11 @@ async def upload_document_text(
         raise
     billing.attach_document(ledger_id, doc_id)
 
-    # Hàm đồng bộ → BackgroundTasks chạy trong threadpool, không chặn event loop
     background_tasks.add_task(
         process_text_document,
         doc_id=doc_id,
         user_id=user_id,
-        title=doc_in.title,
+        title=title,
         raw_content=doc_in.raw_content,
         supabase=supabase
     )
@@ -82,7 +91,7 @@ async def upload_document_text(
     return {
         "status": "processing",
         "document_id": doc_id,
-        "title": doc_in.title,
+        "title": title,
         "message": "Tài liệu đang được xử lý. Kiểm tra lại sau vài giây.",
         "estimated_seconds": max(5, len(doc_in.raw_content) // 500)
     }
@@ -122,33 +131,46 @@ async def upload_file(
     shared: bool = Form(False),
 ):
     """
-    Upload PDF hoặc DOCX — kiểm tra tệp rồi trả về ngay.
+    Upload PDF hoặc DOCX — kiểm tra quyền, định dạng, tệp rồi trả về ngay.
     Tách nội dung (mở đọc được sau vài giây), lưu tệp gốc, embedding và Knowledge Graph chạy nền.
     """
+    user_id = current_user_id()
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
+
+    clean_title = title.strip()
+    if not clean_title or len(clean_title) > 300:
+        raise HTTPException(status_code=422, detail="Tiêu đề tài liệu phải có 1–300 ký tự")
+
+    visibility = await run_in_threadpool(_upload_visibility, shared)
+    q_info = await run_in_threadpool(billing.quota, user_id)
+    if not q_info.get("unlimited") and int(q_info.get("remaining") or 0) <= 0:
+        raise HTTPException(
+            status_code=402,
+            detail="Bạn đã dùng hết lượt upload sách. Mua thêm lượt trong mục Gói & lượt upload để tải sách mới.",
+        )
+
     name = (file.filename or "").lower()
     kind = "pdf" if name.endswith(".pdf") else "docx" if name.endswith(".docx") else None
     if not kind:
         raise HTTPException(status_code=400, detail="Chỉ chấp nhận tệp .pdf hoặc .docx")
 
     # Đọc tối đa giới hạn + 1 byte để phát hiện tệp quá lớn mà không nạp hết vào RAM
-    file_bytes = await file.read(sysconfig.limit("MAX_PDF_MB") * 1024 * 1024 + 1)
+    max_bytes = await run_in_threadpool(sysconfig.limit, "MAX_PDF_MB")
+    file_bytes = await file.read(max_bytes * 1024 * 1024 + 1)
     await run_in_threadpool(_validate_upload, kind, file_bytes)
     filename = safe_filename(file.filename, default=f"document.{kind}")
 
-    user_id = current_user_id()
     doc_id = str(uuid.uuid4())
-    supabase = get_supabase_client()
-    if not supabase:
-        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
-
-    visibility = _upload_visibility(shared)
     # Trừ lượt sau khi tệp đã hợp lệ: tệp bị từ chối không tốn lượt
-    ledger_id = await run_in_threadpool(billing.consume_upload_credit, user_id, title)
-    try:
+    ledger_id = await run_in_threadpool(billing.consume_upload_credit, user_id, clean_title)
+
+    def _insert_doc():
         supabase.table("documents").insert({
             "id": doc_id,
             "user_id": user_id,
-            "title": title,
+            "title": clean_title,
             # Ràng buộc CHECK của cột source_type chưa có 'docx' → DOCX lưu là 'text', phân biệt bằng đuôi file_path
             "source_type": "pdf" if kind == "pdf" else "text",
             "file_path": f"{user_id}/{doc_id}/{filename}",
@@ -156,16 +178,19 @@ async def upload_file(
             "processing_status": "pending",
             "visibility": visibility,
         }).execute()
+
+    try:
+        await run_in_threadpool(_insert_doc)
     except Exception:
-        billing.refund_upload(ledger_id)
+        await run_in_threadpool(billing.refund_upload, ledger_id)
         raise
-    billing.attach_document(ledger_id, doc_id)
+    await run_in_threadpool(billing.attach_document, ledger_id, doc_id)
 
     background_tasks.add_task(
         process_uploaded_file,
         doc_id=doc_id,
         user_id=user_id,
-        title=title,
+        title=clean_title,
         filename=filename,
         file_bytes=file_bytes,
         kind=kind,
@@ -175,7 +200,7 @@ async def upload_file(
     return {
         "status": "pending",
         "document_id": doc_id,
-        "title": title,
+        "title": clean_title,
         "filename": filename,
         "kind": kind,
         "message": "Upload thành công! Nội dung sẽ mở đọc được sau vài giây; phân tích AI tiếp tục chạy nền."
@@ -183,7 +208,7 @@ async def upload_file(
 
 
 @router.get("/{document_id}/status")
-async def get_document_status(document_id: str):
+def get_document_status(document_id: str):
     """Kiểm tra trạng thái xử lý document."""
     require_owned("documents", document_id)
     supabase = get_supabase_client()
@@ -195,7 +220,6 @@ async def get_document_status(document_id: str):
         raise HTTPException(status_code=404, detail="Document không tồn tại")
 
     doc = resp.data[0]
-    # Chỉ trả các trường giao diện cần, kèm danh sách bước xử lý
     from app.services.document_pipeline import PIPELINE_STEPS, is_running_here, is_stalled
     stalled = is_stalled(doc)
     resumed = int(doc.get("resume_count") or 0) > 0 and is_running_here(document_id)
@@ -203,11 +227,9 @@ async def get_document_status(document_id: str):
                                     "created_at", "processing_step", "processing_detail",
                                     "page_count", "pages_done", "ocr_page_count", "ingest_error", "resume_count")}
     doc["steps"] = PIPELINE_STEPS
-    # stalled: không còn tiến trình nào xử lý (server vừa tắt) → backend sẽ tự chạy tiếp trong ít phút
     doc["stalled"] = stalled
     doc["resuming"] = resumed
 
-    # Có khối nội dung là mở trình đọc được, không cần chờ phân tích AI xong
     try:
         block_resp = supabase.table("document_blocks").select("id").eq("document_id", document_id).limit(1).execute()
         doc["readable"] = bool(block_resp.data)
@@ -217,7 +239,6 @@ async def get_document_status(document_id: str):
         doc["readable"] = False
         doc["block_count"] = 0
 
-    # Đếm chunks và topics đã xử lý
     chunk_count = 0
     topic_count = 0
     if doc["processing_status"] in ("processing", "completed"):
@@ -234,7 +255,7 @@ async def get_document_status(document_id: str):
 
 
 @router.get("/{document_id}/file-url")
-async def get_document_file_url(document_id: str):
+def get_document_file_url(document_id: str):
     """Signed URL ngắn hạn để mở tệp PDF gốc (bucket riêng tư)."""
     require_owned("documents", document_id)
     supabase = get_supabase_client()
@@ -261,7 +282,19 @@ async def get_document_file_url(document_id: str):
 
 
 _PAGE_IMAGE_CACHE: "OrderedDict[tuple, bytes]" = OrderedDict()
+_PAGE_IMAGE_LOCK = threading.Lock()
 _PAGE_IMAGE_CACHE_SIZE = 24
+
+
+def _evict_doc_caches(document_id: str) -> None:
+    with _PAGE_IMAGE_LOCK:
+        for k in [k for k in _PAGE_IMAGE_CACHE if k[0] == document_id]:
+            _PAGE_IMAGE_CACHE.pop(k, None)
+    try:
+        from app.api.v1.ebook import invalidate_ebook_caches
+        invalidate_ebook_caches(document_id)
+    except Exception:
+        pass
 
 
 @router.get("/{document_id}/pages/{page_number}/image")
@@ -270,9 +303,14 @@ def get_page_image(document_id: str, page_number: int, scale: float = 1.5):
     require_owned("documents", document_id)
     scale = min(max(scale, 0.5), 3.0)
     key = (document_id, page_number, round(scale, 2))
-    cached = _PAGE_IMAGE_CACHE.get(key)
+    with _PAGE_IMAGE_LOCK:
+        cached = _PAGE_IMAGE_CACHE.get(key)
+        if cached is not None:
+            _PAGE_IMAGE_CACHE.move_to_end(key)
     if cached is None:
         supabase = get_supabase_client()
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Supabase không khả dụng")
         rows = supabase.table("documents").select("file_path").eq("id", document_id).execute().data
         path = storage_path_from(rows[0].get("file_path")) if rows else None
         if not path or not path.lower().endswith(".pdf"):
@@ -285,9 +323,11 @@ def get_page_image(document_id: str, page_number: int, scale: float = 1.5):
         cached = render_page_png(pdf_bytes, page_number, scale=scale)
         if cached is None:
             raise HTTPException(status_code=404, detail="Trang không tồn tại")
-        _PAGE_IMAGE_CACHE[key] = cached
-        while len(_PAGE_IMAGE_CACHE) > _PAGE_IMAGE_CACHE_SIZE:
-            _PAGE_IMAGE_CACHE.popitem(last=False)
+        with _PAGE_IMAGE_LOCK:
+            _PAGE_IMAGE_CACHE[key] = cached
+            _PAGE_IMAGE_CACHE.move_to_end(key)
+            while len(_PAGE_IMAGE_CACHE) > _PAGE_IMAGE_CACHE_SIZE:
+                _PAGE_IMAGE_CACHE.popitem(last=False)
     return Response(content=cached, media_type="image/png", headers={"Cache-Control": "private, max-age=600"})
 
 
@@ -300,6 +340,8 @@ def reprocess_document(document_id: str, background_tasks: BackgroundTasks, disc
     """
     require_owned("documents", document_id, write=True)
     supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
     rows = supabase.table("documents").select("*").eq("id", document_id).execute().data
     document = rows[0]
     path = storage_path_from(document.get("file_path"))
@@ -307,7 +349,6 @@ def reprocess_document(document_id: str, background_tasks: BackgroundTasks, disc
     kind = "pdf" if lower.endswith(".pdf") else "docx" if lower.endswith(".docx") else None
     if not path or not kind:
         raise HTTPException(status_code=409, detail="Tài liệu này không có tệp gốc để xử lý lại (tạo từ văn bản dán).")
-    # Đang có tiến trình xử lý (nhịp tim còn mới) thì chờ; bị bỏ dở (server tắt giữa chừng) thì cho xử lý lại ngay
     from app.services.document_pipeline import is_stalled
     if document.get("processing_status") in ("pending", "processing") and not is_stalled(document):
         raise HTTPException(status_code=409, detail="Tài liệu đang được xử lý, vui lòng chờ.")
@@ -328,6 +369,7 @@ def reprocess_document(document_id: str, background_tasks: BackgroundTasks, disc
     for table in ("document_highlights", "document_blocks", "document_chunks"):
         supabase.table(table).delete().eq("document_id", document_id).execute()
     supabase.table("documents").update({"processing_status": "pending"}).eq("id", document_id).execute()
+    _evict_doc_caches(document_id)
 
     background_tasks.add_task(
         process_uploaded_file, doc_id=document_id, user_id=str(document.get("user_id") or current_user_id()),
@@ -338,22 +380,14 @@ def reprocess_document(document_id: str, background_tasks: BackgroundTasks, disc
 
 
 @router.get("/topics/{topic_id}")
-async def get_topic(topic_id: str):
+def get_topic(topic_id: str):
     """Thông tin một chủ đề (tên + tài liệu chứa nó) cho trang quiz/bài học."""
-    supabase = get_supabase_client()
-    if not supabase:
-        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
-    rows = supabase.table("topics").select("*").eq("id", topic_id).execute().data or []
-    if not rows:
-        raise HTTPException(status_code=404, detail="Không tìm thấy chủ đề")
-    topic = rows[0]
-    if topic.get("document_id"):
-        require_owned("documents", topic["document_id"])
-    return topic
+    current_user_id()
+    return require_topic_owned(topic_id)
 
 
 @router.get("/{document_id}/topics")
-async def get_document_topics(document_id: str):
+def get_document_topics(document_id: str):
     """Lấy danh sách topics đã extract từ document."""
     require_owned("documents", document_id)
     supabase = get_supabase_client()
@@ -386,6 +420,8 @@ def delete_document(document_id: str):
     """
     require_owned("documents", document_id, write=True)
     supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase không khả dụng")
     rows = supabase.table("documents").select("id, file_path").eq("id", document_id).execute().data or []
     if not rows:
         raise HTTPException(status_code=404, detail="Không tìm thấy")
@@ -395,7 +431,6 @@ def delete_document(document_id: str):
             supabase.storage.from_(DOCUMENTS_BUCKET).remove([path])
         except Exception as e:
             logger.warning(f"[{document_id}] Cannot remove original file: {e}")
-    # LocalStore không có CASCADE → dọn các bảng con chính
     for table in ("document_highlights", "document_blocks", "document_chunks", "reading_progress"):
         try:
             supabase.table(table).delete().eq("document_id", document_id).execute()
@@ -403,11 +438,12 @@ def delete_document(document_id: str):
             pass
     supabase.table("documents").delete().eq("id", document_id).execute()
     forget_owned("documents", document_id)
+    _evict_doc_caches(document_id)
     return {"deleted": True, "id": document_id}
 
 
 @router.get("/")
-async def list_documents(user_id: Optional[str] = None):
+def list_documents(user_id: Optional[str] = None):
     """Lấy danh sách documents của user."""
     supabase = get_supabase_client()
     if not supabase:
@@ -436,7 +472,6 @@ async def list_documents(user_id: Optional[str] = None):
         seen.add(doc["id"])
         doc["visibility"] = doc.get("visibility") or "private"
         doc["is_owner"] = str(doc.get("user_id")) == uid if uid else False
-        # Sách thư viện chung luôn ở tab "Thư viện Studia", kể cả với quản lý đã tải nó lên
         doc["is_shared"] = doc["visibility"] in ("shared", "shared_draft")
         meta = book_meta.get(str(doc["id"])) if doc["is_shared"] else None
         if meta:
@@ -444,31 +479,37 @@ async def list_documents(user_id: Optional[str] = None):
         doc.pop("user_id", None)
         documents.append(doc)
 
-    # Thư viện chung: sách nổi bật lên đầu, rồi theo thứ tự quản lý đặt (không đặt thì theo ngày thêm như cũ)
     shared_docs = [d for d in documents if d["is_shared"]]
     if any("sort_order" in d or d.get("featured") for d in shared_docs):
         order = {id(d): i for i, d in enumerate(shared_docs)}
         shared_docs.sort(key=lambda d: (not d.get("featured"), d.get("sort_order", 10**6), order[id(d)]))
         documents = [d for d in documents if not d["is_shared"]] + shared_docs
 
-    # Thêm topic count cho mỗi document
-    for doc in documents:
+    doc_ids = [d["id"] for d in documents if d.get("id")]
+    topic_counts: Dict[str, int] = {}
+    if doc_ids:
         try:
-            tc = supabase.table("topics").select("id", count="exact").eq("document_id", doc["id"]).execute()
-            doc["topic_count"] = getattr(tc, "count", 0) or 0
+            for i in range(0, len(doc_ids), 100):
+                t_rows = supabase.table("topics").select("document_id").in_("document_id", doc_ids[i:i + 100]).execute().data or []
+                for tr in t_rows:
+                    did = tr.get("document_id")
+                    if did:
+                        topic_counts[did] = topic_counts.get(did, 0) + 1
         except Exception:
-            doc["topic_count"] = 0
+            pass
+    for doc in documents:
+        doc["topic_count"] = topic_counts.get(doc["id"], 0)
 
     return {"documents": documents, "total": len(documents)}
 
 
 class SearchChunksRequest(BaseModel):
     query: str
-    top_k: int = 5
+    top_k: int = Field(5, ge=1, le=50)
 
 
 @router.get("/{document_id}/chunks")
-async def get_document_chunks(document_id: str, limit: int = 20):
+def get_document_chunks(document_id: str, limit: int = Query(20, ge=1, le=200)):
     """
     Lấy danh sách các đoạn văn bản (chunks) 600 ký tự kèm metadata đã tách của tài liệu.
     """
@@ -493,7 +534,7 @@ async def get_document_chunks(document_id: str, limit: int = 20):
 
 
 @router.post("/{document_id}/search")
-async def search_document_vector(document_id: str, req: SearchChunksRequest):
+def search_document_vector(document_id: str, req: SearchChunksRequest):
     """
     Thử nghiệm Semantic Vector Search trên tài liệu qua Supabase RPC match_document_chunks_by_doc (Cosine Distance).
     """
@@ -505,17 +546,17 @@ async def search_document_vector(document_id: str, req: SearchChunksRequest):
     if not req.query:
         raise HTTPException(status_code=400, detail="Thiếu từ khóa tìm kiếm query")
 
+    top_k = max(1, min(int(req.top_k), 50))
     results = RAGEngine.search_relevant_chunks(
         query=req.query,
         supabase_client=supabase,
         document_id=document_id,
-        top_k=req.top_k
+        top_k=top_k
     )
 
     return {
         "document_id": document_id,
         "query": req.query,
-        "top_k": req.top_k,
+        "top_k": top_k,
         "matches": results
     }
-

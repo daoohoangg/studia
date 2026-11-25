@@ -8,6 +8,7 @@ Kết bạn và chia sẻ khoảnh khắc học (kiểu Locket) cho app mobile.
 """
 import logging
 import secrets
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.api.v1.schedule import MAX_PHOTO_BYTES, MOMENT_URL_TTL, MOMENTS_BUCKET, MOMENTS_PER_DAY, _normalize_photo
 from app.core.auth import current_user_id
+from app.core.local_db import LocalResponse, _row_matches
 from app.core.supabase_client import get_supabase_client
 from app.core.uploads import ensure_private_bucket, signed_storage_url
 from app.services import push
@@ -35,6 +37,97 @@ FEED_PAGE = 20
 FRIEND_STREAK_WINDOW = 90  # ngày nhìn lại khi tính streak của bạn (đủ để hiện số, không quét cả 2 năm)
 REACTIONS = ("flame", "heart", "clap")
 MOMENT_PUSH_COOLDOWN = timedelta(minutes=5)  # đăng liền mấy ảnh chỉ báo bạn bè một lần
+
+_pair_locks: Dict[tuple, threading.Lock] = {}
+_pair_locks_guard = threading.Lock()
+
+
+class _MemQuery:
+    def __init__(self, rows: List[Dict[str, Any]]):
+        self._rows = rows
+        self._filters: list = []
+        self._order_by = None
+        self._limit_val: Optional[int] = None
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, col: str, val: Any):
+        self._filters.append(("eq", col, val))
+        return self
+
+    def gte(self, col: str, val: Any):
+        self._filters.append(("gte", col, val))
+        return self
+
+    def lte(self, col: str, val: Any):
+        self._filters.append(("lte", col, val))
+        return self
+
+    def order(self, col: str, desc: bool = False):
+        self._order_by = (col, desc)
+        return self
+
+    def limit(self, val: int):
+        self._limit_val = val
+        return self
+
+    def execute(self):
+        out = [r for r in self._rows if _row_matches(r, self._filters)]
+        if self._order_by:
+            col, desc = self._order_by
+            out.sort(key=lambda r: str(r.get(col) or ""), reverse=desc)
+        if self._limit_val is not None:
+            out = out[:self._limit_val]
+        return LocalResponse(out)
+
+
+class _PrefetchedDB:
+    def __init__(self, by_table: Dict[str, List[Dict[str, Any]]]):
+        self._by_table = by_table
+
+    def table(self, name: str):
+        return _MemQuery(self._by_table.get(name, []))
+
+
+def _batch_progress(db, friend_ids: List[str], today) -> Dict[str, Dict[str, Any]]:
+    if not friend_ids:
+        return {}
+    start = today - timedelta(days=FRIEND_STREAK_WINDOW)
+    by_table: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    for table, col, lo in (
+        ("daily_learning_plans", "plan_date", start.isoformat()),
+        ("study_slots", "slot_date", start.isoformat()),
+        ("study_moments", "moment_date", start.isoformat()),
+        ("question_attempts", "created_at", (start - timedelta(days=1)).isoformat()),
+    ):
+        bucket: Dict[str, List[Dict[str, Any]]] = {}
+        try:
+            for i in range(0, len(friend_ids), 100):
+                q = db.table(table).select("*").in_("user_id", friend_ids[i:i + 100]).gte(col, lo)
+                if table != "question_attempts":
+                    q = q.lte(col, today.isoformat())
+                for row in (q.execute().data or []):
+                    bucket.setdefault(str(row.get("user_id")), []).append(row)
+        except Exception as e:
+            logger.debug(f"batch {table} failed: {e}")
+        by_table[table] = bucket
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for fid in friend_ids:
+        try:
+            mem = _PrefetchedDB({t: by_table[t].get(fid, []) for t in by_table})
+            stats = sched.day_stats(mem, fid, start, today)
+            info = sched.streak(mem, fid, today, stats)
+            out[fid] = {
+                "streak": info.get("current", 0),
+                "today_done": bool(info.get("today_done")),
+                "minutes_today": (stats.get(today.isoformat()) or {}).get("minutes", 0),
+            }
+        except Exception as e:
+            logger.warning(f"friend progress failed: {e}")
+            out[fid] = {"streak": 0, "today_done": False, "minutes_today": 0}
+    return out
 
 
 def _db():
@@ -148,13 +241,16 @@ def list_friends():
     people = _profiles(db, [other(r) for r in rels])
     today = sched.local_today()
 
+    accepted_ids = [other(r) for r in rels if r.get("status") == "accepted"]
+    progress_map = _batch_progress(db, accepted_ids, today)
+
     friends, incoming, outgoing = [], [], []
     for r in rels:
         oid = other(r)
         p = people.get(oid)
         base = {"id": r["id"], "user_id": oid, "name": _label(p), "code": (p or {}).get("code", "")}
         if r.get("status") == "accepted":
-            friends.append({**base, "since": r.get("accepted_at") or r.get("created_at"), **_progress(db, oid, today)})
+            friends.append({**base, "since": r.get("accepted_at") or r.get("created_at"), **progress_map.get(oid, {})})
         elif r["addressee_id"] == uid:
             incoming.append({**base, "created_at": r.get("created_at")})
         else:
@@ -187,22 +283,26 @@ def send_request(body: CodeIn, background: BackgroundTasks):
     if target == uid:
         raise HTTPException(status_code=422, detail="Đây là mã của chính bạn. Hãy gửi mã này cho bạn bè")
 
-    rels = _relations(db, uid)
-    existing = next((r for r in rels if target in (r["requester_id"], r["addressee_id"])), None)
-    if existing:
-        if existing.get("status") == "accepted":
-            raise HTTPException(status_code=409, detail="Hai bạn đã là bạn bè rồi")
-        if existing["requester_id"] == uid:
-            raise HTTPException(status_code=409, detail="Bạn đã gửi lời mời cho người này, chờ họ chấp nhận nhé")
-        # Họ đã mời bạn từ trước: nhập mã của nhau coi như đồng ý
-        return _accept(db, uid, existing, rels, background)
+    pair_key = tuple(sorted((uid, target)))
+    with _pair_locks_guard:
+        lock = _pair_locks.setdefault(pair_key, threading.Lock())
+    with lock:
+        rels = _relations(db, uid)
+        existing = next((r for r in rels if target in (r["requester_id"], r["addressee_id"])), None)
+        if existing:
+            if existing.get("status") == "accepted":
+                raise HTTPException(status_code=409, detail="Hai bạn đã là bạn bè rồi")
+            if existing["requester_id"] == uid:
+                raise HTTPException(status_code=409, detail="Bạn đã gửi lời mời cho người này, chờ họ chấp nhận nhé")
+            # Họ đã mời bạn từ trước: nhập mã của nhau coi như đồng ý
+            return _accept(db, uid, existing, rels, background)
 
-    if sum(1 for r in rels if r.get("status") == "accepted") >= MAX_FRIENDS:
-        raise HTTPException(status_code=429, detail=f"Danh sách bạn bè đã đủ {MAX_FRIENDS} người")
-    if sum(1 for r in rels if r.get("status") == "pending" and r["requester_id"] == uid) >= MAX_PENDING_OUT:
-        raise HTTPException(status_code=429, detail="Bạn đang chờ quá nhiều lời mời. Huỷ bớt hoặc đợi bạn bè phản hồi")
-    row = {"id": str(uuid.uuid4()), "requester_id": uid, "addressee_id": target, "status": "pending", "created_at": _now()}
-    db.table("friendships").insert(row).execute()
+        if sum(1 for r in rels if r.get("status") == "accepted") >= MAX_FRIENDS:
+            raise HTTPException(status_code=429, detail=f"Danh sách bạn bè đã đủ {MAX_FRIENDS} người")
+        if sum(1 for r in rels if r.get("status") == "pending" and r["requester_id"] == uid) >= MAX_PENDING_OUT:
+            raise HTTPException(status_code=429, detail="Bạn đang chờ quá nhiều lời mời. Huỷ bớt hoặc đợi bạn bè phản hồi")
+        row = {"id": str(uuid.uuid4()), "requester_id": uid, "addressee_id": target, "status": "pending", "created_at": _now()}
+        db.table("friendships").insert(row).execute()
     background.add_task(_push, [target], "Lời mời kết bạn", f"{_label(_profile(db, uid))} muốn kết bạn với bạn.", {"type": "friend_request"})
     return {"status": "pending", "friendship_id": row["id"], "name": _label(found[0])}
 
@@ -399,11 +499,10 @@ def react(moment_id: str, body: ReactionIn):
     uid = current_user_id()
     db = _db()
     _visible_moment(db, uid, moment_id)
-    mine = db.table("moment_reactions").select("*").eq("moment_id", moment_id).eq("user_id", uid).limit(1).execute().data or []
-    if mine:
-        db.table("moment_reactions").update({"kind": body.kind}).eq("id", mine[0]["id"]).execute()
-    else:
-        db.table("moment_reactions").insert({"id": str(uuid.uuid4()), "moment_id": moment_id, "user_id": uid, "kind": body.kind, "created_at": _now()}).execute()
+    db.table("moment_reactions").upsert(
+        {"moment_id": moment_id, "user_id": uid, "kind": body.kind, "created_at": _now()},
+        on_conflict="moment_id,user_id",
+    ).execute()
     return {"my_reaction": body.kind}
 
 

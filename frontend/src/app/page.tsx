@@ -8,7 +8,9 @@ import { useRouter } from "next/navigation";
 export default function Root() {
   const router = useRouter();
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") router.replace("/home");
+    if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true" && process.env.NODE_ENV !== "production") {
+      router.replace("/home");
+    }
   }, [router]);
   return null;
 }

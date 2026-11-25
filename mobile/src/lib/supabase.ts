@@ -4,7 +4,8 @@ import { AppState, Platform } from "react-native";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, missingEnv } from "./env";
 
 /**
- * Client Supabase dùng chung. Phiên đăng nhập lưu trong AsyncStorage (SecureStore giới hạn ~2KB, không đủ cho phiên Supabase).
+ * Client Supabase dùng chung. Phiên đăng nhập lưu trong AsyncStorage (SecureStore giới hạn ~2KB, không đủ cho phiên Supabase),
+ * kết hợp `android.allowBackup: false` trong app.json để tránh sao lưu token qua Auto Backup và `flowType: "pkce"` cho OAuth.
  * null khi thiếu biến môi trường: màn hình gốc sẽ hiện hướng dẫn cấu hình.
  */
 export const supabase: SupabaseClient | null = missingEnv.length
@@ -13,6 +14,7 @@ export const supabase: SupabaseClient | null = missingEnv.length
       auth: {
         // Trên web dùng localStorage mặc định; trên máy dùng AsyncStorage
         ...(Platform.OS !== "web" ? { storage: AsyncStorage } : {}),
+        flowType: "pkce",
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,

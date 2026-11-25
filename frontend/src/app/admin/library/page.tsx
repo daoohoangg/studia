@@ -50,8 +50,15 @@ function SharedLibrary() {
 
   const saveEdit = async (d: Doc) => {
     if (!draft) return;
-    const body: Record<string, unknown> = { title: draft.title, description: draft.description, category: draft.category, featured: draft.featured };
-    if (draft.sort_order.trim() !== "") body.sort_order = Number(draft.sort_order);
+    const trimmedOrder = draft.sort_order.trim();
+    const parsedOrder = trimmedOrder === "" ? null : Number(trimmedOrder);
+    const body: Record<string, unknown> = {
+      title: draft.title,
+      description: draft.description,
+      category: draft.category,
+      featured: draft.featured,
+      sort_order: parsedOrder !== null && Number.isFinite(parsedOrder) ? parsedOrder : null,
+    };
     if (await patch(d, body)) { setMsg({ ok: true, text: `Đã lưu "${draft.title}".` }); setEditing(null); }
   };
 

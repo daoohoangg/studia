@@ -163,10 +163,11 @@ export default function DayView({ day, detail, loading, reminder, defaultStart, 
   // Ngày đã qua chỉ để xem lại (ảnh, ghi chú, kết quả), không thêm hay sửa lịch.
   const readOnly = day < today;
   const [editing, setEditing] = useState<{ hour: number; draft: Draft } | null>(null);
+  const [actionError, setActionError] = useState("");
   const [tick, setTick] = useState(0);
   const nowRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { setEditing(null); }, [day]);
+  useEffect(() => { setEditing(null); setActionError(""); }, [day]);
   useEffect(() => { if (!isToday) return; const t = setInterval(() => setTick((x) => x + 1), 60000); return () => clearInterval(t); }, [isToday]);
 
   const slots = detail?.slots || [];
@@ -194,8 +195,24 @@ export default function DayView({ day, detail, loading, reminder, defaultStart, 
   const stats = detail?.stats || {};
   const d = parse(day);
 
-  const setTask = async (i: number, status: string) => { try { await setTaskStatus(day, i, status); onChanged(); } catch {} };
-  const toggleSlot = async (s: Slot) => { try { await updateSlot(s.id, { status: s.status === "done" ? "planned" : "done" }); onChanged(); } catch {} };
+  const setTask = async (i: number, status: string) => {
+    setActionError("");
+    try {
+      await setTaskStatus(day, i, status);
+      onChanged();
+    } catch (err: any) {
+      setActionError(err?.message || "Không cập nhật được trạng thái nhiệm vụ.");
+    }
+  };
+  const toggleSlot = async (s: Slot) => {
+    setActionError("");
+    try {
+      await updateSlot(s.id, { status: s.status === "done" ? "planned" : "done" });
+      onChanged();
+    } catch (err: any) {
+      setActionError(err?.message || "Không cập nhật được khung giờ.");
+    }
+  };
   const planTask = (t: PlanTask) => {
     const last = slots.length ? Math.max(...slots.map((s) => toMin(s.end))) : 0;
     const base = toMin(defaultStart);
@@ -223,6 +240,8 @@ export default function DayView({ day, detail, loading, reminder, defaultStart, 
           <div><span>Khung giờ</span><b className="num">{stats.slots_done || 0}/{stats.slots || 0}</b></div>
           <div data-on={stats.active || undefined}><span>Streak</span><b>{stats.active ? "Đã giữ" : "Chưa"}</b></div>
         </div>
+
+        {actionError && <p role="alert" className="pm-error" style={{ marginBottom: 12 }}>{actionError}</p>}
 
         <div className="tl" role="list" aria-label="Dòng thời gian trong ngày">
           {Array.from({ length: to - from + 1 }, (_, i) => from + i).map((h) => {

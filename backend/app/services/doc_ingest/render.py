@@ -25,14 +25,26 @@ def render_page_png(pdf_bytes: bytes, page_number: int, scale: float = 1.5, max_
                 longest = max(width, height) * scale
                 if longest > max_side:
                     scale *= max_side / longest
-                image = page.render(scale=scale).to_pil().convert("RGB")
+                bitmap = page.render(scale=scale)
+                try:
+                    pil_img = bitmap.to_pil()
+                finally:
+                    bitmap.close()
             finally:
                 page.close()
         finally:
             pdf.close()
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=False)
-    return buffer.getvalue()
+    try:
+        rgb_img = pil_img.convert("RGB") if pil_img.mode != "RGB" else pil_img
+        try:
+            buffer = io.BytesIO()
+            rgb_img.save(buffer, format="PNG", optimize=False)
+            return buffer.getvalue()
+        finally:
+            if rgb_img is not pil_img:
+                rgb_img.close()
+    finally:
+        pil_img.close()
 
 
 def dpi_to_scale(dpi: int) -> float:

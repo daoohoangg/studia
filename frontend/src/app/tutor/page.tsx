@@ -78,7 +78,10 @@ function TutorContent() {
           session_id: sessionId
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Không nhận được phản hồi từ trợ lý AI.");
+      }
 
       const aiMsg: Message = {
         role: "assistant",
@@ -90,10 +93,10 @@ function TutorContent() {
       setMessages(prev => [...prev, aiMsg]);
       if (data.session_id && !sessionId) setSessionId(data.session_id);
       fetchSessions();
-    } catch {
+    } catch (e: any) {
       setMessages(prev => [...prev, {
         role: "assistant",
-        content: "Không thể kết nối với trợ lý AI. Vui lòng thử lại sau.",
+        content: e?.message || "Không thể kết nối với trợ lý AI. Vui lòng thử lại sau.",
       }]);
     }
     setLoading(false);

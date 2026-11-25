@@ -153,7 +153,10 @@ def _locked_update(session_id: str, supabase, mutate) -> Dict[str, Any]:
     with _answer_locks_guard:
         lock = _answer_locks.setdefault(session_id, threading.Lock())
     with lock:
-        row = supabase.table("exam_sessions").select("*").eq("id", session_id).execute().data[0]
+        rows = supabase.table("exam_sessions").select("*").eq("id", session_id).execute().data
+        if not rows:
+            raise HTTPException(status_code=404, detail="Không tìm thấy phiên thi")
+        row = rows[0]
         answers = dict(_answers_of(row))
         extra = mutate(answers, row) or {}
         _write_answers(supabase, session_id, answers, extra)
@@ -229,9 +232,11 @@ def _section_closed(row: Dict[str, Any], section: str) -> bool:
 
 
 def _open_for_writes(supabase, session_id: str, section: str) -> Dict[str, Any]:
-    """Phiên còn nhận bài: tự nộp nếu đã quá hạn tổng, chặn khi đã nộp hoặc phần thi đã hết giờ."""
+    """Phiên còn nhận bài: tự nộp nếu đã quá hạn tổng, chặn khi đã nộp, sai phần thi hoặc hết giờ phần đó."""
     row = _auto_submit_if_expired(supabase, _get_session(supabase, session_id))
-    if row.get("status") in ("SUBMITTED", "AUTO_SUBMITTED"):
+    if section not in _sections_of(row):
+        raise HTTPException(status_code=422, detail="Phần thi không thuộc phiên này")
+    if row.get("status") not in ("NOT_STARTED", "IN_PROGRESS"):
         raise HTTPException(status_code=409, detail="Phiên thi đã nộp bài")
     if _section_closed(row, section):
         raise HTTPException(status_code=409, detail="Phần thi này đã hết giờ")
@@ -404,27 +409,34 @@ def _compute_result(row: Dict[str, Any], auto_submitted: bool) -> Dict[str, Any]
 
 
 def _finalize(supabase, row: Dict[str, Any], auto: bool) -> Dict[str, Any]:
-    """Chấm và lưu kết quả; nộp lần hai trả về kết quả đã lưu."""
-    if row.get("status") in ("SUBMITTED", "AUTO_SUBMITTED"):
-        stored = _json_field(row.get("result_json"), None)
-        if stored:
-            return stored
-    result = _compute_result(row, auto)
-    update = {
-        "status": result["status"],
-        "submitted_at": result["submitted_at"],
-        "overall_band": result["overall_band"],
-        "section_scores": json.dumps({k: {x: y for x, y in v.items() if x != "by_type"}
-                                      for k, v in result["section_results"].items()}, ensure_ascii=False),
-        "ai_analysis": json.dumps(result["ai_analysis"], ensure_ascii=False),
-        "result_json": result,
-    }
-    try:
-        supabase.table("exam_sessions").update(update).eq("id", row["id"]).execute()
-    except Exception as e:
-        logger.warning(f"[{row['id']}] Could not store exam result: {e}")
+    """Chấm và lưu kết quả dưới khoá theo phiên; nộp lần hai trả về kết quả đã lưu."""
+    session_id = row["id"]
     with _answer_locks_guard:
-        _answer_locks.pop(row["id"], None)
+        lock = _answer_locks.setdefault(session_id, threading.Lock())
+    with lock:
+        fresh_rows = supabase.table("exam_sessions").select("*").eq("id", session_id).execute().data
+        current = fresh_rows[0] if fresh_rows else row
+        if current.get("status") in ("SUBMITTED", "AUTO_SUBMITTED"):
+            stored = _json_field(current.get("result_json"), None)
+            if stored:
+                return stored
+        result = _compute_result(current, auto)
+        update = {
+            "status": result["status"],
+            "submitted_at": result["submitted_at"],
+            "overall_band": result["overall_band"],
+            "section_scores": json.dumps({k: {x: y for x, y in v.items() if x != "by_type"}
+                                          for k, v in result["section_results"].items()}, ensure_ascii=False),
+            "ai_analysis": json.dumps(result["ai_analysis"], ensure_ascii=False),
+            "result_json": result,
+        }
+        try:
+            supabase.table("exam_sessions").update(update).eq("id", session_id).execute()
+        except Exception as e:
+            logger.error(f"[{session_id}] Could not store exam result: {e}")
+            raise HTTPException(status_code=500, detail="Không thể lưu kết quả bài thi")
+    with _answer_locks_guard:
+        _answer_locks.pop(session_id, None)
     return result
 
 
@@ -579,6 +591,8 @@ def enter_section(session_id: str, req: SectionRequest):
         raise HTTPException(status_code=409, detail="Phiên thi chưa bắt đầu hoặc đã nộp bài")
 
     def mutate(answers, current):
+        if current.get("status") != "IN_PROGRESS":
+            raise HTTPException(status_code=409, detail="Phiên thi chưa bắt đầu hoặc đã nộp bài")
         meta = answers.setdefault(META_KEY, {})
         started = meta.setdefault("section_started", {})
         started.setdefault(req.section, _now().isoformat())
@@ -588,6 +602,19 @@ def enter_section(session_id: str, req: SectionRequest):
     answers = _locked_update(session_id, supabase, mutate)
     meta = answers.get(META_KEY) or {}
     return {"section": req.section, "remaining_seconds": _remaining(row, meta, req.section)}
+
+
+def _assert_writable_locked(current: Dict[str, Any], section: str) -> None:
+    if section not in _sections_of(current):
+        raise HTTPException(status_code=422, detail="Phần thi không thuộc phiên này")
+    if current.get("status") not in ("NOT_STARTED", "IN_PROGRESS"):
+        raise HTTPException(status_code=409, detail="Phiên thi đã nộp bài")
+    meta = _answers_of(current).get(META_KEY) or {}
+    deadline = _deadline(current, meta)
+    if current.get("status") == "IN_PROGRESS" and deadline and _now() > deadline:
+        raise HTTPException(status_code=409, detail="Phiên thi đã hết giờ")
+    if _section_closed(current, section):
+        raise HTTPException(status_code=409, detail="Phần thi này đã hết giờ")
 
 
 @router.post("/sessions/{session_id}/answer")
@@ -604,6 +631,7 @@ def save_answer(session_id: str, req: SaveAnswerRequest):
         value = [str(v)[:500] for v in value[:10]]
 
     def mutate(answers, current):
+        _assert_writable_locked(current, req.section)
         answers[f"{req.section}_{req.question_number}"] = value
 
     _locked_update(session_id, supabase, mutate)
@@ -620,6 +648,7 @@ def save_writing(session_id: str, req: SaveWritingRequest):
     words = grading.count_words(req.content)
 
     def mutate(answers, current):
+        _assert_writable_locked(current, "writing")
         answers[f"writing_{req.task}"] = req.content
         answers[f"writing_{req.task}_words"] = words
 

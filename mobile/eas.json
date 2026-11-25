@@ -9,12 +9,17 @@
       "environment": "preview",
       "ios": { "simulator": false },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.3-25-144-63.sslip.io/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://api.3-25-144-63.sslip.io/api/v1",
+        "EXPO_PUBLIC_WEB_URL": "https://studia.vercel.app"
       }
     },
     "production": {
       "environment": "production",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.3-25-144-63.sslip.io/api/v1",
+        "EXPO_PUBLIC_WEB_URL": "https://studia.vercel.app"
+      }
     }
   },
   "submit": {

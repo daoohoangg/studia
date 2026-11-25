@@ -21,6 +21,8 @@ export default function FeedbackPage() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [generatingExercises, setGeneratingExercises] = useState(false);
   const [remedialData, setRemedialData] = useState<any>(null);
+  const [reportError, setReportError] = useState("");
+  const [remedialError, setRemedialError] = useState("");
 
   useEffect(() => {
     fetchReport();
@@ -28,34 +30,45 @@ export default function FeedbackPage() {
 
   const fetchReport = async () => {
     setLoading(true);
+    setReportError("");
     try {
       const res = await apiFetch(`${API}/feedback/report?min_occurrences=1`);
-      if (res.ok) {
-        const data = await res.json();
-        setReport(data);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(typeof d.detail === "string" ? d.detail : "Không tải được báo cáo phân tích lỗi.");
       }
-    } catch { /* ignore */ }
-    setLoading(false);
+      const data = await res.json();
+      setReport(data);
+    } catch (e: any) {
+      setReportError(e?.message || "Không kết nối được máy chủ.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGenerateRemedial = async () => {
     if (!report?.recent_errors?.length) return;
     setGeneratingExercises(true);
+    setRemedialError("");
     try {
       const res = await apiFetch(`${API}/feedback/remedial-exercises`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          topic_id: report.recent_errors[0]?.topic_id || "default",
+          topic_id: report.recent_errors[0]?.topic_id || null,
           topic_name: "Ôn tập từ lỗi hay gặp",
         })
       });
-      if (res.ok) {
-        const data = await res.json();
-        setRemedialData(data);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Không tạo được bài tập khắc phục.");
       }
-    } catch { /* ignore */ }
-    setGeneratingExercises(false);
+      setRemedialData(data);
+    } catch (e: any) {
+      setRemedialError(e?.message || "Không kết nối được máy chủ.");
+    } finally {
+      setGeneratingExercises(false);
+    }
   };
 
   const [catFilter, setCatFilter] = useState<string>("all");
@@ -95,6 +108,19 @@ export default function FeedbackPage() {
           </button>
         </div>
       </header>
+
+      {reportError && (
+        <div role="alert" className="st-alert st-alert-danger" style={{ justifyContent: "space-between", marginBottom: 16 }}>
+          <span>{reportError}</span>
+          <button className="st-btn st-btn-ghost st-btn-sm" type="button" onClick={fetchReport}>Thử lại</button>
+        </div>
+      )}
+
+      {remedialError && (
+        <div role="alert" className="st-alert st-alert-danger" style={{ marginBottom: 16 }}>
+          {remedialError}
+        </div>
+      )}
 
       {!hasData ? (
         <EmptyState

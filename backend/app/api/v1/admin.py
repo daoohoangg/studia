@@ -30,13 +30,26 @@ def _since(days: int) -> datetime:
     return datetime.now(timezone.utc) - timedelta(days=days)
 
 
+def _fetch_all(make_query, batch_size: int = 1000) -> list[dict]:
+    """Đọc toàn bộ bảng qua nhiều trang để không bị giới hạn 1000 dòng mặc định của PostgREST."""
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        batch = make_query().range(offset, offset + batch_size - 1).execute().data or []
+        rows.extend(batch)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
+    return rows
+
+
 # ---------------------------------------------------------------- tổng quan
 @router.get("/stats")
 def stats():
     db = _db()
-    users = db.table("user_accounts").select("id, role, status, created_at").execute().data or []
-    orders = db.table("payment_orders").select("*").execute().data or []
-    docs = db.table("documents").select("id, processing_status").execute().data or []
+    users = _fetch_all(lambda: db.table("user_accounts").select("id, role, status, created_at").order("created_at", desc=True))
+    orders = _fetch_all(lambda: db.table("payment_orders").select("*").order("created_at", desc=True))
+    docs = _fetch_all(lambda: db.table("documents").select("id, processing_status").order("created_at", desc=True))
     txs = db.table("payment_transactions").select("id, match_status, received_at").order("received_at", desc=True).limit(200).execute().data or []
 
     since30 = _since(30)
@@ -73,9 +86,9 @@ def stats():
 # ---------------------------------------------------------------- tài khoản
 def _user_summaries() -> list[dict]:
     db = _db()
-    users = db.table("user_accounts").select("*").order("created_at", desc=True).execute().data or []
-    ledger = db.table("credit_ledger").select("user_id, delta, reason").execute().data or []
-    orders = db.table("payment_orders").select("user_id, status, amount_vnd, paid_amount_vnd").eq("status", "paid").execute().data or []
+    users = _fetch_all(lambda: db.table("user_accounts").select("*").order("created_at", desc=True))
+    ledger = _fetch_all(lambda: db.table("credit_ledger").select("user_id, delta, reason").order("created_at", desc=True))
+    orders = _fetch_all(lambda: db.table("payment_orders").select("user_id, status, amount_vnd, paid_amount_vnd").eq("status", "paid").order("created_at", desc=True))
     free = billing.free_book_limit()
     agg: dict = defaultdict(lambda: {"bal": 0, "uploads": 0})
     for r in ledger:
@@ -190,9 +203,9 @@ def adjust_credits(user_id: str, req: CreditAdjustRequest):
 @router.get("/orders")
 def list_orders(status: str = "", q: str = "", page: int = 1):
     db = _db()
-    orders = db.table("payment_orders").select("*").order("created_at", desc=True).execute().data or []
+    orders = _fetch_all(lambda: db.table("payment_orders").select("*").order("created_at", desc=True))
     orders = [billing.refresh_status(o) for o in orders]
-    users = {str(u["id"]): u for u in (db.table("user_accounts").select("id, email, full_name").execute().data or [])}
+    users = {str(u["id"]): u for u in _fetch_all(lambda: db.table("user_accounts").select("id, email, full_name").order("created_at", desc=True))}
     if status in billing.ORDER_STATUSES:
         orders = [o for o in orders if o.get("status") == status]
     ql = q.strip().lower()
@@ -354,12 +367,11 @@ def put_settings(req: SettingsRequest):
 def library(scope: str = "shared"):
     db = _db()
     meta = sysconfig.book_meta()
-    rows = db.table("documents").select("id, user_id, title, source_type, processing_status, visibility, created_at") \
-        .order("created_at", desc=True).execute().data or []
+    rows = _fetch_all(lambda: db.table("documents").select("id, user_id, title, source_type, processing_status, visibility, created_at").order("created_at", desc=True))
     if scope == "shared":
         rows = [r for r in rows if (r.get("visibility") or "private") in ("shared", "shared_draft")]
     readers: dict = defaultdict(set)
-    for p in db.table("reading_progress").select("user_id, document_id").execute().data or []:
+    for p in _fetch_all(lambda: db.table("reading_progress").select("user_id, document_id").order("updated_at", desc=True)):
         readers[str(p.get("document_id"))].add(str(p.get("user_id")))
     for r in rows:
         r["visibility"] = r.get("visibility") or "private"

@@ -2,7 +2,9 @@
 
 import { useState, useEffect, Suspense } from "react";
 
-import { API, apiFetch } from "@/lib/api";
+import { API, apiFetch, downloadAuthFile } from "@/lib/api";
+
+const BACKEND_ROOT = API.replace(/\/api\/v1\/?$/, "");
 
 export default function ConfigTestPage() {
   const [activeTab, setActiveTab] = useState<string>("rag");
@@ -39,6 +41,21 @@ export default function ConfigTestPage() {
   // Adaptive Reschedule Simulator state
   const [adaptResult, setAdaptResult] = useState<any>(null);
   const [adapting, setAdapting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const [exportingKey, setExportingKey] = useState<string | null>(null);
+
+  const handleExport = async (path: string, filename: string) => {
+    if (exportingKey) return;
+    setExportingKey(path);
+    setExportError("");
+    try {
+      await downloadAuthFile(path, filename);
+    } catch (e: any) {
+      setExportError(e?.message || "Không xuất được tệp.");
+    } finally {
+      setExportingKey(null);
+    }
+  };
 
   useEffect(() => {
     fetchDocs();
@@ -213,14 +230,26 @@ export default function ConfigTestPage() {
         </div>
 
         <div style={{ display: "flex", gap: "10px" }}>
-          <a href={`${API}/export/schedule/ical`} target="_blank" className="st-btn st-btn-secondary">
-             Export iCal (.ics)
-          </a>
-          <a href={`${API}/docs`} target="_blank" className="st-btn st-btn-primary">
+          <button
+            type="button"
+            onClick={() => handleExport("/export/schedule/ical", "studia_study_schedule.ics")}
+            disabled={!!exportingKey}
+            className="st-btn st-btn-secondary"
+          >
+            {exportingKey === "/export/schedule/ical" ? "Đang xuất..." : "Export iCal (.ics)"}
+          </button>
+          <a href={`${BACKEND_ROOT}/docs`} target="_blank" rel="noreferrer" className="st-btn st-btn-primary">
             Swagger API Docs 
           </a>
         </div>
       </div>
+
+      {exportError && (
+        <div role="alert" className="st-alert st-alert-danger" style={{ justifyContent: "space-between" }}>
+          <span>{exportError}</span>
+          <button type="button" className="st-btn st-btn-ghost st-btn-sm" onClick={() => setExportError("")}>Đóng</button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "12px", overflowX: "auto" }}>
@@ -405,12 +434,22 @@ export default function ConfigTestPage() {
               Hỗ trợ xuất Flashcards ra Anki TSV/CSV (.apkg importable) và đồng bộ Lịch học Thích ứng ra tệp iCalendar cho Google Calendar / Outlook.
             </p>
             <div style={{ display: "flex", gap: 12 }}>
-              <a href={`${API}/export/flashcards/anki/all`} target="_blank" className="st-btn st-btn-secondary">
-                Export Anki CSV/TSV (.apkg)
-              </a>
-              <a href={`${API}/export/schedule/ical`} target="_blank" className="st-btn st-btn-secondary">
-                Export Lịch học iCalendar (.ics)
-              </a>
+              <button
+                type="button"
+                onClick={() => handleExport("/export/flashcards/anki-all", "studia_flashcards.tsv")}
+                disabled={!!exportingKey}
+                className="st-btn st-btn-secondary"
+              >
+                {exportingKey === "/export/flashcards/anki-all" ? "Đang xuất..." : "Export Anki CSV/TSV (.apkg)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport("/export/schedule/ical", "studia_study_schedule.ics")}
+                disabled={!!exportingKey}
+                className="st-btn st-btn-secondary"
+              >
+                {exportingKey === "/export/schedule/ical" ? "Đang xuất..." : "Export Lịch học iCalendar (.ics)"}
+              </button>
             </div>
           </div>
         </div>

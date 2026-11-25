@@ -1,22 +1,54 @@
 """
 Quizzes API v3 — RAG-based generation, multi-type exercises, AI open grading, error tracking
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-from app.services.ai_engine import AIEngine, require_ai_feature
-from app.services.rag_engine import RAGEngine
-from app.services.fsrs_engine import FSRSEngine
-from app.core.supabase_client import get_supabase_client
-from app.config import settings
-from app.core.auth import current_user_id
-import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 import logging
+import uuid
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from app.core.auth import current_user_id, require_owned, require_quiz_owned, require_topic_owned
+from app.core.supabase_client import get_supabase_client
+from app.services.ai_engine import AIEngine, require_ai_feature
+from app.services.fsrs_engine import FSRSEngine
+from app.services.rag_engine import RAGEngine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/quizzes", tags=["Quizzes & Evaluation"])
 
+VALID_QUESTION_TYPES = {"multiple_choice", "true_false", "short_answer"}
+VALID_EXERCISE_TYPES = {"multiple_choice", "true_false", "fill_blank", "sentence_construction", "recall"}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _clamp_question_type(q: Dict[str, Any]) -> str:
+    q_type = q.get("question_type", "multiple_choice")
+    if q_type in VALID_QUESTION_TYPES:
+        return q_type
+    ex_type = q.get("exercise_type", "")
+    if ex_type == "true_false":
+        return "true_false"
+    if q.get("options"):
+        return "multiple_choice"
+    return "short_answer"
+
+
+def _clamp_exercise_type(q: Dict[str, Any]) -> str:
+    ex_type = q.get("exercise_type", "multiple_choice")
+    return ex_type if ex_type in VALID_EXERCISE_TYPES else "multiple_choice"
+
+
+def _clamp_difficulty(val: Any) -> int:
+    try:
+        return min(5, max(1, int(val)))
+    except (TypeError, ValueError):
+        return 2
 
 
 class GenerateQuizRequest(BaseModel):
@@ -24,7 +56,7 @@ class GenerateQuizRequest(BaseModel):
     topic_name: str
     user_mastery: float = 50.0
     document_id: Optional[str] = None
-    question_count: int = 5
+    question_count: int = Field(5, ge=1, le=20)
     user_id: Optional[str] = None
 
 
@@ -49,16 +81,18 @@ class SubmitAnswerRequest(BaseModel):
 
 
 @router.post("/generate")
-async def generate_quiz(req: GenerateQuizRequest):
+def generate_quiz(req: GenerateQuizRequest):
     """
     Tạo quiz adaptive từ RAG context.
     Sinh câu hỏi từ nội dung thực tế trong sách (không bịa).
     """
     require_ai_feature("quizzes", "Tạo quiz")
-    user_id = current_user_id()
+    current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
+    if req.document_id:
+        require_owned("documents", req.document_id)
     supabase = get_supabase_client()
 
-    # RAG: lấy context
     rag_chunks = []
     if supabase and req.document_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
@@ -69,7 +103,6 @@ async def generate_quiz(req: GenerateQuizRequest):
         )
     rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
 
-    # Sinh questions via Gemini
     questions = AIEngine.generate_adaptive_quiz(
         topic_name=req.topic_name,
         user_mastery=req.user_mastery,
@@ -83,7 +116,6 @@ async def generate_quiz(req: GenerateQuizRequest):
             detail="AI chưa tạo được câu hỏi từ nội dung sách (dịch vụ AI không khả dụng). Vui lòng thử lại sau."
         )
 
-    # Lưu quiz vào Supabase
     quiz_id = str(uuid.uuid4())
     if supabase:
         try:
@@ -94,7 +126,6 @@ async def generate_quiz(req: GenerateQuizRequest):
                 "quiz_type": "adaptive"
             }).execute()
 
-            # Lưu questions
             for q in questions:
                 q_id = str(uuid.uuid4())
                 q["id"] = q_id
@@ -102,14 +133,14 @@ async def generate_quiz(req: GenerateQuizRequest):
                     "id": q_id,
                     "quiz_id": quiz_id,
                     "question_text": q.get("question_text", ""),
-                    "question_type": q.get("question_type", "multiple_choice"),
+                    "question_type": _clamp_question_type(q),
                     "options": q.get("options", []),
                     "correct_answer": q.get("correct_answer", "A"),
                     "explanation": q.get("explanation", ""),
-                    "difficulty": q.get("difficulty", 2)
+                    "difficulty": _clamp_difficulty(q.get("difficulty", 2))
                 }).execute()
         except Exception as e:
-            print(f"Quiz save warning: {e}")
+            logger.warning(f"Quiz save warning: {e}")
 
     return {
         "quiz_id": quiz_id,
@@ -122,11 +153,12 @@ async def generate_quiz(req: GenerateQuizRequest):
 
 
 @router.post("/submit")
-async def submit_answer(req: SubmitAnswerRequest):
+def submit_answer(req: SubmitAnswerRequest):
     """
     Chấm điểm câu trả lời đơn lẻ & Cập nhật Knowledge State + FSRS.
     """
     user_id = current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
     supabase = get_supabase_client()
 
     eval_result = AIEngine.evaluate_quiz_response(
@@ -144,9 +176,13 @@ async def submit_answer(req: SubmitAnswerRequest):
         response_time_ms=req.response_time_ms
     )
 
-    # Cập nhật Knowledge State trong Supabase
     if supabase:
         try:
+            existing_rows = supabase.table("knowledge_states") \
+                .select("attempt_count, correct_count") \
+                .eq("user_id", user_id).eq("topic_id", req.topic_id).limit(1).execute().data or []
+            prev_attempts = int((existing_rows[0].get("attempt_count") or 0)) if existing_rows else 0
+            prev_correct = int((existing_rows[0].get("correct_count") or 0)) if existing_rows else 0
             supabase.table("knowledge_states").upsert({
                 "user_id": user_id,
                 "topic_id": req.topic_id,
@@ -156,12 +192,12 @@ async def submit_answer(req: SubmitAnswerRequest):
                 "stability": fsrs_result["stability"],
                 "difficulty_rating": fsrs_result["difficulty_rating"],
                 "next_review_at": fsrs_result["next_review_at"],
-                "last_reviewed_at": "now()",
-                "attempt_count": 1,
-                "correct_count": 1 if eval_result["is_correct"] else 0
+                "last_reviewed_at": _now_iso(),
+                "attempt_count": prev_attempts + 1,
+                "correct_count": prev_correct + (1 if eval_result["is_correct"] else 0),
             }, on_conflict="user_id,topic_id").execute()
         except Exception as e:
-            print(f"KS update warning: {e}")
+            logger.warning(f"KS update warning: {e}")
 
     return {
         "evaluation": eval_result,
@@ -170,20 +206,21 @@ async def submit_answer(req: SubmitAnswerRequest):
 
 
 @router.post("/submit-full")
-async def submit_full_quiz(req: SubmitQuizRequest):
+def submit_full_quiz(req: SubmitQuizRequest):
     """
     Submit toàn bộ quiz → phân tích điểm → cập nhật knowledge state → trigger adaptive plan.
     """
     user_id = current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
+    if req.quiz_id:
+        require_quiz_owned(req.quiz_id, missing_ok=True)
     supabase = get_supabase_client()
 
-    # Lấy questions từ Supabase
     question_map = {}
     if supabase:
         q_resp = supabase.table("questions").select("*").eq("quiz_id", req.quiz_id).execute()
         question_map = {q["id"]: q for q in (q_resp.data or [])}
 
-    # Chấm điểm
     results = []
     correct_count = 0
     for ans in req.answers:
@@ -203,7 +240,6 @@ async def submit_full_quiz(req: SubmitQuizRequest):
         if eval_result["is_correct"]:
             correct_count += 1
 
-        # Ghi question attempt
         if supabase and q_id:
             try:
                 supabase.table("question_attempts").insert({
@@ -221,21 +257,18 @@ async def submit_full_quiz(req: SubmitQuizRequest):
     total = len(req.answers) or 1
     score_pct = (correct_count / total) * 100
 
-    # Phân tích weak topics
     analysis = AIEngine.analyze_weak_topics(results, req.topic_name)
 
-    # Cập nhật Knowledge State
     if supabase:
         try:
-            # Lấy state hiện tại
             ks_resp = supabase.table("knowledge_states") \
                 .select("*").eq("user_id", user_id).eq("topic_id", req.topic_id).execute()
 
             current = ks_resp.data[0] if ks_resp.data else {
-                "stability": 1.0, "difficulty_rating": 5.0, "mastery_score": 0.0
+                "stability": 1.0, "difficulty_rating": 5.0, "mastery_score": 0.0,
+                "attempt_count": 0, "correct_count": 0,
             }
 
-            # Tính FSRS với rating dựa trên score
             avg_rating = 4 if score_pct >= 80 else (3 if score_pct >= 60 else (2 if score_pct >= 40 else 1))
             fsrs = FSRSEngine.calculate_next_review(
                 stability=current.get("stability", 1.0),
@@ -248,12 +281,19 @@ async def submit_full_quiz(req: SubmitQuizRequest):
             supabase.table("knowledge_states").upsert({
                 "user_id": user_id,
                 "topic_id": req.topic_id,
-                **fsrs,
-                "last_reviewed_at": "now()"
+                "mastery_score": fsrs["mastery_score"],
+                "confidence_score": fsrs["confidence_score"],
+                "retention_score": fsrs["retention_score"],
+                "stability": fsrs["stability"],
+                "difficulty_rating": fsrs["difficulty_rating"],
+                "next_review_at": fsrs["next_review_at"],
+                "last_reviewed_at": _now_iso(),
+                "attempt_count": int(current.get("attempt_count") or 0) + total,
+                "correct_count": int(current.get("correct_count") or 0) + correct_count,
             }, on_conflict="user_id,topic_id").execute()
 
         except Exception as e:
-            print(f"KS full update warning: {e}")
+            logger.warning(f"KS full update warning: {e}")
 
     return {
         "quiz_id": req.quiz_id,
@@ -270,7 +310,7 @@ async def submit_full_quiz(req: SubmitQuizRequest):
 
 
 @router.get("/weak-topics")
-async def get_weak_topics(user_id: Optional[str] = None):
+def get_weak_topics(user_id: Optional[str] = None):
     """Phân tích và trả về danh sách weak topics của user."""
     uid = current_user_id()
     supabase = get_supabase_client()
@@ -304,8 +344,8 @@ class GenerateMultiTypeQuizRequest(BaseModel):
     topic_name: str
     user_mastery: float = 50.0
     document_id: Optional[str] = None
-    question_count: int = 5
-    exercise_types: Optional[List[str]] = None  # None = auto-select based on mastery
+    question_count: int = Field(5, ge=1, le=20)
+    exercise_types: Optional[List[str]] = None
     user_id: Optional[str] = None
 
 
@@ -320,16 +360,18 @@ class GradeOpenAnswerRequest(BaseModel):
 
 
 @router.post("/generate-multi")
-async def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
+def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
     """
     Feature B: Sinh quiz đa dạng loại câu hỏi (fill_blank, recall, sentence_construction, multiple_choice).
     Tự động chọn exercise_types dựa trên mastery nếu không chỉ định.
     """
     require_ai_feature("quizzes", "Tạo quiz")
-    user_id = current_user_id()
+    current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
+    if req.document_id:
+        require_owned("documents", req.document_id)
     supabase = get_supabase_client()
 
-    # RAG context
     rag_chunks = []
     if supabase and req.document_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
@@ -340,7 +382,6 @@ async def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
         )
     rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
 
-    # Sinh multi-type questions
     questions = AIEngine.generate_multi_type_quiz(
         topic_name=req.topic_name,
         user_mastery=req.user_mastery,
@@ -355,7 +396,6 @@ async def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
             detail="AI chưa tạo được câu hỏi từ nội dung sách (dịch vụ AI không khả dụng). Vui lòng thử lại sau."
         )
 
-    # Lưu quiz vào Supabase
     quiz_id = str(uuid.uuid4())
     if supabase:
         try:
@@ -374,12 +414,12 @@ async def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
                         "id": q_id,
                         "quiz_id": quiz_id,
                         "question_text": q.get("question_text", ""),
-                        "question_type": q.get("question_type", "multiple_choice"),
+                        "question_type": _clamp_question_type(q),
                         "options": q.get("options", []),
                         "correct_answer": q.get("correct_answer", ""),
                         "explanation": q.get("explanation", ""),
-                        "difficulty": q.get("difficulty", 2),
-                        "exercise_type": q.get("exercise_type", "multiple_choice")
+                        "difficulty": _clamp_difficulty(q.get("difficulty", 2)),
+                        "exercise_type": _clamp_exercise_type(q),
                     }).execute()
                 except Exception as qe:
                     logger.warning(f"Question save warning: {qe}")
@@ -400,15 +440,17 @@ async def generate_multi_type_quiz(req: GenerateMultiTypeQuizRequest):
 
 
 @router.post("/grade-open")
-async def grade_open_answer(req: GradeOpenAnswerRequest):
+def grade_open_answer(req: GradeOpenAnswerRequest):
     """
     Feature B: Gemini chấm điểm câu trả lời mở (recall, sentence_construction).
     Tự động ghi nhận lỗi vào error_logs.
     """
     user_id = current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
+    if req.document_id:
+        require_owned("documents", req.document_id)
     supabase = get_supabase_client()
 
-    # RAG context
     rag_chunks = []
     if supabase and req.document_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
@@ -419,7 +461,6 @@ async def grade_open_answer(req: GradeOpenAnswerRequest):
         )
     rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
 
-    # Chấm điểm qua Gemini
     grading = AIEngine.grade_open_answer(
         question_text=req.question_text,
         grading_rubric=req.grading_rubric or "",
@@ -428,12 +469,11 @@ async def grade_open_answer(req: GradeOpenAnswerRequest):
         topic_name=req.topic_name
     )
 
-    # Ghi nhận errors vào error_logs
     errors_detected = grading.get("errors_detected", [])
     if supabase and errors_detected:
+        now_iso = _now_iso()
         for err in errors_detected:
             try:
-                # Check existing
                 existing = supabase.table("error_logs") \
                     .select("id, occurrence_count") \
                     .eq("user_id", user_id) \
@@ -443,7 +483,7 @@ async def grade_open_answer(req: GradeOpenAnswerRequest):
                 if existing.data:
                     supabase.table("error_logs").update({
                         "occurrence_count": existing.data[0]["occurrence_count"] + 1,
-                        "last_seen_at": "now()"
+                        "last_seen_at": now_iso
                     }).eq("id", existing.data[0]["id"]).execute()
                 else:
                     supabase.table("error_logs").insert({
@@ -469,11 +509,11 @@ async def grade_open_answer(req: GradeOpenAnswerRequest):
 
 
 @router.get("/recurring-mistakes")
-async def get_recurring_mistakes(
+def get_recurring_mistakes(
     user_id: Optional[str] = None,
     topic_id: Optional[str] = None,
-    min_occurrences: int = 2,
-    limit: int = 20
+    min_occurrences: int = Query(2, ge=1, le=1000),
+    limit: int = Query(20, ge=1, le=100),
 ):
     """Lấy danh sách lỗi tái diễn từ question_attempts và error_logs."""
     uid = current_user_id()
@@ -483,7 +523,6 @@ async def get_recurring_mistakes(
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
     try:
-        # Lấy từ error_logs (nguồn tổng hợp)
         query = supabase.table("error_logs") \
             .select("*") \
             .eq("user_id", uid) \
@@ -496,7 +535,6 @@ async def get_recurring_mistakes(
 
         resp = query.execute()
 
-        # Nhóm theo error_type
         errors = resp.data or []
         by_type: Dict[str, List] = {}
         for err in errors:

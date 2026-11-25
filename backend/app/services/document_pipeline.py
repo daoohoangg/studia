@@ -76,6 +76,16 @@ MAX_RESUMES = 3
 # Tài liệu đang được xử lý trong tiến trình này: vòng quét chạy tiếp và nút "Xử lý lại" không đụng vào
 _running: set = set()
 _running_lock = threading.Lock()
+_doc_locks: Dict[str, threading.Lock] = {}
+
+
+def _doc_lock(doc_id: str) -> threading.Lock:
+    with _running_lock:
+        lock = _doc_locks.get(doc_id)
+        if lock is None:
+            lock = threading.Lock()
+            _doc_locks[doc_id] = lock
+        return lock
 
 
 def _now_iso() -> str:
@@ -150,18 +160,30 @@ def is_stalled(document: Dict[str, Any], now: Optional[datetime] = None) -> bool
     return (now - last).total_seconds() > limit
 
 
+def _is_conflict_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(tok in msg for tok in ("duplicate", "unique", "23505", "conflict"))
+
+
 def _insert_rows(supabase, table: str, rows: List[Dict[str, Any]], doc_id: str) -> None:
-    """Ghi theo lô; lô lỗi (vd. trùng khoá) thì ghi lại từng dòng để không mất các dòng hợp lệ."""
+    """Ghi theo lô; lô lỗi trùng khoá thì ghi lại từng dòng để bỏ qua dòng trùng, lỗi khác phải báo lên."""
     if not rows:
         return
     try:
         supabase.table(table).insert(rows).execute()
-    except Exception:
+    except Exception as batch_err:
+        if not _is_conflict_error(batch_err):
+            logger.error(f"[{doc_id}] Insert into {table} failed: {batch_err}")
+            raise
         for row in rows:
             try:
                 supabase.table(table).insert(row).execute()
             except Exception as e:
-                logger.debug(f"[{doc_id}] Skip {table} row: {e}")
+                if _is_conflict_error(e):
+                    logger.debug(f"[{doc_id}] Skip duplicate {table} row: {e}")
+                else:
+                    logger.error(f"[{doc_id}] Insert {table} row failed: {e}")
+                    raise
 
 
 # ------------------------------------------------------------
@@ -373,19 +395,20 @@ def index_document(doc_id: str, user_id: str, title: str, raw_content: str, supa
 
 def _store_original(supabase, doc_id: str, storage_path: str, file_bytes: bytes, content_type: str) -> None:
     try:
+        supabase.storage.create_bucket(DOCUMENTS_BUCKET, options={"public": False})
+    except Exception:
         try:
-            supabase.storage.create_bucket(DOCUMENTS_BUCKET, options={"public": False})
-        except Exception:
-            try:
-                supabase.storage.update_bucket(DOCUMENTS_BUCKET, {"public": False})
-            except Exception as e:
-                logger.warning(f"Could not enforce private '{DOCUMENTS_BUCKET}' bucket: {e}")
+            supabase.storage.update_bucket(DOCUMENTS_BUCKET, {"public": False})
+        except Exception as e:
+            logger.warning(f"Could not enforce private '{DOCUMENTS_BUCKET}' bucket: {e}")
+    try:
         supabase.storage.from_(DOCUMENTS_BUCKET).upload(
             path=storage_path, file=file_bytes,
             file_options={"content-type": content_type, "x-upsert": "true"},
         )
     except Exception as e:
-        logger.warning(f"[{doc_id}] Storage upload warning: {e}")
+        logger.error(f"[{doc_id}] Storage upload failed: {e}")
+        raise
 
 
 CONTENT_TYPES = {
@@ -422,15 +445,18 @@ def _extract_pdf_progressively(supabase, doc_id: str, file_bytes: bytes, ocr,
             _set_step(supabase, doc_id, 2, f"Đang nhận dạng chữ trang scan: {ocr_done}/{len(empty)}")
             try:
                 got = ocr_pdf_pages(file_bytes, batch, ocr)
+                batch_ok = True
             except Exception as e:
                 logger.warning(f"[{doc_id}] OCR batch {batch[0]}-{batch[-1]} failed: {e}")
                 got = {}
+                batch_ok = False
             page_blocks = [b for page in sorted(got) for b in got[page]]
             if page_blocks:
                 saved += save_blocks(supabase, doc_id, page_blocks)
             ocr_done += len(batch)
-            pages_done += len(batch)
-            _set_progress(supabase, doc_id, pages_done=pages_done)
+            if batch_ok:
+                pages_done += len(batch)
+                _set_progress(supabase, doc_id, pages_done=pages_done)
         _set_step(supabase, doc_id, 3, f"{pages_done}/{page_count} trang đã đọc xong")
     saved.sort(key=lambda r: r["order_index"])  # trang OCR đến sau phải về đúng vị trí khi chunk/index
     return saved
@@ -459,6 +485,7 @@ def process_uploaded_file(doc_id: str, user_id: str, title: str, filename: str,
                 upload_future.result()
                 logger.info(f"[{doc_id}] Readable: {len(saved_blocks)} blocks in {time.perf_counter() - started:.2f}s")
 
+            file_bytes = b""  # Giải phóng bộ nhớ tệp gốc trước khi lập chỉ mục / embedding
             raw_text = blocks_to_text(saved_blocks)
             if len(raw_text) < 50:
                 logger.error(f"[{doc_id}] No extractable text (scanned document?)")
@@ -475,11 +502,12 @@ def process_uploaded_file(doc_id: str, user_id: str, title: str, filename: str,
 
 def process_text_document(doc_id: str, user_id: str, title: str, raw_content: str, supabase) -> None:
     with _Job(supabase, doc_id):
-        saved_blocks: List[Dict[str, Any]] = []
         try:
             saved_blocks = save_blocks(supabase, doc_id, blocks_from_text(raw_content))
         except Exception as e:
-            logger.warning(f"[{doc_id}] Could not save blocks for text document: {e}")
+            logger.error(f"[{doc_id}] Could not save blocks for text document: {e}", exc_info=True)
+            _fail(supabase, doc_id, "Không lưu được nội dung tài liệu. Bấm \"Xử lý lại\" để thử lại.")
+            return
         index_document(doc_id, user_id, title, raw_content, supabase, blocks=saved_blocks)
 
 
@@ -536,6 +564,7 @@ def resume_document(supabase, document: Dict[str, Any]) -> None:
                 elif not existing:
                     _set_step(supabase, doc_id, 3)
                     save_blocks(supabase, doc_id, extract_blocks(file_bytes, kind).blocks)
+                file_bytes = b""
             elif not existing and document.get("raw_content"):
                 save_blocks(supabase, doc_id, blocks_from_text(document["raw_content"]))
 
@@ -600,8 +629,23 @@ def resume_stalled(supabase, run=None) -> List[str]:
             if doc_id in _running:
                 continue
             _running.add(doc_id)  # giữ chỗ để vòng quét sau không xếp hàng trùng
-        # Ghi lượt chạy tiếp và nhịp tim trước khi chạy: tiến trình khác (nếu có) thấy tài liệu không còn "bỏ dở"
-        _set_progress(supabase, doc_id, resume_count=tries + 1)
+        # Ghi lượt chạy tiếp và nhịp tim trước khi chạy (kèm điều kiện resume_count để tránh 2 worker giành cùng tài liệu)
+        claimed = True
+        try:
+            q = supabase.table("documents").update(
+                {"resume_count": tries + 1, "processing_heartbeat": _now_iso()}
+            ).eq("id", doc_id)
+            if "resume_count" in row and row.get("resume_count") is not None:
+                q = q.eq("resume_count", row["resume_count"])
+            res = q.execute()
+            if getattr(res, "data", None) == []:
+                claimed = False
+        except Exception as e:
+            logger.debug(f"[{doc_id}] Could not update resume claim: {e}")
+        if not claimed:
+            with _running_lock:
+                _running.discard(doc_id)
+            continue
         logger.info(f"[{doc_id}] Resuming stalled document (attempt {tries + 1})")
         (run or _resume_pool.submit)(_resume_safely, supabase, doc_id)
         queued.append(doc_id)
@@ -626,15 +670,28 @@ def load_all_blocks(supabase, doc_id: str) -> List[Dict[str, Any]]:
 
 
 def _stored_chunks(supabase, doc_id: str, fields: str) -> List[Dict[str, Any]]:
+    field_list = [f.strip() for f in fields.split(",") if f.strip()]
+    for req in ("id", "chunk_index"):
+        if req not in field_list:
+            field_list.append(req)
+    select_fields = ", ".join(field_list)
     rows: List[Dict[str, Any]] = []
+    seen_ids: set = set()
     start = 0
     while True:
-        page = supabase.table("document_chunks").select(fields) \
+        page = supabase.table("document_chunks").select(select_fields) \
             .eq("document_id", doc_id).gte("chunk_index", start).order("chunk_index").limit(1000).execute().data or []
-        rows += page
+        for row in page:
+            rid = row.get("id")
+            if rid is not None:
+                if rid in seen_ids:
+                    continue
+                seen_ids.add(rid)
+            rows.append(row)
         if len(page) < 1000:
             return rows
-        start = page[-1]["chunk_index"] + 1
+        last_idx = page[-1]["chunk_index"]
+        start = last_idx if last_idx > start else last_idx + 1
 
 
 def _hash_of(row: Dict[str, Any]) -> Optional[str]:
@@ -671,46 +728,47 @@ def reindex_document(supabase, doc_id: str) -> Dict[str, Any]:
     phải gọi embedding; chunk giữ nguyên nội dung dùng lại vector cũ.
     Thứ tự an toàn: chèn chunk mới trước, xoá chunk cũ sau.
     """
-    wanted = RAGEngine.chunk_blocks(load_all_blocks(supabase, doc_id))
-    stored = _stored_chunks(supabase, doc_id, "id, chunk_index, embedding, metadata")
+    with _doc_lock(doc_id):
+        wanted = RAGEngine.chunk_blocks(load_all_blocks(supabase, doc_id))
+        stored = _stored_chunks(supabase, doc_id, "id, chunk_index, embedding, metadata")
 
-    by_hash: Dict[str, List[Dict[str, Any]]] = {}
-    for row in stored:
-        h = _hash_of(row)
-        if h:
-            by_hash.setdefault(h, []).append(row)
+        by_hash: Dict[str, List[Dict[str, Any]]] = {}
+        for row in stored:
+            h = _hash_of(row)
+            if h:
+                by_hash.setdefault(h, []).append(row)
 
-    keep_ids = set()
-    to_insert: List[Dict[str, Any]] = []
-    to_embed: List[Dict[str, Any]] = []
-    for chunk in wanted:
-        candidates = by_hash.get(chunk["content_hash"]) or []
-        reusable = candidates.pop(0) if candidates else None
-        if reusable and reusable.get("chunk_index") == chunk["chunk_index"] \
-                and (reusable.get("metadata") or {}).get("block_ids") == chunk.get("block_ids"):
-            keep_ids.add(reusable["id"])
-            continue
-        if reusable and reusable.get("embedding"):
-            to_insert.append(_chunk_row(doc_id, chunk, reusable["embedding"], len(wanted)))
-        else:
-            to_embed.append(chunk)
+        keep_ids = set()
+        to_insert: List[Dict[str, Any]] = []
+        to_embed: List[Dict[str, Any]] = []
+        for chunk in wanted:
+            candidates = by_hash.get(chunk["content_hash"]) or []
+            reusable = candidates.pop(0) if candidates else None
+            if reusable and reusable.get("chunk_index") == chunk["chunk_index"] \
+                    and (reusable.get("metadata") or {}).get("block_ids") == chunk.get("block_ids"):
+                keep_ids.add(reusable["id"])
+                continue
+            if reusable and reusable.get("embedding"):
+                to_insert.append(_chunk_row(doc_id, chunk, reusable["embedding"], len(wanted)))
+            else:
+                to_embed.append(chunk)
 
-    if to_embed:
-        vectors = RAGEngine.generate_embeddings([c["content"] for c in to_embed])
-        to_insert += [_chunk_row(doc_id, c, v, len(wanted)) for c, v in zip(to_embed, vectors)]
+        if to_embed:
+            vectors = RAGEngine.generate_embeddings([c["content"] for c in to_embed])
+            to_insert += [_chunk_row(doc_id, c, v, len(wanted)) for c, v in zip(to_embed, vectors)]
 
-    for batch in _batched(to_insert, CHUNK_INSERT_BATCH):
-        supabase.table("document_chunks").insert(batch).execute()
+        for batch in _batched(to_insert, CHUNK_INSERT_BATCH):
+            supabase.table("document_chunks").insert(batch).execute()
 
-    # Chunk cũ đã được thay thế (hoặc mồ côi): xoá sau khi chunk mới đã vào
-    stale_ids = [r["id"] for r in stored if r["id"] not in keep_ids]
-    for batch in _batched(stale_ids, 100):
-        supabase.table("document_chunks").delete().in_("id", batch).execute()
+        # Chunk cũ đã được thay thế (hoặc mồ côi): xoá sau khi chunk mới đã vào
+        stale_ids = [r["id"] for r in stored if r["id"] not in keep_ids]
+        for batch in _batched(stale_ids, 100):
+            supabase.table("document_chunks").delete().in_("id", batch).execute()
 
-    return {
-        "chunks_total": len(wanted),
-        "chunks_reembedded": len(to_embed),
-        "chunks_rewritten": len(to_insert) - len(to_embed),
-        "chunks_kept": len(keep_ids),
-        "chunks_deleted": len(stale_ids),
-    }
+        return {
+            "chunks_total": len(wanted),
+            "chunks_reembedded": len(to_embed),
+            "chunks_rewritten": len(to_insert) - len(to_embed),
+            "chunks_kept": len(keep_ids),
+            "chunks_deleted": len(stale_ids),
+        }

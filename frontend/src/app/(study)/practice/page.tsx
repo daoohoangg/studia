@@ -31,6 +31,8 @@ export default function PracticePage() {
   const [picked, setPicked] = useState<string | null>(null);
   const [correct, setCorrect] = useState(0);
   const [answered, setAnswered] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [rateError, setRateError] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -67,16 +69,31 @@ export default function PracticePage() {
 
   const cur = items[i];
   const finished = !loading && items.length > 0 && i >= items.length;
-  const next = () => { setI((x) => x + 1); setFlipped(false); setPicked(null); };
+  const next = () => { setI((x) => x + 1); setFlipped(false); setPicked(null); setRateError(""); };
 
   const rate = async (rating: number) => {
+    if (submitting) return;
     if (cur?.kind === "card") {
-      apiFetch(`${API}/flashcards/review`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flashcard_id: cur.card.id, rating, response_time_ms: 5000 }),
-      }).catch(() => {});
-      setAnswered((n) => n + 1);
-      if (rating >= 3) setCorrect((n) => n + 1);
+      setSubmitting(true);
+      setRateError("");
+      try {
+        const res = await apiFetch(`${API}/flashcards/review`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ flashcard_id: cur.card.id, rating, response_time_ms: 5000 }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(typeof d.detail === "string" ? d.detail : "Không lưu được kết quả ôn thẻ.");
+        }
+        setAnswered((n) => n + 1);
+        if (rating >= 3) setCorrect((n) => n + 1);
+        next();
+      } catch (e: any) {
+        setRateError(e?.message || "Không lưu được kết quả. Kiểm tra kết nối và thử lại.");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
     }
     next();
   };
@@ -144,12 +161,15 @@ export default function PracticePage() {
               ) : <p className="meta" style={{ marginTop: 16 }}>Bấm để lật thẻ</p>}
             </button>
             {flipped && (
-              <div className="st-rate" role="group" aria-label="Bạn nhớ từ này thế nào?">
-                <button type="button" className="st-rate-btn st-rate-again" onClick={() => rate(1)}><span className="st-rate-label">Quên</span></button>
-                <button type="button" className="st-rate-btn st-rate-hard" onClick={() => rate(2)}><span className="st-rate-label">Khó</span></button>
-                <button type="button" className="st-rate-btn st-rate-good" onClick={() => rate(3)}><span className="st-rate-label">Được</span></button>
-                <button type="button" className="st-rate-btn st-rate-easy" onClick={() => rate(4)}><span className="st-rate-label">Dễ</span></button>
-              </div>
+              <>
+                {rateError && <p role="alert" style={{ color: "var(--danger)", textAlign: "center", fontSize: 14, margin: 0 }}>{rateError}</p>}
+                <div className="st-rate" role="group" aria-label="Bạn nhớ từ này thế nào?">
+                  <button type="button" className="st-rate-btn st-rate-again" disabled={submitting} onClick={() => rate(1)}><span className="st-rate-label">Quên</span></button>
+                  <button type="button" className="st-rate-btn st-rate-hard" disabled={submitting} onClick={() => rate(2)}><span className="st-rate-label">Khó</span></button>
+                  <button type="button" className="st-rate-btn st-rate-good" disabled={submitting} onClick={() => rate(3)}><span className="st-rate-label">Được</span></button>
+                  <button type="button" className="st-rate-btn st-rate-easy" disabled={submitting} onClick={() => rate(4)}><span className="st-rate-label">Dễ</span></button>
+                </div>
+              </>
             )}
           </div>
         ) : (

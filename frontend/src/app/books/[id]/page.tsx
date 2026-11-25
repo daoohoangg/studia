@@ -23,6 +23,7 @@ export default function BookDetailPage() {
   const [goalData, setGoalData] = useState({ goal_description: "Học hiểu toàn bộ nội dung sách", daily_minutes: 45, deadline_days: 30 });
   const [goalResult, setGoalResult] = useState<any>(null);
   const [goalLoading, setGoalLoading] = useState(false);
+  const [goalError, setGoalError] = useState("");
   const [toc, setToc] = useState<TocData | null>(null);
 
   useEffect(() => {
@@ -65,19 +66,24 @@ export default function BookDetailPage() {
   const handleSetGoal = async (e: React.FormEvent) => {
     e.preventDefault();
     setGoalLoading(true);
+    setGoalError("");
     try {
       const res = await apiFetch(`${API}/learning-paths/set-goal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ document_id: bookId, ...goalData })
       });
-      const data = await res.json();
-      if (res.ok) {
-        setGoalResult(data);
-        setSettingGoal(false);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Không tạo được lịch học. Vui lòng thử lại.");
       }
-    } catch { /* ignore */ }
-    setGoalLoading(false);
+      setGoalResult(data);
+      setSettingGoal(false);
+    } catch (err: any) {
+      setGoalError(err?.message || "Không kết nối được máy chủ.");
+    } finally {
+      setGoalLoading(false);
+    }
   };
 
   if (loading) return (
@@ -209,6 +215,7 @@ export default function BookDetailPage() {
                     Ước tính: {topics.length} chủ đề · khoảng {perTopic} ngày mỗi chủ đề · {goalData.daily_minutes} phút/ngày.
                   </p>
                 )}
+                {goalError && <p role="alert" style={{ color: "var(--danger)", fontSize: 13.5, margin: 0 }}>{goalError}</p>}
                 <button type="submit" className="st-btn st-btn-primary st-btn-block" disabled={goalLoading} aria-busy={goalLoading || undefined}>
                   {goalLoading ? <><span className="st-spinner" /> Đang tạo lịch…</> : "Tạo lịch học"}
                 </button>

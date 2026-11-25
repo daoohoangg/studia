@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Fragment, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 import { API, apiFetch } from "@/lib/api";
 import DiagramView from "@/components/DiagramView";
-import { Volume2, ChevronLeft, ArrowRight, Layers, Mic } from "lucide-react";
+import { Volume2, ChevronLeft, ArrowRight, Layers, Mic, RefreshCw } from "lucide-react";
 
 type VocabItem = {
   word: string;
@@ -36,6 +36,7 @@ function LessonContent() {
 
   const [lesson, setLesson] = useState<LessonData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [ragChunks, setRagChunks] = useState(0);
   const [tab, setTab] = useState<"read" | "diagram">("read");
   const [diagram, setDiagram] = useState<string | null>(null);
@@ -60,20 +61,22 @@ function LessonContent() {
   // Vocabulary panel state
   const [vocabOpen, setVocabOpen] = useState(true);
   const [savedWords, setSavedWords] = useState<Set<string>>(new Set());
-  const [savingWord, setSavingWord] = useState<string | null>(null);
+  const [savingWords, setSavingWords] = useState<Set<string>>(new Set());
+  const [vocabError, setVocabError] = useState("");
   const [expandedWord, setExpandedWord] = useState<string | null>(null);
   const [wordCardData, setWordCardData] = useState<Record<string, any>>({});
   const [loadingCard, setLoadingCard] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (topicId) generateLesson();
-  }, [topicId]);
-
-  const generateLesson = async () => {
+  const generateLesson = useCallback(async () => {
+    if (!topicId) return;
     setLoading(true);
+    setLoadError(null);
+    setTab("read");
+    setDiagram(null);
+    setDiagramState("idle");
     try {
       let topicName = "Chủ đề";
-      let mastery = 0;
+      const mastery = 0;
 
       if (docId) {
         const topicsRes = await apiFetch(`${API}/documents/${docId}/topics`);
@@ -98,32 +101,36 @@ function LessonContent() {
         })
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setLesson(data);
-        setRagChunks(data.rag_chunks_used || 0);
-        // Mark auto-saved words
-        if (data.vocabulary_highlights) {
-          const autoSaved = new Set<string>(
-            (data.vocabulary_highlights || []).map((v: VocabItem) => v.word)
-          );
-          setSavedWords(autoSaved);
-        }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(typeof d.detail === "string" ? d.detail : "Không tạo được nội dung bài học lúc này.");
       }
-    } catch {
-      setLesson({
-        title: "Bài học",
-        content_markdown: "# Bài học\n\nĐang tải nội dung...",
-        key_takeaways: [],
-        vocabulary_highlights: []
-      });
-    }
-    setLoading(false);
-  };
 
-  const handleSaveVocab = async (item: VocabItem) => {
-    if (savedWords.has(item.word)) return;
-    setSavingWord(item.word);
+      const data = await res.json();
+      setLesson(data);
+      setRagChunks(data.rag_chunks_used || 0);
+      if (data.vocabulary_highlights) {
+        const autoSaved = new Set<string>(
+          (data.vocabulary_highlights || []).map((v: VocabItem) => v.word)
+        );
+        setSavedWords(autoSaved);
+      }
+    } catch (e: any) {
+      setLesson(null);
+      setLoadError(e?.message || "Không tải được bài học. Kiểm tra kết nối rồi thử lại.");
+    } finally {
+      setLoading(false);
+    }
+  }, [topicId, docId, profLevel]);
+
+  useEffect(() => {
+    void generateLesson();
+  }, [generateLesson]);
+
+  const handleSaveVocab = async (item: VocabItem): Promise<boolean> => {
+    if (savedWords.has(item.word)) return true;
+    setVocabError("");
+    setSavingWords(prev => new Set(prev).add(item.word));
     try {
       const res = await apiFetch(`${API}/vocabulary/save`, {
         method: "POST",
@@ -139,11 +146,28 @@ function LessonContent() {
           create_flashcard: true
         })
       });
-      if (res.ok) {
-        setSavedWords(prev => new Set(prev).add(item.word));
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(typeof d.detail === "string" ? d.detail : `Không lưu được từ "${item.word}".`);
       }
-    } catch { /* ignore */ }
-    setSavingWord(null);
+      setSavedWords(prev => new Set(prev).add(item.word));
+      return true;
+    } catch (e: any) {
+      setVocabError(e?.message || `Không lưu được từ "${item.word}".`);
+      return false;
+    } finally {
+      setSavingWords(prev => {
+        const next = new Set(prev);
+        next.delete(item.word);
+        return next;
+      });
+    }
+  };
+
+  const handleSaveAllVocab = async (items: VocabItem[]) => {
+    if (!items.length) return;
+    setVocabError("");
+    await Promise.allSettled(items.map((item) => handleSaveVocab(item)));
   };
 
   const handleExpandWord = async (word: string, sourceSentence: string) => {
@@ -183,22 +207,47 @@ function LessonContent() {
     }
   };
 
-  // Simple markdown renderer
+  // Render inline markdown safely as React nodes (never raw HTML)
+  const renderInline = (text: string) => {
+    const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+        return <strong key={idx}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
+        return (
+          <code key={idx} style={{ background: "rgba(var(--primary-rgb), 0.12)", color: "var(--brand)", padding: "2px 6px", borderRadius: 4, fontSize: "0.85em" }}>
+            {part.slice(1, -1)}
+          </code>
+        );
+      }
+      if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+        const inner = part.slice(1, -1);
+        if (inner.startsWith("nghĩa:")) {
+          return (
+            <em key={idx} style={{ color: "var(--success)", fontSize: "0.88em", background: "var(--success-tint)", padding: "1px 6px", borderRadius: 4 }}>
+              {inner}
+            </em>
+          );
+        }
+        return <em key={idx}>{inner}</em>;
+      }
+      return <Fragment key={idx}>{part}</Fragment>;
+    });
+  };
+
+  // Safe React-node markdown renderer (no dangerouslySetInnerHTML)
   const renderMarkdown = (md: string) => {
     if (!md) return null;
     return md.split("\n").map((line, i) => {
-      if (line.startsWith("# ")) return <h1 key={i} style={{ fontSize: "1.6rem", fontWeight: 700, margin: "24px 0 12px", fontFamily: "var(--font-display)" }}>{line.slice(2)}</h1>;
-      if (line.startsWith("## ")) return <h2 key={i} style={{ fontSize: "1.2rem", fontWeight: 700, margin: "20px 0 8px", color: "var(--ink)" }}>{line.slice(3)}</h2>;
-      if (line.startsWith("### ")) return <h3 key={i} style={{ fontSize: "1rem", fontWeight: 700, margin: "16px 0 6px" }}>{line.slice(4)}</h3>;
-      if (line.startsWith("- ") || line.startsWith("* ")) return <li key={i} style={{ color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 4, marginLeft: 20 }}>{line.slice(2).replace(/\*\*(.*?)\*\*/g, "$1")}</li>;
-      if (line.startsWith("> ")) return <blockquote key={i} style={{ borderLeft: "3px solid rgba(var(--primary-rgb), 0.5)", paddingLeft: 16, color: "var(--text-muted)", fontStyle: "italic", margin: "12px 0" }}>{line.slice(2)}</blockquote>;
+      if (line.startsWith("# ")) return <h1 key={i} style={{ fontSize: "1.6rem", fontWeight: 700, margin: "24px 0 12px", fontFamily: "var(--font-display)" }}>{renderInline(line.slice(2))}</h1>;
+      if (line.startsWith("## ")) return <h2 key={i} style={{ fontSize: "1.2rem", fontWeight: 700, margin: "20px 0 8px", color: "var(--ink)" }}>{renderInline(line.slice(3))}</h2>;
+      if (line.startsWith("### ")) return <h3 key={i} style={{ fontSize: "1rem", fontWeight: 700, margin: "16px 0 6px" }}>{renderInline(line.slice(4))}</h3>;
+      if (line.startsWith("- ") || line.startsWith("* ")) return <li key={i} style={{ color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 4, marginLeft: 20 }}>{renderInline(line.slice(2))}</li>;
+      if (line.startsWith("> ")) return <blockquote key={i} style={{ borderLeft: "3px solid rgba(var(--primary-rgb), 0.5)", paddingLeft: 16, color: "var(--text-muted)", fontStyle: "italic", margin: "12px 0" }}>{renderInline(line.slice(2))}</blockquote>;
       if (line.startsWith("```")) return null;
       if (line.trim() === "---" || line.trim() === "") return <br key={i} />;
-      const boldLine = line
-        .replace(/\*\*(.*?)\*\*/g, (_, m) => `<strong>${m}</strong>`)
-        .replace(/`(.*?)`/g, (_, m) => `<code style="background:rgba(var(--primary-rgb), 0.12);color:var(--brand);padding:2px 6px;border-radius:4px;font-size:0.85em">${m}</code>`)
-        .replace(/\*(nghĩa:.*?)\*/g, (_, m) => `<em style="color:var(--success);font-size:0.88em;background:var(--success-tint);padding:1px 6px;border-radius:4px">${m}</em>`);
-      return <p key={i} style={{ color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 8 }} dangerouslySetInnerHTML={{ __html: boldLine }} />;
+      return <p key={i} style={{ color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 8 }}>{renderInline(line)}</p>;
     });
   };
 
@@ -207,6 +256,19 @@ function LessonContent() {
       <div className="skeleton" style={{ height: 80 }} />
       <div className="split"><div className="skeleton" style={{ height: 520 }} /><div className="skeleton" style={{ height: 420 }} /></div>
       <p className="meta" style={{ textAlign: "center" }}>Studia đang soạn bài học vừa sức bạn…</p>
+    </div>
+  );
+
+  if (loadError || !lesson) return (
+    <div className="wrap-narrow" style={{ paddingTop: 32 }}>
+      <Link className="crumb" href={docId ? `/books/${docId}` : "/books"}><ChevronLeft size={16} strokeWidth={2} />{docId ? "Về sách" : "Thư viện sách"}</Link>
+      <div role="alert" className="st-card" style={{ marginTop: 16, padding: 28, display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
+        <h1 className="heading-2" style={{ margin: 0 }}>Không tải được bài học</h1>
+        <p className="ink2" style={{ margin: 0 }}>{loadError || "Đã có lỗi xảy ra khi tạo nội dung bài học."}</p>
+        <button className="st-btn st-btn-primary st-btn-sm" type="button" onClick={() => void generateLesson()}>
+          <RefreshCw size={15} strokeWidth={2} /> Thử lại
+        </button>
+      </div>
     </div>
   );
 
@@ -237,6 +299,28 @@ function LessonContent() {
 
       <div className="split" style={{ gridTemplateColumns: "minmax(0, 1.5fr) minmax(300px, 1fr)" }}>
         <article className="st-card" style={{ padding: "32px 36px" }}>
+          <div className="tabs" role="tablist" aria-label="Chế độ xem bài học" style={{ marginBottom: 20 }}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "read"}
+              className="tab"
+              aria-current={tab === "read" ? "page" : undefined}
+              onClick={() => setTab("read")}
+            >
+              Bài đọc
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "diagram"}
+              className="tab"
+              aria-current={tab === "diagram" ? "page" : undefined}
+              onClick={() => { setTab("diagram"); void loadDiagram(); }}
+            >
+              Sơ đồ khái niệm
+            </button>
+          </div>
           {tab === "diagram" ? (
             <div role="tabpanel" aria-label="Sơ đồ khái niệm" style={{ overflowX: "auto" }}>
               {diagramState === "loading" && <div className="skeleton" style={{ height: 320 }} />}
@@ -279,10 +363,15 @@ function LessonContent() {
                 <h2 id="v-h" className="heading-3">Từ vựng trong bài</h2>
                 <span className="meta num">{savedCount}/{vocabHighlights.length} đã lưu</span>
               </div>
+              {vocabError && (
+                <div role="alert" className="st-alert st-alert-danger" style={{ marginBottom: 10 }}>
+                  {vocabError}
+                </div>
+              )}
               <div>
                 {vocabHighlights.map((item, idx) => {
                   const isSaved = savedWords.has(item.word);
-                  const isSaving = savingWord === item.word;
+                  const isSaving = savingWords.has(item.word);
                   const isExpanded = expandedWord === item.word;
                   const cardData = wordCardData[item.word];
                   return (
@@ -321,7 +410,15 @@ function LessonContent() {
                 })}
               </div>
               {unsaved.length > 1 && (
-                <button className="st-btn st-btn-ghost st-btn-block" type="button" style={{ marginTop: 8 }} onClick={() => unsaved.forEach((v) => handleSaveVocab(v))}>Lưu cả {unsaved.length} từ còn lại</button>
+                <button
+                  className="st-btn st-btn-ghost st-btn-block"
+                  type="button"
+                  style={{ marginTop: 8 }}
+                  disabled={savingWords.size > 0}
+                  onClick={() => void handleSaveAllVocab(unsaved)}
+                >
+                  {savingWords.size > 0 ? "Đang lưu…" : `Lưu cả ${unsaved.length} từ còn lại`}
+                </button>
               )}
               {lesson?.vocabulary_auto_saved !== undefined && lesson.vocabulary_auto_saved > 0 && (
                 <p className="meta" style={{ marginTop: 8 }}>{lesson.vocabulary_auto_saved} từ đã tự động lưu vào flashcard.</p>

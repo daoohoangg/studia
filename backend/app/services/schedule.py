@@ -242,8 +242,10 @@ def due_slots(db, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
 def _already_sent(db, ref: str) -> bool:
     try:
         return bool(db.table("reminder_log").select("id").eq("ref", ref).limit(1).execute().data)
-    except Exception:
-        return False
+    except Exception as e:
+        # Fail-closed on DB errors so transient DB outages do not cause duplicate reminder emails
+        logger.warning(f"reminder_log lookup failed for {ref}: {e}")
+        return True
 
 
 def _log(db, uid: str, ref: str, status: str) -> None:

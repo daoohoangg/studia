@@ -58,7 +58,7 @@ function ScenariosContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          document_id: docId || "default",
+          document_id: docId || null,
           topic_name: "Thực hành Tình huống Thực tế",
           count: 3
         })

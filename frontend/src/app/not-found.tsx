@@ -12,7 +12,7 @@ export default function NotFound() {
       <h1 className="page-title">Trang này không có trong giáo trình</h1>
       <p className="page-sub" style={{ maxWidth: 440 }}>Đường dẫn có thể đã cũ, hoặc tài liệu đã bị xoá khỏi thư viện.</p>
       <div className="row" style={{ gap: 8, marginTop: 8 }}>
-        <Link className="st-btn st-btn-primary" href="/">Về trang Hôm nay</Link>
+        <Link className="st-btn st-btn-primary" href="/home">Về trang Hôm nay</Link>
         <Link className="st-btn st-btn-secondary" href="/books">Mở thư viện</Link>
       </div>
     </div>

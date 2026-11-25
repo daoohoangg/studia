@@ -226,6 +226,46 @@ class AdminTests(BillingTestCase):
         res = self.client.post("/api/v1/admin/packs", json={"name": "X", "books": 3, "price_vnd": 0, "active": True})
         self.assertEqual(res.status_code, 400)
 
+    def test_lowered_free_limit_does_not_deduct_from_paid_pack(self):
+        billing.set_setting("free_book_limit", 3)
+        for i in range(2):
+            self.assertIsNotNone(billing.consume_upload_credit(DEMO, f"Free {i}"))
+        billing.set_setting("free_book_limit", 1)
+        order = billing.create_order(DEMO, self.pack["id"])
+        billing.mark_paid(order, "manual")
+        q = billing.quota(DEMO, "student")
+        self.assertEqual(q["remaining"], 10)
+
+    def test_sepay_ipn_handles_non_dict_and_non_finite_amounts(self):
+        self.assertEqual(billing.handle_sepay_ipn("not-a-dict"), {"result": "ignored_invalid"})
+        self.assertEqual(
+            billing.handle_sepay_ipn({"notification_type": "ORDER_PAID", "order": "bad", "transaction": []}),
+            {"result": "ignored_invalid"},
+        )
+        res = billing.handle_sepay_ipn({
+            "notification_type": "ORDER_PAID",
+            "order": {"order_invoice_number": "STD999999", "order_amount": "inf"},
+            "transaction": {"transaction_id": "TXINF", "transaction_status": "APPROVED", "transaction_amount": "NaN"},
+        })
+        self.assertEqual(res, {"result": "unmatched", "code": "STD999999"})
+
+    def test_concurrent_consume_upload_credit_respects_quota(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from fastapi import HTTPException
+
+        def try_consume(i):
+            try:
+                return billing.consume_upload_credit(DEMO, f"Book {i}")
+            except HTTPException as e:
+                return e.status_code
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(try_consume, range(4)))
+        successes = [r for r in results if isinstance(r, str)]
+        failures = [r for r in results if r == 402]
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(failures), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

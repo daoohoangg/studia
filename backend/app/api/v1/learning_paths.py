@@ -1,32 +1,36 @@
 """
 Learning Paths API v2 — Study Goals + Adaptive Plans + Daily Tasks + Knowledge Graph
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-from datetime import date, timedelta
-from app.services.schedule import can_mark_done, local_today
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+import logging
+import threading
+import uuid
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from app.core.auth import current_user_id, require_owned, require_topic_owned
+from app.core.supabase_client import get_supabase_client
+from app.services.ai_engine import AIEngine
 from app.services.graph_engine import GraphEngine
 from app.services.learning_engine import LearningEngine
-from app.services.ai_engine import AIEngine
 from app.services.rag_engine import RAGEngine
-from app.core.supabase_client import get_supabase_client
-from app.config import settings
-from app.core.auth import current_user_id
-import uuid
-import logging
+from app.services.schedule import can_mark_done, local_today
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/learning-paths", tags=["Learning Paths & Adaptive Plans"])
 
+_plan_locks: Dict[tuple, threading.Lock] = {}
+_plan_locks_guard = threading.Lock()
 
 
 class SetGoalRequest(BaseModel):
     document_id: str
-    goal_description: Optional[str] = "Học hiểu toàn bộ tài liệu"
-    daily_minutes: int = 45
-    deadline_days: int = 30
+    goal_description: Optional[str] = Field("Học hiểu toàn bộ tài liệu", max_length=300)
+    daily_minutes: int = Field(45, ge=5, le=480)
+    deadline_days: int = Field(30, ge=1, le=365)
     user_id: Optional[str] = None
 
 
@@ -39,12 +43,13 @@ class GenerateLessonRequest(BaseModel):
 
 
 @router.post("/set-goal")
-async def set_goal(req: SetGoalRequest):
+def set_goal(req: SetGoalRequest):
     """
     User đặt mục tiêu học tập cho một tài liệu.
     → Hệ thống tự động tạo lịch học theo ngày (Study Plan).
     """
     user_id = current_user_id()
+    require_owned("documents", req.document_id)
     supabase = get_supabase_client()
 
     if not supabase:
@@ -114,7 +119,7 @@ async def set_goal(req: SetGoalRequest):
             ).execute()
             saved_count += 1
         except Exception as e:
-            print(f"Plan save warning: {e}")
+            logger.warning(f"Plan save warning: {e}")
 
     # 8. Tạo Learning Path record
     lp_id = str(uuid.uuid4())
@@ -144,8 +149,17 @@ async def set_goal(req: SetGoalRequest):
     }
 
 
+def _extract_topic_name(ks: Dict[str, Any], default: str = "Unknown") -> str:
+    topic_data = ks.get("topics") or {}
+    if isinstance(topic_data, dict):
+        return topic_data.get("name", default)
+    if isinstance(topic_data, list) and topic_data and isinstance(topic_data[0], dict):
+        return topic_data[0].get("name", default)
+    return default
+
+
 @router.get("/today")
-async def get_today_plan(user_id: Optional[str] = None):
+def get_today_plan(user_id: Optional[str] = None):
     """
     Lấy kế hoạch học tập hôm nay cho user.
     Trả về daily tasks, streak, và knowledge summary.
@@ -157,7 +171,6 @@ async def get_today_plan(user_id: Optional[str] = None):
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
     try:
-        # Lấy knowledge states kèm topic name
         ks_resp = supabase.table("knowledge_states") \
             .select("topic_id, mastery_score, retention_score, next_review_at, topics(name)") \
             .eq("user_id", uid) \
@@ -165,22 +178,16 @@ async def get_today_plan(user_id: Optional[str] = None):
             .execute()
 
         raw_data = getattr(ks_resp, "data", []) or []
-        knowledge_states = []
-        for ks in raw_data:
-            topic_data = ks.get("topics") or {}
-            topic_name = "Unknown"
-            if isinstance(topic_data, dict):
-                topic_name = topic_data.get("name", "Unknown")
-            elif isinstance(topic_data, list) and len(topic_data) > 0 and isinstance(topic_data[0], dict):
-                topic_name = topic_data[0].get("name", "Unknown")
-
-            knowledge_states.append({
+        knowledge_states = [
+            {
                 "topic_id": ks.get("topic_id"),
-                "topic_name": topic_name,
+                "topic_name": _extract_topic_name(ks),
                 "mastery_score": ks.get("mastery_score", 0),
                 "retention_score": ks.get("retention_score", 1.0),
                 "next_review_at": ks.get("next_review_at", "")
-            })
+            }
+            for ks in raw_data
+        ]
 
         today_data = LearningEngine.get_today_tasks(uid, supabase, knowledge_states)
         profile = LearningEngine.calculate_knowledge_profile(knowledge_states)
@@ -189,21 +196,15 @@ async def get_today_plan(user_id: Optional[str] = None):
             **today_data,
             "knowledge_profile": profile
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in get_today_plan: {e}")
-        return {
-            "plan_date": local_today().isoformat(),
-            "tasks": [],
-            "total_minutes": 0,
-            "streak_days": 0,
-            "has_plan": False,
-            "knowledge_summary": [],
-            "knowledge_profile": {"overall_mastery": 0, "topics": [], "weak_areas": [], "strong_areas": []}
-        }
+        raise HTTPException(status_code=500, detail="Không thể tải kế hoạch học hôm nay")
 
 
 @router.get("/graph")
-async def get_knowledge_graph(
+def get_knowledge_graph(
     document_id: Optional[str] = None,
     user_id: Optional[str] = None
 ):
@@ -217,12 +218,17 @@ async def get_knowledge_graph(
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    # Lấy topics
-    topics_query = supabase.table("topics").select("*")
     if document_id:
-        topics_query = topics_query.eq("document_id", document_id)
-    topics_resp = topics_query.execute()
-    topics = topics_resp.data or []
+        require_owned("documents", document_id)
+        topics = supabase.table("topics").select("*").eq("document_id", document_id).execute().data or []
+    else:
+        own_docs = supabase.table("documents").select("id").eq("user_id", uid).execute().data or []
+        shared_docs = supabase.table("documents").select("id").eq("visibility", "shared").execute().data or []
+        accessible_doc_ids = list({d["id"] for d in own_docs + shared_docs if d.get("id")})
+        topics = []
+        for i in range(0, len(accessible_doc_ids), 100):
+            batch = accessible_doc_ids[i:i + 100]
+            topics.extend(supabase.table("topics").select("*").in_("document_id", batch).execute().data or [])
 
     # Lấy knowledge states
     ks_resp = supabase.table("knowledge_states") \
@@ -231,7 +237,6 @@ async def get_knowledge_graph(
         .execute()
     ks_map = {ks["topic_id"]: ks for ks in (ks_resp.data or [])}
 
-    # Build nodes
     nodes = [
         {
             "id": t["id"],
@@ -245,11 +250,10 @@ async def get_knowledge_graph(
         for t in topics
     ]
 
-    # Lấy edges
     if topics:
         topic_ids = [t["id"] for t in topics]
-        rels_resp = supabase.table("topic_relationships").select("*").execute()
         topic_set = set(topic_ids)
+        rels_resp = supabase.table("topic_relationships").select("*").execute()
         edges = [
             {
                 "source": r["source_topic_id"],
@@ -267,12 +271,15 @@ async def get_knowledge_graph(
 
 
 @router.post("/generate-lesson")
-async def generate_lesson(req: GenerateLessonRequest):
+def generate_lesson(req: GenerateLessonRequest):
     """
     Sinh nội dung bài học cá nhân hóa cho một topic.
     Sử dụng RAG từ Supabase và Gemini LLM.
     """
-    user_id = current_user_id()
+    current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
+    if req.document_id:
+        require_owned("documents", req.document_id)
     supabase = get_supabase_client()
 
     # 1. Kiểm tra cache trong bảng lessons trước
@@ -320,7 +327,7 @@ async def generate_lesson(req: GenerateLessonRequest):
                 "key_takeaways": lesson.get("key_takeaways", [])
             }).execute()
         except Exception as e:
-            print(f"Lesson save warning: {e}")
+            logger.warning(f"Lesson save warning: {e}")
 
     return {
         **lesson,
@@ -331,7 +338,7 @@ async def generate_lesson(req: GenerateLessonRequest):
 
 
 @router.get("/plans")
-async def get_study_plans(user_id: Optional[str] = None, days: int = 14):
+def get_study_plans(user_id: Optional[str] = None, days: int = Query(14, ge=1, le=365)):
     """Lấy lịch học theo tuần/tháng."""
     uid = current_user_id()
     supabase = get_supabase_client()
@@ -358,19 +365,22 @@ class GenerateLessonV2Request(BaseModel):
     topic_name: str
     user_mastery: float = 0.0
     document_id: Optional[str] = None
-    proficiency_level: Optional[str] = "intermediate"  # beginner, elementary, intermediate, advanced
+    proficiency_level: Optional[str] = "intermediate"
     auto_save_vocabulary: bool = True
     user_id: Optional[str] = None
 
 
 @router.post("/generate-lesson-v2")
-async def generate_lesson_v2(req: GenerateLessonV2Request):
+def generate_lesson_v2(req: GenerateLessonV2Request):
     """
     Feature A: Sinh bài học i+1 với Vocabulary Highlights.
     Tự động phân tích từ vựng khó và giải thích bằng tiếng Việt inline.
     Tùy chọn auto-save vocabulary vào vocabulary_items table.
     """
     user_id = current_user_id()
+    require_topic_owned(req.topic_id, missing_ok=True)
+    if req.document_id:
+        require_owned("documents", req.document_id)
     supabase = get_supabase_client()
 
     # 1. Kiểm tra cache trong bảng lessons trước
@@ -393,7 +403,6 @@ async def generate_lesson_v2(req: GenerateLessonV2Request):
         except Exception as e:
             logger.warning(f"Cached lesson lookup warning: {e}")
 
-    # RAG context
     rag_chunks = []
     if supabase and req.document_id:
         rag_chunks = RAGEngine.search_relevant_chunks(
@@ -404,7 +413,6 @@ async def generate_lesson_v2(req: GenerateLessonV2Request):
         )
     rag_texts = RAGEngine.extract_rag_texts(rag_chunks)
 
-    # Sinh lesson với vocabulary highlights
     lesson = AIEngine.generate_lesson_with_vocabulary(
         topic_name=req.topic_name,
         user_mastery=req.user_mastery,
@@ -412,7 +420,6 @@ async def generate_lesson_v2(req: GenerateLessonV2Request):
         proficiency_level=req.proficiency_level or "intermediate"
     )
 
-    # Lưu lesson vào Supabase (trích nguyên văn từ sách thì không lưu như bài học)
     if supabase and lesson and lesson.get("source") != "book":
         try:
             supabase.table("lessons").insert({
@@ -424,7 +431,6 @@ async def generate_lesson_v2(req: GenerateLessonV2Request):
         except Exception as e:
             logger.warning(f"Lesson save warning: {e}")
 
-    # Auto-save vocabulary highlights
     vocab_saved = []
     if req.auto_save_vocabulary and supabase:
         vocab_highlights = lesson.get("vocabulary_highlights", [])
@@ -459,7 +465,7 @@ async def generate_lesson_v2(req: GenerateLessonV2Request):
 
 
 @router.get("/today-interleaved")
-async def get_today_interleaved(user_id: Optional[str] = None):
+def get_today_interleaved(user_id: Optional[str] = None):
     """
     Feature D: Lấy tasks hôm nay với Interleaved Adaptive Scheduling.
     Gộp due flashcards + lesson + quiz + scenario vào một session thống nhất.
@@ -473,6 +479,7 @@ async def get_today_interleaved(user_id: Optional[str] = None):
 
     try:
         today = local_today().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         interleaved_tasks = []
 
         # 1. Lấy daily plan tasks (lesson, quiz, spaced_repetition)
@@ -500,11 +507,10 @@ async def get_today_interleaved(user_id: Optional[str] = None):
             }).execute()
             due_flashcard_count = len(fc_resp.data or [])
         except Exception:
-            # Fallback
             fs_resp = supabase.table("flashcard_states") \
                 .select("flashcard_id") \
                 .eq("user_id", uid) \
-                .lte("next_review_at", "now()") \
+                .lte("next_review_at", now_iso) \
                 .execute()
             due_flashcard_count = len(fs_resp.data or [])
 
@@ -516,14 +522,12 @@ async def get_today_interleaved(user_id: Optional[str] = None):
             .order("mastery_score") \
             .limit(3) \
             .execute()
-        weak_topics = []
-        for ks in (ks_resp.data or []):
-            td = ks.get("topics") or {}
-            tname = td.get("name", "Topic") if isinstance(td, dict) else "Topic"
-            weak_topics.append({"topic_id": ks["topic_id"], "topic_name": tname, "mastery": ks["mastery_score"]})
+        weak_topics = [
+            {"topic_id": ks["topic_id"], "topic_name": _extract_topic_name(ks, "Topic"), "mastery": ks["mastery_score"]}
+            for ks in (ks_resp.data or [])
+        ]
 
         # 4. Build interleaved task list
-        # Step 1: Due flashcards nếu có
         if due_flashcard_count > 0:
             interleaved_tasks.append({
                 "type": "flashcard_review",
@@ -536,11 +540,9 @@ async def get_today_interleaved(user_id: Optional[str] = None):
                 "href": "/flashcards"
             })
 
-        # Step 2: Plan tasks (lesson, quiz)
         lesson_tasks = [t for t in plan_tasks if t.get("type") == "lesson"]
         quiz_tasks = [t for t in plan_tasks if t.get("type") == "quiz"]
 
-        # Step 3: Weak topic review
         for wt in weak_topics[:1]:
             interleaved_tasks.append({
                 "type": "lesson",
@@ -555,16 +557,11 @@ async def get_today_interleaved(user_id: Optional[str] = None):
                 "is_remedial": True
             })
 
-        # Step 4: Regular lesson tasks
         interleaved_tasks.extend(lesson_tasks)
-
-        # Step 5: Quiz tasks
         interleaved_tasks.extend(quiz_tasks)
 
-        # Step 6: Scenario (nếu đã có plan tasks đủ để scenario)
         spaced_tasks = [t for t in plan_tasks if t.get("type") == "spaced_repetition"]
         if spaced_tasks:
-            # Replace one spaced_repetition với scenario task
             first_spaced = spaced_tasks[0]
             interleaved_tasks.append({
                 "type": "scenario",
@@ -580,32 +577,27 @@ async def get_today_interleaved(user_id: Optional[str] = None):
         else:
             interleaved_tasks.extend(spaced_tasks)
 
-        # Tính tổng thời gian
         total_minutes = sum(t.get("duration_min", 15) for t in interleaved_tasks)
 
-        # Streak: dùng chung cách tính với trang Lịch học
-        from app.services.learning_engine import LearningEngine
         from app.services.schedule import streak_days
         streak = streak_days(supabase, uid)
 
-        # Knowledge profile
         ks_all_resp = supabase.table("knowledge_states") \
             .select("topic_id, mastery_score, retention_score, next_review_at, topics(name)") \
             .eq("user_id", uid) \
             .order("mastery_score", desc=True) \
             .execute()
 
-        knowledge_states = []
-        for ks in (ks_all_resp.data or []):
-            td = ks.get("topics") or {}
-            tname = td.get("name", "Unknown") if isinstance(td, dict) else "Unknown"
-            knowledge_states.append({
+        knowledge_states = [
+            {
                 "topic_id": ks.get("topic_id"),
-                "topic_name": tname,
+                "topic_name": _extract_topic_name(ks),
                 "mastery_score": ks.get("mastery_score", 0),
                 "retention_score": ks.get("retention_score", 1.0),
                 "next_review_at": ks.get("next_review_at", "")
-            })
+            }
+            for ks in (ks_all_resp.data or [])
+        ]
 
         profile = LearningEngine.calculate_knowledge_profile(knowledge_states)
 
@@ -623,18 +615,11 @@ async def get_today_interleaved(user_id: Optional[str] = None):
             "knowledge_profile": profile
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in get_today_interleaved: {e}")
-        return {
-            "plan_date": local_today().isoformat(),
-            "interleaved_tasks": [],
-            "total_minutes": 0,
-            "task_count": 0,
-            "due_flashcard_count": 0,
-            "streak_days": 0,
-            "has_plan": False,
-            "knowledge_profile": {"overall_mastery": 0, "topics": [], "weak_areas": [], "strong_areas": []}
-        }
+        raise HTTPException(status_code=500, detail="Không thể tải lộ trình học hôm nay")
 
 
 # ===== Quản lý lịch học: mục tiêu, trạng thái nhiệm vụ =====
@@ -653,7 +638,7 @@ def _plan_status(tasks: List[Dict[str, Any]]) -> str:
 
 
 @router.patch("/plans/{plan_date}/tasks/{task_index}")
-async def update_task_status(plan_date: str, task_index: int, req: TaskStatusRequest):
+def update_task_status(plan_date: str, task_index: int, req: TaskStatusRequest):
     """Đánh dấu một nhiệm vụ trong lịch học (và tự cập nhật trạng thái cả ngày)."""
     if req.status not in ("pending", "in_progress", "completed", "skipped"):
         raise HTTPException(status_code=400, detail="Trạng thái không hợp lệ")
@@ -666,26 +651,30 @@ async def update_task_status(plan_date: str, task_index: int, req: TaskStatusReq
     if not supabase:
         raise HTTPException(status_code=503, detail="Supabase không khả dụng")
 
-    resp = supabase.table("daily_learning_plans").select("*") \
-        .eq("user_id", uid).eq("plan_date", plan_date).execute()
-    if not resp.data:
-        raise HTTPException(status_code=404, detail="Không có lịch học cho ngày này")
-    plan = resp.data[0]
-    tasks = plan.get("tasks") or []
-    if task_index < 0 or task_index >= len(tasks):
-        raise HTTPException(status_code=404, detail="Không có nhiệm vụ này")
+    key = (uid, plan_date)
+    with _plan_locks_guard:
+        lock = _plan_locks.setdefault(key, threading.Lock())
+    with lock:
+        resp = supabase.table("daily_learning_plans").select("*") \
+            .eq("user_id", uid).eq("plan_date", plan_date).execute()
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Không có lịch học cho ngày này")
+        plan = resp.data[0]
+        tasks = list(plan.get("tasks") or [])
+        if task_index < 0 or task_index >= len(tasks):
+            raise HTTPException(status_code=404, detail="Không có nhiệm vụ này")
 
-    if req.status == "completed" and tasks[task_index].get("status") != "completed" and not can_mark_done(day):
-        raise HTTPException(status_code=422, detail="Chỉ đánh dấu hoàn thành nhiệm vụ của hôm nay hoặc hôm qua")
-    tasks[task_index] = {**tasks[task_index], "status": req.status}
-    new_status = _plan_status(tasks)
-    supabase.table("daily_learning_plans").update({"tasks": tasks, "status": new_status}) \
-        .eq("user_id", uid).eq("plan_date", plan_date).execute()
+        if req.status == "completed" and tasks[task_index].get("status") != "completed" and not can_mark_done(day):
+            raise HTTPException(status_code=422, detail="Chỉ đánh dấu hoàn thành nhiệm vụ của hôm nay hoặc hôm qua")
+        tasks[task_index] = {**tasks[task_index], "status": req.status}
+        new_status = _plan_status(tasks)
+        supabase.table("daily_learning_plans").update({"tasks": tasks, "status": new_status}) \
+            .eq("user_id", uid).eq("plan_date", plan_date).execute()
     return {"plan_date": plan_date, "tasks": tasks, "status": new_status}
 
 
 @router.get("/goals")
-async def list_goals():
+def list_goals():
     """Danh sách mục tiêu học đang hoạt động kèm tên tài liệu."""
     uid = current_user_id()
     supabase = get_supabase_client()
@@ -694,11 +683,11 @@ async def list_goals():
     goals = supabase.table("study_goals").select("*").eq("user_id", uid).execute().data or []
     goals = [g for g in goals if g.get("is_active", True)]
     titles: Dict[str, str] = {}
-    for g in goals:
-        did = g.get("document_id")
-        if did and did not in titles:
-            d = supabase.table("documents").select("title").eq("id", did).execute().data or []
-            titles[did] = d[0].get("title", "Tài liệu") if d else "Tài liệu"
+    doc_ids = list({g.get("document_id") for g in goals if g.get("document_id")})
+    if doc_ids:
+        for i in range(0, len(doc_ids), 100):
+            for d in (supabase.table("documents").select("id, title").in_("id", doc_ids[i:i + 100]).execute().data or []):
+                titles[d["id"]] = d.get("title") or "Tài liệu"
     for g in goals:
         g["document_title"] = titles.get(g.get("document_id"), "Tài liệu")
     goals.sort(key=lambda g: g.get("created_at") or "", reverse=True)
@@ -706,7 +695,7 @@ async def list_goals():
 
 
 @router.delete("/goals/{goal_id}")
-async def delete_goal(goal_id: str):
+def delete_goal(goal_id: str):
     """Huỷ mục tiêu và xoá các ngày học chưa hoàn thành của mục tiêu đó."""
     uid = current_user_id()
     supabase = get_supabase_client()
@@ -724,5 +713,5 @@ async def delete_goal(goal_id: str):
             supabase.table("daily_learning_plans").delete() \
                 .eq("user_id", uid).eq("plan_date", p["plan_date"]).execute()
             removed += 1
-    supabase.table("study_goals").update({"is_active": False}).eq("id", goal_id).execute()
+    supabase.table("study_goals").update({"is_active": False}).eq("id", goal_id).eq("user_id", uid).execute()
     return {"status": "success", "removed_days": removed}

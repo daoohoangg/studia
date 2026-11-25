@@ -11,17 +11,19 @@ import random
 import re
 import logging
 
+import anyio
+
 logger = logging.getLogger(__name__)
 
 
 def _get_gemini_embedding_model():
     """Lazy-load Gemini embedding client."""
     try:
-        import google.generativeai as genai
         from app.config import settings
+        from app.services.ai_engine import configure_genai
         if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "your_gemini_api_key_here":
             return None, None
-        genai.configure(api_key=settings.GEMINI_API_KEY)
+        genai = configure_genai(settings.GEMINI_API_KEY)
         return genai, settings.GEMINI_EMBEDDING_MODEL
     except Exception as e:
         logger.warning(f"Gemini embedding init failed: {e}")
@@ -226,10 +228,10 @@ class RAGEngine:
 
     @staticmethod
     def _pseudo_embedding(text: str, dim: int = 768) -> List[float]:
-        """Deterministic pseudo-embedding cho dev/testing."""
+        """Deterministic thread-safe pseudo-embedding cho dev/testing."""
         seed = sum(ord(c) for c in text[:100])
-        random.seed(seed)
-        vec = [random.uniform(-1.0, 1.0) for _ in range(dim)]
+        rng = random.Random(seed)
+        vec = [rng.uniform(-1.0, 1.0) for _ in range(dim)]
         norm = math.sqrt(sum(x * x for x in vec))
         return [round(x / norm, 6) for x in vec] if norm > 0 else vec
 
@@ -319,3 +321,27 @@ class RAGEngine:
     def extract_rag_texts(chunks: List[Dict[str, Any]]) -> List[str]:
         """Lấy danh sách text content từ chunks để đưa vào LLM prompt."""
         return [c.get("content", "") for c in chunks if c.get("content")]
+
+    @staticmethod
+    async def agenerate_embedding(text: str, vector_dim: int = 768) -> List[float]:
+        return await anyio.to_thread.run_sync(RAGEngine.generate_embedding, text, vector_dim)
+
+    @staticmethod
+    async def agenerate_embeddings(texts: List[str], batch_size: int = 100, max_workers: int = 4) -> List[List[float]]:
+        return await anyio.to_thread.run_sync(RAGEngine.generate_embeddings, texts, batch_size, max_workers)
+
+    @staticmethod
+    async def agenerate_query_embedding(query: str) -> List[float]:
+        return await anyio.to_thread.run_sync(RAGEngine.generate_query_embedding, query)
+
+    @staticmethod
+    async def asearch_relevant_chunks(
+        query: str,
+        supabase_client,
+        document_id: Optional[str] = None,
+        top_k: int = 5,
+        threshold: float = 0.4
+    ) -> List[Dict[str, Any]]:
+        return await anyio.to_thread.run_sync(
+            RAGEngine.search_relevant_chunks, query, supabase_client, document_id, top_k, threshold
+        )

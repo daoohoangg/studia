@@ -10,6 +10,7 @@ from typing import Optional
 import logging
 import threading
 import time
+import uuid
 
 import jwt
 from fastapi import Depends, HTTPException, Request
@@ -74,11 +75,36 @@ def auth_disabled() -> bool:
     return not settings.AUTH_REQUIRED and settings.ENVIRONMENT == "development"
 
 
+_PUBLIC_DOC_SUFFIXES = (
+    "/status",
+    "/blocks",
+    "/outline",
+    "/toc",
+    "/page-quality",
+    "/search",
+    "/highlights",
+    "/export",
+    "/file-url",
+    "/topics",
+)
+
+
 def _is_public_read_request(request: Optional[Request]) -> bool:
+    """Chỉ cho phép khách (không gửi Bearer token) đọc danh sách và nội dung sách thư viện chung."""
     if not request or request.method != "GET":
         return False
     path = request.url.path
-    return path == "/api/v1/documents" or path.startswith("/api/v1/documents/")
+    if path in ("/api/v1/documents", "/api/v1/documents/"):
+        return True
+    if not path.startswith("/api/v1/documents/"):
+        return False
+    rest = path[len("/api/v1/documents/"):]
+    if rest.startswith("topics/") or rest == "topics":
+        return False
+    return (
+        any(rest.endswith(sfx) for sfx in _PUBLIC_DOC_SUFFIXES)
+        or "/pages/" in rest
+    )
 
 
 async def require_user(
@@ -104,10 +130,6 @@ async def require_user(
         claims = await run_in_threadpool(decode_access_token, credentials.credentials)
     except Exception as e:
         logger.info(f"Rejected access token: {e}")
-        if _is_public_read_request(request):
-            _current_user_id.set(None)
-            set_current_email(None)
-            return None
         raise HTTPException(
             status_code=401,
             detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
@@ -127,6 +149,19 @@ def current_user_id() -> str:
     return uid
 
 
+def validate_uuid(value: Optional[str], field: str = "id", required: bool = False) -> Optional[str]:
+    """Chuẩn hoá chuỗi ID: rỗng -> None (hoặc 422 nếu required), chuỗi không phải UUID -> 422."""
+    raw = (value or "").strip() if isinstance(value, str) else value
+    if not raw:
+        if required:
+            raise HTTPException(status_code=422, detail=f"{field} không được để trống")
+        return None
+    try:
+        return str(uuid.UUID(str(raw)))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail=f"{field} không hợp lệ (cần định dạng UUID)")
+
+
 def require_owned(table: str, row_id: str, missing_ok: bool = False, write: bool = False) -> None:
     """
     404 nếu bản ghi không thuộc về người dùng hiện tại (không tiết lộ sự tồn tại của bản ghi).
@@ -141,8 +176,11 @@ def require_owned(table: str, row_id: str, missing_ok: bool = False, write: bool
     uid = _current_user_id.get()
     if not uid:
         if table == "documents" and not write:
+            db = get_supabase_client()
+            if not db:
+                raise HTTPException(status_code=503, detail="Cơ sở dữ liệu không khả dụng")
             try:
-                resp = get_supabase_client().table(table).select("visibility").eq("id", row_id).execute()
+                resp = db.table(table).select("visibility").eq("id", row_id).execute()
                 rows = getattr(resp, "data", None) or []
                 if rows and (rows[0].get("visibility") or "private") == "shared":
                     return
@@ -154,11 +192,14 @@ def require_owned(table: str, row_id: str, missing_ok: bool = False, write: bool
     with _owned_lock:
         if _owned_cache.get(ck, 0) > time.time():
             return
+    db = get_supabase_client()
+    if not db:
+        raise HTTPException(status_code=503, detail="Cơ sở dữ liệu không khả dụng")
     cols = "user_id, visibility" if table == "documents" else "user_id"
     try:
-        resp = get_supabase_client().table(table).select(cols).eq("id", row_id).execute()
+        resp = db.table(table).select(cols).eq("id", row_id).execute()
     except Exception:
-        resp = get_supabase_client().table(table).select("user_id").eq("id", row_id).execute()
+        resp = db.table(table).select("user_id").eq("id", row_id).execute()
     rows = getattr(resp, "data", None) or []
     if not rows:
         if missing_ok:
@@ -178,3 +219,67 @@ def require_owned(table: str, row_id: str, missing_ok: bool = False, write: bool
         if not write and (row.get("visibility") or "private") == "shared":
             return
     raise HTTPException(status_code=404, detail="Không tìm thấy")
+
+
+def require_topic_owned(topic_id: str, missing_ok: bool = False) -> Optional[dict]:
+    """Kiểm tra quyền đọc chủ đề (qua tài liệu chủ quản hoặc quyền sở hữu bộ thẻ/từ vựng của user)."""
+    from app.core.accounts import is_admin
+    from app.core.supabase_client import get_supabase_client
+
+    uid = current_user_id()
+    db = get_supabase_client()
+    if not db:
+        raise HTTPException(status_code=503, detail="Cơ sở dữ liệu không khả dụng")
+
+    rows = db.table("topics").select("*").eq("id", topic_id).limit(1).execute().data or []
+    if not rows:
+        if missing_ok:
+            return None
+        raise HTTPException(status_code=404, detail="Không tìm thấy chủ đề")
+
+    topic = rows[0]
+    doc_id = topic.get("document_id")
+    if doc_id:
+        require_owned("documents", str(doc_id))
+        return topic
+
+    if is_admin(uid):
+        return topic
+
+    slug = str(topic.get("slug") or "")
+    if any(slug.startswith(prefix) for prefix in (f"deck-{uid}-", f"custom-{uid}-", f"vocab-{uid}-")):
+        return topic
+
+    # Chủ đề cá nhân cũ (custom-/vocab-): kiểm tra user có liên kết dữ liệu với chủ đề này không
+    try:
+        if db.table("vocabulary_items").select("id").eq("user_id", uid).eq("topic_id", topic_id).limit(1).execute().data:
+            return topic
+        if db.table("knowledge_states").select("id").eq("user_id", uid).eq("topic_id", topic_id).limit(1).execute().data:
+            return topic
+        fc_rows = db.table("flashcards").select("id").eq("topic_id", topic_id).limit(50).execute().data or []
+        fc_ids = [r["id"] for r in fc_rows if r.get("id")]
+        if fc_ids and db.table("flashcard_states").select("id").eq("user_id", uid).in_("flashcard_id", fc_ids).limit(1).execute().data:
+            return topic
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=404, detail="Không tìm thấy chủ đề")
+
+
+def require_quiz_owned(quiz_id: str, missing_ok: bool = False) -> Optional[dict]:
+    """Kiểm tra quyền truy cập quiz thông qua chủ đề của nó."""
+    from app.core.supabase_client import get_supabase_client
+
+    current_user_id()
+    db = get_supabase_client()
+    if not db:
+        raise HTTPException(status_code=503, detail="Cơ sở dữ liệu không khả dụng")
+    rows = db.table("quizzes").select("*").eq("id", quiz_id).limit(1).execute().data or []
+    if not rows:
+        if missing_ok:
+            return None
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài quiz")
+    quiz = rows[0]
+    if quiz.get("topic_id"):
+        require_topic_owned(str(quiz["topic_id"]))
+    return quiz

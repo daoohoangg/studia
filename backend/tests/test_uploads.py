@@ -176,6 +176,59 @@ class UploadValidationTests(LocalStoreTestCase):
         self.assertEqual(self.upload(b"PK" + bytes([3, 4]) + b" not a real docx", filename="fake.docx").status_code, 400)
         self.assertEqual(self.upload(self.pdf_bytes, filename="renamed.docx").status_code, 400)
 
+    def test_upload_text_rejects_invalid_source_type(self):
+        res = self.client.post(
+            "/api/v1/documents/upload",
+            json={"title": "Test", "source_type": "exe", "raw_content": "hello"},
+        )
+        self.assertEqual(res.status_code, 422)
+
+
+class LocalDbParityTests(LocalStoreTestCase):
+    def test_neq_like_range_update_in_and_none_comparisons(self):
+        self.store.table("topics").insert([
+            {"id": "t1", "name": "One", "slug": "deck-u1-a", "difficulty_level": 1},
+            {"id": "t2", "name": "Two", "slug": "deck-u2-b", "difficulty_level": 3},
+            {"id": "t3", "name": "Three", "slug": "other-c", "difficulty_level": None},
+        ]).execute()
+        self.assertEqual([r["id"] for r in self.store.table("topics").select("*").neq("id", "t1").execute().data], ["t2", "t3"])
+        self.assertEqual([r["id"] for r in self.store.table("topics").select("*").like("slug", "deck-u1-%").execute().data], ["t1"])
+        self.assertEqual([r["id"] for r in self.store.table("topics").select("*").order("id").range(1, 1).execute().data], ["t2"])
+        # None must never match lte/gte/lt/gt
+        self.assertEqual([r["id"] for r in self.store.table("topics").select("*").lte("difficulty_level", 5).execute().data], ["t1", "t2"])
+        self.assertEqual([r["id"] for r in self.store.table("topics").select("*").lt("difficulty_level", 5).execute().data], ["t1", "t2"])
+        self.assertEqual([r["id"] for r in self.store.table("topics").select("*").gte("difficulty_level", 1).execute().data], ["t1", "t2"])
+        # UpdateExecuter respects in_ and neq
+        self.store.table("topics").update({"description": "matched"}).in_("id", ["t1", "t2"]).neq("id", "t2").execute()
+        rows = {r["id"]: r.get("description") for r in self.rows("topics")}
+        self.assertEqual((rows["t1"], rows["t2"]), ("matched", None))
+
+    def test_corrupt_local_db_creates_backup_instead_of_silent_wipe(self):
+        with open(local_db.DB_FILE, "w", encoding="utf-8") as f:
+            f.write("{corrupt json")
+        data = local_db._load_db()
+        self.assertEqual(data["documents"], [])
+        backups = [fn for fn in os.listdir(os.path.dirname(local_db.DB_FILE)) if ".corrupt." in fn]
+        self.assertTrue(backups)
+
+    def test_due_flashcards_scoped_to_user_and_now_iso_normalized(self):
+        self.store.table("documents").insert([
+            {"id": "d1", "user_id": settings.DEFAULT_USER_ID, "title": "My Doc", "visibility": "private"},
+            {"id": "d2", "user_id": OTHER_USER, "title": "Secret Doc", "visibility": "private"},
+        ]).execute()
+        self.store.table("flashcards").insert([
+            {"id": "fc1", "topic_id": "t1", "document_id": "d1", "front": "Q1", "back": "A1"},
+            {"id": "fc2", "topic_id": "t2", "document_id": "d2", "front": "Q2", "back": "A2"},
+        ]).execute()
+        self.store.table("flashcard_states").insert({
+            "user_id": settings.DEFAULT_USER_ID,
+            "flashcard_id": "fc1",
+            "next_review_at": "now()",
+        }).execute()
+        due = self.store.rpc("get_due_flashcards", {"p_user_id": settings.DEFAULT_USER_ID, "p_limit": 20}).execute().data
+        self.assertEqual([c["id"] for c in due], ["fc1"])
+        self.assertNotEqual(due[0]["next_review_at"], "now()")
+
 
 class PrivateStorageTests(LocalStoreTestCase):
     def store_pdf(self, user_id=None):

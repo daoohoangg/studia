@@ -96,8 +96,16 @@ def validate_exam(content: Dict[str, Any], answer_key: Dict[str, Any], has_audio
                                        f"Nhóm câu {group.get('range', ['?'])[0]} được tách bằng luật, nên xem lại.",
                                        skill, group.get("range", [None])[0]))
 
-        orphans = sorted(int(n) for n in key if int(n) not in seen)
-        for n in orphans:
+        orphans = []
+        for raw_k in key:
+            try:
+                num = int(raw_k)
+            except (TypeError, ValueError):
+                warnings.append(_issue("warning", "INVALID_KEY", f"Khoá đáp án '{raw_k}' không phải số câu hợp lệ.", skill))
+                continue
+            if num not in seen:
+                orphans.append(num)
+        for n in sorted(orphans):
             warnings.append(_issue("warning", "ORPHAN_KEY", f"Có đáp án cho câu {n} nhưng không có câu hỏi.", skill, n))
 
     if "listening" in sections and not (has_audio or (sections["listening"] or {}).get("audio_url")):

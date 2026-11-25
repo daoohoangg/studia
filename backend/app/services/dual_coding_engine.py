@@ -6,7 +6,8 @@ Tự động trích xuất sơ đồ Mermaid & D2 Diagram minh họa khái niệ
 from typing import Dict, List, Any, Optional
 import re
 import logging
-from app.services.ai_engine import _call_gemini
+import anyio
+from app.services.ai_engine import _call_gemini, _sanitize_prompt_input
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +25,12 @@ class DualCodingEngine:
         """
         Sinh mã nguồn Mermaid diagram minh họa cho chủ đề.
         """
+        safe_topic = _sanitize_prompt_input(topic_name, 200)
+        safe_desc = _sanitize_prompt_input(concept_description, 1000)
         prompt = f"""You are a visual design expert creating Mermaid diagrams for education.
 
-Topic: "{topic_name}"
-Description: {concept_description[:1000]}
+Topic: \"\"\"{safe_topic}\"\"\"
+Description: \"\"\"{safe_desc}\"\"\"
 
 Generate a clean, readable Mermaid diagram (graph TD or mindmap) illustrating the concept.
 Return ONLY valid JSON:
@@ -40,9 +43,9 @@ Rules:
 - Quote node labels containing special characters or spaces (e.g. A["Tên node"])
 - Keep diagram concise (4-8 nodes max)"""
 
-        result = _call_gemini(prompt, expect_json=True)
+        result = _call_gemini(prompt, expect_json=True, feature="diagrams")
 
-        if result and "mermaid_code" in result:
+        if isinstance(result, dict) and isinstance(result.get("mermaid_code"), str) and result["mermaid_code"].strip():
             return result["mermaid_code"]
 
         # Fallback Mermaid diagram
@@ -58,10 +61,12 @@ Rules:
         """
         Sinh mã nguồn D2 (Terrastruct) diagram hỗ trợ tiếng Việt có dấu & style nền trắng.
         """
+        safe_topic = _sanitize_prompt_input(topic_name, 200)
+        safe_desc = _sanitize_prompt_input(concept_description, 1000)
         prompt = f"""You are a visual architect creating D2 (Terrastruct) diagrams for study materials.
 
-Topic: "{topic_name}"
-Description: {concept_description[:1000]}
+Topic: \"\"\"{safe_topic}\"\"\"
+Description: \"\"\"{safe_desc}\"\"\"
 
 Generate D2 script code for a visual diagram.
 Return ONLY valid JSON:
@@ -74,9 +79,9 @@ Rules:
 - Use proper Vietnamese text with accents inside double quotes
 - Create clear node relationships"""
 
-        result = _call_gemini(prompt, expect_json=True)
+        result = _call_gemini(prompt, expect_json=True, feature="diagrams")
 
-        if result and "d2_code" in result:
+        if isinstance(result, dict) and isinstance(result.get("d2_code"), str) and result["d2_code"].strip():
             return result["d2_code"]
 
         # Fallback D2 diagram
@@ -123,3 +128,21 @@ vars: {{
             return parts[0] + "## " + parts[1] + visual_section
         else:
             return content_markdown + visual_section
+
+    @staticmethod
+    async def agenerate_mermaid_diagram(topic_name: str, concept_description: str) -> str:
+        return await anyio.to_thread.run_sync(
+            DualCodingEngine.generate_mermaid_diagram, topic_name, concept_description
+        )
+
+    @staticmethod
+    async def agenerate_d2_diagram(topic_name: str, concept_description: str) -> str:
+        return await anyio.to_thread.run_sync(
+            DualCodingEngine.generate_d2_diagram, topic_name, concept_description
+        )
+
+    @staticmethod
+    async def aenrich_lesson_with_visuals(topic_name: str, content_markdown: str) -> str:
+        return await anyio.to_thread.run_sync(
+            DualCodingEngine.enrich_lesson_with_visuals, topic_name, content_markdown
+        )

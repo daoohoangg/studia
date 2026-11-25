@@ -48,10 +48,13 @@ class LearningEngine:
 
         Trả về list daily_plan records để insert vào DB.
         """
-        deadline_days = study_goal.get("deadline_days", 30)
-        daily_minutes = study_goal.get("daily_minutes", 45)
+        deadline_days = max(1, int(study_goal.get("deadline_days") or 30))
+        daily_minutes = max(15, int(study_goal.get("daily_minutes") or 45))
         user_id = study_goal.get("user_id", "")
         study_goal_id = study_goal.get("id", "")
+
+        if not topics:
+            return []
 
         # Lọc topics chưa mastered (mastery < 80%)
         unmastered_topics = [
@@ -63,19 +66,20 @@ class LearningEngine:
             unmastered_topics = topics  # Nếu tất cả đã mastered, ôn lại
 
         # Phân bổ topics theo ngày
-        # Công thức: mỗi topic cần ~2 ngày (1 learn + 1 quiz/review)
         topics_per_day = max(1, daily_minutes // 30)  # ~30 phút/topic
-        days_needed = min(deadline_days, math.ceil(len(unmastered_topics) * 2 / topics_per_day))
+        min_days = math.ceil(len(unmastered_topics) * 2 / topics_per_day)
 
         plans = []
         topic_index = 0
+        quizzed_index = 0
         today = local_today()
 
-        for day_num in range(days_needed):
+        for day_num in range(deadline_days):
+            if day_num >= min_days and topic_index >= len(unmastered_topics) and quizzed_index >= topic_index:
+                break
             plan_date = today + timedelta(days=day_num)
             tasks = []
             remaining_minutes = daily_minutes
-            day_phase = "learn"  # Xen kẽ learn và review
 
             # Pha học theo 3 ngày cycle
             day_cycle = day_num % 3
@@ -87,23 +91,28 @@ class LearningEngine:
                 day_phase = "review"
 
             if day_phase == "learn" and topic_index < len(unmastered_topics):
-                topic = unmastered_topics[topic_index]
-                mastery = knowledge_states.get(topic.get("id", ""), 0)
+                learned_today: List[Dict[str, Any]] = []
+                while len(learned_today) < topics_per_day and topic_index < len(unmastered_topics) and remaining_minutes >= 25:
+                    topic = unmastered_topics[topic_index]
+                    mastery = knowledge_states.get(topic.get("id", ""), 0)
+                    tasks.append({
+                        "type": "lesson",
+                        "topic_id": topic.get("id", ""),
+                        "topic_name": topic.get("name", ""),
+                        "duration_min": min(25, remaining_minutes),
+                        "status": "pending",
+                        "icon": "📖",
+                        "difficulty": topic.get("difficulty_level", 1),
+                        "current_mastery": mastery
+                    })
+                    remaining_minutes -= 25
+                    learned_today.append(topic)
+                    topic_index += 1
 
-                tasks.append({
-                    "type": "lesson",
-                    "topic_id": topic.get("id", ""),
-                    "topic_name": topic.get("name", ""),
-                    "duration_min": min(25, remaining_minutes),
-                    "status": "pending",
-                    "icon": "📖",
-                    "difficulty": topic.get("difficulty_level", 1),
-                    "current_mastery": mastery
-                })
-                remaining_minutes -= 25
-
-                # Thêm flashcard review sau lesson nếu còn thời gian
-                if remaining_minutes >= 10:
+                # Thêm flashcard review sau các lesson nếu còn thời gian
+                for topic in learned_today:
+                    if remaining_minutes < 10:
+                        break
                     tasks.append({
                         "type": "flashcard_review",
                         "topic_id": topic.get("id", ""),
@@ -115,27 +124,41 @@ class LearningEngine:
                     })
                     remaining_minutes -= 10
 
-                topic_index += 1
+            elif day_phase == "quiz" and (quizzed_index < topic_index or topic_index > 0):
+                # Quiz cho các topic vừa học chưa được quiz
+                if quizzed_index < topic_index:
+                    quiz_count = 0
+                    while quizzed_index < topic_index and quiz_count < topics_per_day and remaining_minutes >= 20:
+                        prev_topic = unmastered_topics[quizzed_index]
+                        tasks.append({
+                            "type": "quiz",
+                            "topic_id": prev_topic.get("id", ""),
+                            "topic_name": prev_topic.get("name", ""),
+                            "duration_min": min(20, remaining_minutes),
+                            "status": "pending",
+                            "icon": "📝",
+                            "question_count": 5,
+                            "current_mastery": knowledge_states.get(prev_topic.get("id", ""), 0)
+                        })
+                        remaining_minutes -= 20
+                        quizzed_index += 1
+                        quiz_count += 1
+                else:
+                    prev_topic = unmastered_topics[max(0, topic_index - 1)]
+                    tasks.append({
+                        "type": "quiz",
+                        "topic_id": prev_topic.get("id", ""),
+                        "topic_name": prev_topic.get("name", ""),
+                        "duration_min": min(20, remaining_minutes),
+                        "status": "pending",
+                        "icon": "📝",
+                        "question_count": 5,
+                        "current_mastery": knowledge_states.get(prev_topic.get("id", ""), 0)
+                    })
+                    remaining_minutes -= 20
 
-            elif day_phase == "quiz" and topic_index > 0:
-                # Quiz cho topic vừa học hôm qua
-                prev_topic = unmastered_topics[max(0, topic_index - 1)]
-                mastery = knowledge_states.get(prev_topic.get("id", ""), 0)
-
-                tasks.append({
-                    "type": "quiz",
-                    "topic_id": prev_topic.get("id", ""),
-                    "topic_name": prev_topic.get("name", ""),
-                    "duration_min": min(20, remaining_minutes),
-                    "status": "pending",
-                    "icon": "📝",
-                    "question_count": 5,
-                    "current_mastery": mastery
-                })
-                remaining_minutes -= 20
-
-                # Học topic mới nếu còn đủ thời gian
-                if remaining_minutes >= 25 and topic_index < len(unmastered_topics):
+                # Học thêm topic mới nếu còn đủ thời gian
+                while remaining_minutes >= 25 and topic_index < len(unmastered_topics):
                     topic = unmastered_topics[topic_index]
                     tasks.append({
                         "type": "lesson",
@@ -150,10 +173,9 @@ class LearningEngine:
                     remaining_minutes -= 25
                     topic_index += 1
 
-            else:  # review day
-                # Spaced repetition cho các topics đã học
+            else:  # review day (hoặc learn day khi đã học hết topic mới)
                 reviewed_topics = unmastered_topics[:max(1, topic_index)]
-                for rtopic in reviewed_topics[:2]:  # Max 2 topics ôn mỗi ngày
+                for rtopic in reviewed_topics[:max(2, topics_per_day)]:
                     if remaining_minutes < 10:
                         break
                     tasks.append({
@@ -228,6 +250,8 @@ class LearningEngine:
             })
 
         # Chia review tasks thành các ngày (max 45 phút/ngày)
+        start_date = from_date
+        cursor_date = start_date
         adapted_plans = []
         task_batch = []
         running_minutes = 0
@@ -237,13 +261,13 @@ class LearningEngine:
             if running_minutes + t_min > 45 and task_batch:
                 adapted_plans.append({
                     "user_id": user_id,
-                    "plan_date": from_date.isoformat(),
+                    "plan_date": cursor_date.isoformat(),
                     "tasks": task_batch,
                     "total_minutes": running_minutes,
                     "status": "pending",
                     "adapted_reason": "Kế hoạch được tự động điều chỉnh do cần ôn tập"
                 })
-                from_date += timedelta(days=1)
+                cursor_date += timedelta(days=1)
                 task_batch = [task]
                 running_minutes = t_min
             else:
@@ -253,7 +277,7 @@ class LearningEngine:
         if task_batch:
             adapted_plans.append({
                 "user_id": user_id,
-                "plan_date": from_date.isoformat(),
+                "plan_date": cursor_date.isoformat(),
                 "tasks": task_batch,
                 "total_minutes": running_minutes,
                 "status": "pending",
@@ -264,13 +288,14 @@ class LearningEngine:
         shift_days = len(adapted_plans)
         shifted_plans = []
         for plan in current_plan:
+            plan_copy = dict(plan)
             try:
-                plan_d = date.fromisoformat(plan.get("plan_date", ""))
-                if plan_d >= (from_date - timedelta(days=shift_days)):
-                    plan["plan_date"] = (plan_d + timedelta(days=shift_days)).isoformat()
+                plan_d = date.fromisoformat(plan_copy.get("plan_date", ""))
+                if plan_d >= start_date:
+                    plan_copy["plan_date"] = (plan_d + timedelta(days=shift_days)).isoformat()
             except Exception:
                 pass
-            shifted_plans.append(plan)
+            shifted_plans.append(plan_copy)
 
         return adapted_plans + shifted_plans
 

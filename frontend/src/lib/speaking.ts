@@ -170,7 +170,7 @@ export function analyze(rec: Recording, part: Part, bullets: string[] = []): Ana
   // Part 2: phủ các gạch đầu dòng (theo từ có nghĩa trong mỗi gạch)
   const set = new Set(toks.map((w) => w.replace(/(ing|ed|es|s)$/, "")));
   const bulletCov = bullets.map((b) => {
-    const keys = (b.toLowerCase().match(/[a-z]+/g) || []).filter((w) => w.length > 3 && !["what", "where", "when", "which", "explain", "whether", "this", "that", "with", "were", "your", "about", "would", "there"].includes(w));
+    const keys = (b.toLowerCase().match(/[a-z]+/g) ?? ([] as string[])).filter((w) => w.length > 3 && !["what", "where", "when", "which", "explain", "whether", "this", "that", "with", "were", "your", "about", "would", "there"].includes(w));
     const hit = keys.filter((k) => set.has(k.replace(/(ing|ed|es|s)$/, ""))).length;
     return { text: b, covered: keys.length ? hit / keys.length >= 0.34 : false };
   });
@@ -260,7 +260,7 @@ export function overlap(a: string, b: string): number {
  */
 export function keyIdeas(source: string, said: string): { word: string; same: boolean }[] {
   const norm = (w: string) => w.replace(/(ies)$/, "y").replace(/(ing|ed|es|s)$/, "");
-  const words = Array.from(new Set((source.match(/[A-Za-z]+/g) || []).filter((w) => w.length > 3 && !COMMON.has(w.toLowerCase()) && !["have", "made", "with", "their", "them", "when", "they"].includes(w.toLowerCase()))));
+  const words = Array.from(new Set((source.match(/[A-Za-z]+/g) ?? ([] as string[])).filter((w) => w.length > 3 && !COMMON.has(w.toLowerCase()) && !["have", "made", "with", "their", "them", "when", "they"].includes(w.toLowerCase()))));
   const saidSet = new Set((said.toLowerCase().match(/[a-z]+/g) || []).map(norm));
   const syn = (k: string) => (SYNONYMS[k] || []).some((s) => s.split(" ").every((p) => saidSet.has(norm(p))));
   return words.map((w) => ({ word: w, same: saidSet.has(norm(w.toLowerCase())) || syn(w.toLowerCase()) }));

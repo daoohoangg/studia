@@ -75,9 +75,19 @@ def ensure_account(uid: str, email: Optional[str] = None) -> dict:
             "created_at": _now_iso(),
             "last_seen_at": _now_iso(),
         }
-        db.table("user_accounts").insert(acc).execute()
-        logger.info(f"Created account {uid} role={acc['role']}")
-        return acc
+        try:
+            db.table("user_accounts").insert(acc).execute()
+            logger.info(f"Created account {uid} role={acc['role']}")
+            return acc
+        except Exception:
+            # Concurrent first request may have inserted the same account row.
+            retry = db.table("user_accounts").select("*").eq("id", uid).limit(1).execute().data or []
+            if retry:
+                acc = dict(retry[0])
+                acc.setdefault("role", "student")
+                acc.setdefault("status", "active")
+                return acc
+            raise
 
     acc = dict(rows[0])
     acc.setdefault("role", "student")

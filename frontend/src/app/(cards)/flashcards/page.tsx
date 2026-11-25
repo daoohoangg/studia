@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import EmptyState from "@/components/EmptyState";
 
-import { API, apiFetch } from "@/lib/api";
+import { API, apiFetch, downloadAuthFile } from "@/lib/api";
 import { loadPrefs } from "@/lib/prefs";
 import { Volume2, Plus, Check, Mic, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -24,6 +24,8 @@ export default function FlashcardsPage() {
   const [doneCount, setDoneCount] = useState(0);
   const [sessionDone, setSessionDone] = useState(false);
   const [results, setResults] = useState<{ rating: number; front: string }[]>([]);
+  const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   // Speech & Shadowing State
   const [speaking, setSpeaking] = useState(false);
@@ -35,46 +37,60 @@ export default function FlashcardsPage() {
 
   const fetchDue = async () => {
     setLoading(true);
+    setError("");
     try {
       const res = await apiFetch(`${API}/flashcards/due?limit=20`);
-      if (res.ok) {
-        const data = await res.json();
-        setCards(data.flashcards || []);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(typeof d.detail === "string" ? d.detail : "Không tải được danh sách flashcard.");
       }
-    } catch { /* ignore */ }
-    setLoading(false);
+      const data = await res.json();
+      setCards(data.flashcards || []);
+    } catch (e: any) {
+      setError(e?.message || "Không kết nối được máy chủ.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFlip = () => setFlipped(f => !f);
 
-  const handleRate = async (rating: number) => {
+  const handleRate = useCallback(async (rating: number) => {
     const card = cards[currentIdx];
-    if (!card) return;
+    if (!card || submitting) return;
 
     setSubmitting(true);
-    setResults(r => [...r, { rating, front: card.front }]);
+    setError("");
 
     try {
-      await apiFetch(`${API}/flashcards/review`, {
+      const res = await apiFetch(`${API}/flashcards/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ flashcard_id: card.flashcard_id || card.id, rating })
       });
-    } catch { /* ignore */ }
-
-    setDoneCount(d => d + 1);
-    setFlipped(false);
-    setSubmitting(false);
-    setEvalResult(null);
-
-    setTimeout(() => {
-      if (currentIdx + 1 >= cards.length) {
-        setSessionDone(true);
-      } else {
-        setCurrentIdx(i => i + 1);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(typeof d.detail === "string" ? d.detail : "Không lưu được kết quả ôn thẻ.");
       }
-    }, 150);
-  };
+
+      setResults(r => [...r, { rating, front: card.front }]);
+      setDoneCount(d => d + 1);
+      setFlipped(false);
+      setEvalResult(null);
+
+      setTimeout(() => {
+        if (currentIdx + 1 >= cards.length) {
+          setSessionDone(true);
+        } else {
+          setCurrentIdx(i => i + 1);
+        }
+      }, 150);
+    } catch (e: any) {
+      setError(e?.message || "Không lưu được kết quả ôn thẻ. Vui lòng thử lại.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [cards, currentIdx, submitting]);
 
   const playTTS = (text: string) => {
     if ('speechSynthesis' in window) {
@@ -91,23 +107,28 @@ export default function FlashcardsPage() {
   const handleShadowingGuide = async () => {
     const card = cards[currentIdx];
     if (!card) return;
+    setError("");
     try {
       const res = await apiFetch(`${API}/speech/guide`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: card.back || card.front, speed: 1.0 })
       });
-      if (res.ok) {
-        const data = await res.json();
-        setShadowingGuide(data);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(typeof d.detail === "string" ? d.detail : "Không tải được hướng dẫn nhịp đọc.");
       }
-    } catch {}
+      const data = await res.json();
+      setShadowingGuide(data);
+    } catch (e: any) {
+      setError(e?.message || "Không tải được hướng dẫn nhịp đọc.");
+    }
   };
 
   const evaluateSpeech = async () => {
     const card = cards[currentIdx];
     if (!card || !userSpeechInput.trim()) return;
-
+    setError("");
     try {
       const res = await apiFetch(`${API}/speech/evaluate`, {
         method: "POST",
@@ -117,17 +138,32 @@ export default function FlashcardsPage() {
           user_spoken_text: userSpeechInput
         })
       });
-      if (res.ok) {
-        const data = await res.json();
-        setEvalResult(data);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(typeof d.detail === "string" ? d.detail : "Không chấm được bài đọc.");
       }
-    } catch {}
+      const data = await res.json();
+      setEvalResult(data);
+    } catch (e: any) {
+      setError(e?.message || "Không chấm được bài đọc.");
+    }
   };
 
   const exportAnki = async () => {
+    if (exporting) return;
     const card = cards[currentIdx];
-    const topicId = card?.topic_id || "all";
-    window.open(`${API}/export/flashcards/anki/${topicId}`, "_blank");
+    const path = card?.topic_id
+      ? `/export/flashcards/anki/${encodeURIComponent(card.topic_id)}`
+      : "/export/flashcards/anki-all";
+    setExporting(true);
+    setError("");
+    try {
+      await downloadAuthFile(path, "studia_flashcards.tsv");
+    } catch (e: any) {
+      setError(e?.message || "Không xuất được tệp Anki.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const resetSession = () => {
@@ -166,7 +202,7 @@ export default function FlashcardsPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [sessionDone, cards, currentIdx, flipped, submitting, handleRate]);
 
   if (loading) return (
     <div className="wrap" style={{ maxWidth: 820 }}>
@@ -185,10 +221,17 @@ export default function FlashcardsPage() {
           <p className="page-sub">{cards.length > 0 ? `${cards.length} thẻ đến hạn hôm nay · khoảng ${Math.max(1, Math.round(cards.length / 3))} phút` : "Không có thẻ nào cần ôn"}</p>
         </div>
         <div className="row">
-          {cards.length > 0 && <button className="st-btn st-btn-ghost st-btn-sm" type="button" onClick={exportAnki} title="Xuất thẻ ra tệp Anki">Xuất Anki</button>}
+          {cards.length > 0 && <button className="st-btn st-btn-ghost st-btn-sm" type="button" onClick={exportAnki} disabled={exporting} title="Xuất thẻ ra tệp Anki">{exporting ? "Đang xuất…" : "Xuất Anki"}</button>}
           <Link className="st-btn st-btn-secondary st-btn-sm" href="/flashcards/new"><Plus size={16} strokeWidth={2} /> Tạo thẻ</Link>
         </div>
       </header>
+
+      {error && (
+        <div role="alert" className="st-alert st-alert-danger" style={{ justifyContent: "space-between" }}>
+          <span>{error}</span>
+          <button className="st-btn st-btn-ghost st-btn-sm" type="button" onClick={() => setError("")}>Đóng</button>
+        </div>
+      )}
 
       {sessionDone && (
         <section className="st-card st-enter" style={{ padding: "40px 32px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
@@ -202,7 +245,7 @@ export default function FlashcardsPage() {
             })}
           </div>
           <div className="row" style={{ justifyContent: "center" }}>
-            <Link className="st-btn st-btn-secondary" href="/">Về trang chính</Link>
+            <Link className="st-btn st-btn-secondary" href="/home">Về trang chính</Link>
             <button className="st-btn st-btn-primary" type="button" onClick={resetSession}>Ôn tiếp</button>
           </div>
         </section>

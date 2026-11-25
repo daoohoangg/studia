@@ -14,6 +14,7 @@
     },
     "android": {
       "package": "app.studia.mobile",
+      "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#0f1f4d",
         "foregroundImage": "./assets/adaptive-icon.png",

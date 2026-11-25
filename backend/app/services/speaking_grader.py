@@ -4,7 +4,10 @@ Chấm IELTS Speaking Part 1/2/3 bằng AI theo 4 tiêu chí band từ lời nó
 AI không nghe được âm thanh: Pronunciation chỉ được ước lượng thận trọng từ độ tin cậy nhận dạng và những từ bị nhận
 sai rõ ràng; kết quả luôn gắn cờ `pronunciation_estimated`. Điểm tổng tính ở đây (trung bình 4 tiêu chí, làm tròn IELTS).
 """
+import math
 from typing import Any, Dict, List, Optional
+
+import anyio
 
 from app.services import grading_context as gc
 from app.services.ai_engine import _call_gemini
@@ -29,9 +32,13 @@ QUESTION_MAX = 800
 
 
 def _num(v: Any, lo: float, hi: float) -> Optional[float]:
+    if isinstance(v, bool):
+        return None
     try:
         x = float(v)
     except (TypeError, ValueError):
+        return None
+    if not math.isfinite(x):
         return None
     return x if lo <= x <= hi else None
 
@@ -110,7 +117,7 @@ adds no punctuation and may silently correct some grammar or mishear words, so:
 - you cannot hear the audio: estimate Pronunciation conservatively from recogniser confidence and obviously misrecognised
   words, and say in its comment that it is an estimate.
 Transcript:
-\"\"\"{transcript.strip()}\"\"\"
+\"\"\"{gc._text(transcript, 6000)}\"\"\"
 {metrics_block}{review_block}
 Return ONLY valid JSON with this exact shape:
 {{
@@ -200,3 +207,8 @@ def grade(part: int, question: str, transcript: str, metrics: Optional[Dict[str,
             result["better_answer"], result["useful_phrases"] = None, []
         result["context"] = gc.context_summary("speaking", cfg, learner)
     return result
+
+
+async def agrade(part: int, question: str, transcript: str, metrics: Optional[Dict[str, Any]] = None, self_review: str = "",
+                 learner: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    return await anyio.to_thread.run_sync(grade, part, question, transcript, metrics, self_review, learner)

@@ -6,12 +6,13 @@ import { usePathname } from "next/navigation";
 import {
   Home, BarChart3, BookOpen, CalendarDays, Layers, Mic,
   PenLine, Target, FlaskConical, Headphones, BookOpenCheck, Speech, AudioLines, FileText, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon,
-  NotebookPen, RotateCcw, ChevronDown, GraduationCap, Network, ShieldAlert, BookMarked, AlertCircle, ChevronRight, LayoutGrid, Users, CreditCard, Package, Library, Sparkles, Zap, Settings, SlidersHorizontal, Megaphone, BrainCircuit,
+  NotebookPen, RotateCcw, ChevronDown, GraduationCap, Network, ShieldAlert, BookMarked, AlertCircle, ChevronRight, LayoutGrid, Users, CreditCard, Package, Library, Sparkles, Zap, Settings, SlidersHorizontal, Megaphone, BrainCircuit, Timer,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import SelectionContextMenu from "@/components/SelectionContextMenu";
 import AuthGate from "@/components/AuthGate";
 import TutorPopup from "@/components/TutorPopup";
+import PomodoroTimer from "@/components/PomodoroTimer";
 import NavProgress from "@/components/NavProgress";
 import Logo from "@/components/Logo";
 import SiteBanner from "@/components/SiteBanner";
@@ -22,7 +23,8 @@ import { useAccount, clearAccount, useDisplayName } from "@/lib/account";
 
 // Công cụ nội bộ chỉ hiện khi bật cờ này (mặc định ẩn với người dùng).
 const SHOW_DEV_TOOLS = process.env.NEXT_PUBLIC_SHOW_DEV_TOOLS === "true";
-const AUTH_DISABLED = process.env.NEXT_PUBLIC_AUTH_DISABLED === "true";
+const AUTH_DISABLED =
+  process.env.NEXT_PUBLIC_AUTH_DISABLED === "true" && process.env.NODE_ENV !== "production";
 
 type NavItem = { href: string; label: string; icon: LucideIcon; also?: string[] };
 
@@ -109,9 +111,24 @@ const isItemActive = (pathname: string, item: NavItem) =>
   isActivePath(pathname, item.href) || (item.also || []).some((a) => isActivePath(pathname, a));
 
 // Trang không có khung điều hướng
-const BARE_PATHS = ["/welcome", "/login", "/signup", "/forgot-password", "/reset-password", "/onboarding", "/placement"];
+const BARE_PATHS = ["/welcome", "/login", "/signup", "/forgot-password", "/reset-password", "/onboarding", "/placement", "/auth/callback"];
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isBare =
+    BARE_PATHS.includes(pathname) ||
+    pathname.startsWith("/auth/callback/") ||
+    pathname === "/blog" ||
+    pathname.startsWith("/blog/");
+
+  if (isBare) {
+    return <><RouteTitle /><AuthGate>{children}</AuthGate></>;
+  }
+
+  return <AppShell pathname={pathname}>{children}</AppShell>;
+}
+
+function AppShell({ pathname, children }: { pathname: string; children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   // Đang trỏ chuột vào thanh đã thu gọn → mở rộng tạm thời (đè lên nội dung, không đẩy nội dung).
   const [hover, setHover] = useState(false);
@@ -120,7 +137,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [settled, setSettled] = useState(false);
   // Người dùng tự mở/đóng nhóm; chưa chọn thì nhóm tự mở khi đang ở một trang con của nó.
   const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({});
-  const pathname = usePathname();
   const { account, isAdmin } = useAccount();
   const site = useSiteConfig();
   const displayName = useDisplayName(account);
@@ -170,10 +186,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     try { localStorage.setItem("studia_nav_folders", JSON.stringify(next)); } catch {}
   };
 
-  if (BARE_PATHS.includes(pathname) || pathname === "/blog" || pathname.startsWith("/blog/")) {
-    return <><RouteTitle /><AuthGate>{children}</AuthGate></>;
-  }
-
   const cls = (...parts: (string | false)[]) => parts.filter(Boolean).join(" ");
 
   // Trang thuộc một nhóm trên sidebar → hiện thanh tab anh em ở đầu trang (cùng kiểu với mọi thanh tab khác).
@@ -206,6 +218,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <SelectionContextMenu />
         <NavProgress />
         {!pathname.startsWith("/tutor") && !/^\/exam\/[^/]+/.test(pathname) && (isAdmin || featureOn(site, "tutor")) && <TutorPopup />}
+        {!/^\/exam\/[^/]+/.test(pathname) && <PomodoroTimer />}
 
         {/* Sidebar (desktop/tablet) */}
         <aside
@@ -271,6 +284,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 <ChevronRight className="nav-label sidebar-user-chev" size={16} strokeWidth={2} aria-hidden="true" />
               </Link>
             )}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent("studia:open-pomodoro"))}
+              title={!expanded ? "Đồng hồ Pomodoro" : undefined}
+              className="nav-item nav-button"
+            >
+              <Timer size={20} strokeWidth={1.75} aria-hidden="true" />
+              <span className="nav-label">Đồng hồ Pomodoro</span>
+            </button>
             <Link href="/settings" className={cls("nav-item", isActivePath(pathname, "/settings") && "active")}
               aria-current={isActivePath(pathname, "/settings") ? "page" : undefined} title={!expanded ? "Cài đặt" : undefined}>
               {isActivePath(pathname, "/settings") && <span className="nav-indicator" />}

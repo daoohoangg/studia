@@ -1,17 +1,17 @@
 """
 Hồ sơ học tập (onboarding) và kết quả kiểm tra trình độ.
 """
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-import logging
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.auth import current_user_id
+from app.core.auth import current_user_id, forget_owned
 from app.core.supabase_client import get_supabase_client
+from app.core.uploads import DOCUMENTS_BUCKET, storage_path_from
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 logger = logging.getLogger("studia.profile")
@@ -21,7 +21,8 @@ USER_TABLES = (
     "user_profiles", "placement_results", "vocabulary_items", "error_logs", "knowledge_states",
     "flashcard_states", "question_attempts", "review_schedules", "study_goals", "daily_learning_plans",
     "learning_paths", "ai_chat_sessions", "exam_sessions", "exam_sets", "document_notes",
-    "document_highlights", "reading_progress", "study_slots", "study_moments", "reminder_log", "documents",
+    "document_highlights", "reading_progress", "study_slots", "study_moments", "reminder_log",
+    "friend_profiles", "moment_reactions", "push_tokens", "documents",
 )
 EXPORT_TABLES = ("user_profiles", "placement_results", "vocabulary_items", "error_logs",
                  "knowledge_states", "flashcard_states", "study_goals", "study_slots", "exam_sessions")
@@ -116,7 +117,7 @@ def export_my_data():
     for table in EXPORT_TABLES:
         try:
             out[table] = db.table(table).select("*").eq("user_id", uid).execute().data or []
-        except Exception as e:  # bảng chưa có (chưa chạy migration) thì bỏ qua
+        except Exception as e:
             logger.debug(f"export skip {table}: {e}")
             out[table] = []
     return out
@@ -124,6 +125,57 @@ def export_my_data():
 
 class DeleteAccountIn(BaseModel):
     confirm_email: str
+
+
+def _collect_media_paths(value, prefix: str, out: List[str]) -> None:
+    if isinstance(value, str) and value.startswith(prefix):
+        out.append(value[len(prefix):])
+    elif isinstance(value, dict):
+        for v in value.values():
+            _collect_media_paths(v, prefix, out)
+    elif isinstance(value, list):
+        for v in value:
+            _collect_media_paths(v, prefix, out)
+
+
+def _remove_storage_objects(db, bucket: str, paths: List[str]) -> None:
+    clean = [p for p in paths if p]
+    for i in range(0, len(clean), 100):
+        try:
+            db.storage.from_(bucket).remove(clean[i:i + 100])
+        except Exception as e:
+            logger.warning(f"remove storage objects from {bucket} failed: {e}")
+
+
+def _cleanup_user_storage(db, uid: str) -> List[str]:
+    """Thu thập và xoá tệp thuộc user khỏi các bucket trước khi xoá bản ghi DB."""
+    doc_ids: List[str] = []
+    try:
+        docs = db.table("documents").select("id, file_path").eq("user_id", uid).execute().data or []
+        doc_ids = [str(d["id"]) for d in docs if d.get("id")]
+        doc_paths = [p for p in (storage_path_from(d.get("file_path")) for d in docs) if p]
+        _remove_storage_objects(db, DOCUMENTS_BUCKET, doc_paths)
+    except Exception as e:
+        logger.warning(f"cleanup documents storage failed: {e}")
+
+    try:
+        moments = db.table("study_moments").select("path").eq("user_id", uid).execute().data or []
+        _remove_storage_objects(db, "moments", [m.get("path") for m in moments if m.get("path")])
+    except Exception as e:
+        logger.warning(f"cleanup moments storage failed: {e}")
+
+    try:
+        sets = db.table("exam_sets").select("listening_audio_path, content").eq("user_id", uid).execute().data or []
+        audio_paths = [s["listening_audio_path"] for s in sets if s.get("listening_audio_path")]
+        _remove_storage_objects(db, "exam-audio", audio_paths)
+        media_paths: List[str] = []
+        for s in sets:
+            _collect_media_paths(s.get("content"), "media://", media_paths)
+        _remove_storage_objects(db, "exam-media", media_paths)
+    except Exception as e:
+        logger.warning(f"cleanup exam storage failed: {e}")
+
+    return doc_ids
 
 
 @router.post("/delete-account")
@@ -140,12 +192,20 @@ def delete_account(body: DeleteAccountIn):
         raise HTTPException(status_code=400, detail="Email xác nhận không khớp")
 
     db = _db()
+    doc_ids = _cleanup_user_storage(db, uid)
+
+    for col in ("requester_id", "addressee_id"):
+        try:
+            db.table("friendships").delete().eq(col, uid).execute()
+        except Exception as e:
+            logger.warning(f"delete friendships.{col} failed: {e}")
+
     for table in USER_TABLES:
         try:
             db.table(table).delete().eq("user_id", uid).execute()
         except Exception as e:
             logger.warning(f"delete {table} failed: {e}")
-    for table, col in (("credit_ledger", "user_id"), ("payment_orders", "user_id")):
+    for table, col in (("learning_profiles", "id"), ("credit_ledger", "user_id"), ("payment_orders", "user_id")):
         try:
             db.table(table).delete().eq(col, uid).execute()
         except Exception as e:
@@ -154,6 +214,9 @@ def delete_account(body: DeleteAccountIn):
         db.table("user_accounts").delete().eq("id", uid).execute()
     except Exception as e:
         logger.warning(f"delete user_accounts failed: {e}")
+
+    for did in doc_ids:
+        forget_owned("documents", did)
 
     auth_deleted = False
     real = getattr(db, "real_client", None)

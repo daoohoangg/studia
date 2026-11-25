@@ -13,7 +13,7 @@ export default function GlobalRouteError({ error, reset }: { error: Error & { di
       <p className="page-sub" style={{ maxWidth: 460 }}>Lỗi nằm ở phía ứng dụng, không phải do bạn. Bài làm và tiến độ đã lưu trước đó vẫn an toàn.</p>
       <div className="row" style={{ gap: 8, marginTop: 8 }}>
         <button className="st-btn st-btn-primary" type="button" onClick={reset}>Thử lại</button>
-        <Link className="st-btn st-btn-secondary" href="/">Về trang Hôm nay</Link>
+        <Link className="st-btn st-btn-secondary" href="/home">Về trang Hôm nay</Link>
       </div>
       {error.digest && <p className="meta">Mã lỗi: {error.digest} · gửi mã này nếu bạn cần hỗ trợ</p>}
     </div>

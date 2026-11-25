@@ -27,21 +27,36 @@ export default function PronunciationPage() {
   const recRef = useRef<any>(null);
   const startRef = useRef(0);
   const textRef = useRef("");
+  const mountedRef = useRef(true);
+  const recordingRef = useRef(false);
   const sentence = SENTENCES[Math.min(idx, SENTENCES.length - 1)];
 
   useEffect(() => {
+    mountedRef.current = true;
     const w = window as any;
     setSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition));
-    return () => { try { recRef.current?.abort(); window.speechSynthesis?.cancel(); } catch {} };
+    return () => {
+      mountedRef.current = false;
+      recordingRef.current = false;
+      try { recRef.current?.abort(); window.speechSynthesis?.cancel(); } catch {}
+    };
   }, []);
 
   useEffect(() => {
     setResult(null); setHeard(""); setPhase("idle"); setError("");
+  }, [idx]);
+
+  useEffect(() => {
+    let cancelled = false;
     apiFetch(`${API}/speech/guide`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: sentence.text, speed }),
-    }).then((r) => (r.ok ? r.json() : null)).then((d) => setChunks(d?.chunks?.map((c: any) => c.text) || [])).catch(() => setChunks([]));
-  }, [idx]); // eslint-disable-line react-hooks/exhaustive-deps
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setChunks(d?.chunks?.map((c: any) => c.text) || []); })
+      .catch(() => { if (!cancelled) setChunks([]); });
+    return () => { cancelled = true; };
+  }, [sentence.text, speed]);
 
   const speak = (text: string) => {
     if (!window.speechSynthesis) return;
@@ -53,6 +68,7 @@ export default function PronunciationPage() {
   };
 
   const evaluate = async (spoken: string, seconds: number) => {
+    if (!mountedRef.current) return;
     setPhase("busy");
     try {
       const res = await apiFetch(`${API}/speech/evaluate`, {
@@ -60,9 +76,12 @@ export default function PronunciationPage() {
         body: JSON.stringify({ reference_text: sentence.text, user_spoken_text: spoken, audio_duration_sec: seconds }),
       });
       if (!res.ok) throw new Error();
-      setResult(await res.json());
+      const data = await res.json();
+      if (!mountedRef.current) return;
+      setResult(data);
       setPhase("done");
     } catch {
+      if (!mountedRef.current) return;
       setError("Không chấm được bài nói, hãy thử lại.");
       setPhase("idle");
     }
@@ -78,18 +97,24 @@ export default function PronunciationPage() {
     rec.lang = "en-US";
     rec.interimResults = false;
     textRef.current = "";
+    recordingRef.current = true;
     rec.onresult = (e: any) => {
+      if (!mountedRef.current) return;
       textRef.current = Array.from(e.results).map((r: any) => r[0].transcript).join(" ");
       setHeard(textRef.current);
     };
-    rec.onerror = () => { setError("Không nghe được giọng nói. Kiểm tra quyền micro của trình duyệt."); setPhase("idle"); };
+    rec.onerror = () => {
+      recordingRef.current = false;
+      if (!mountedRef.current) return;
+      setError("Không nghe được giọng nói. Kiểm tra quyền micro của trình duyệt.");
+      setPhase("idle");
+    };
     rec.onend = () => {
+      if (!mountedRef.current || !recordingRef.current) return;
+      recordingRef.current = false;
       const seconds = (Date.now() - startRef.current) / 1000;
-      setPhase((p) => {
-        if (p !== "rec") return p;
-        evaluate(textRef.current, seconds);
-        return "busy";
-      });
+      setPhase("busy");
+      void evaluate(textRef.current, seconds);
     };
     recRef.current = rec;
     startRef.current = Date.now();

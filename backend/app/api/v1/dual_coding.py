@@ -21,7 +21,7 @@ class EnrichLessonRequest(BaseModel):
 
 
 @router.post("/generate-mermaid")
-async def generate_mermaid_diagram(req: DiagramRequest):
+def generate_mermaid_diagram(req: DiagramRequest):
     """
     Sinh mã nguồn Mermaid Diagram (TD graph / Mindmap) từ tên chủ đề và mô tả khái niệm.
     """
@@ -42,7 +42,7 @@ async def generate_mermaid_diagram(req: DiagramRequest):
 
 
 @router.post("/generate-d2")
-async def generate_d2_diagram(req: DiagramRequest):
+def generate_d2_diagram(req: DiagramRequest):
     """
     Sinh mã nguồn D2 (Terrastruct) Diagram với theme nền trắng (theme-id: 0) & tiếng Việt có dấu.
     """
@@ -63,7 +63,7 @@ async def generate_d2_diagram(req: DiagramRequest):
 
 
 @router.post("/enrich-lesson")
-async def enrich_lesson_with_visuals(req: EnrichLessonRequest):
+def enrich_lesson_with_visuals(req: EnrichLessonRequest):
     """
     Tự động bổ sung sơ đồ trực quan (Mermaid / Dual Coding) vào bài học Markdown.
     """

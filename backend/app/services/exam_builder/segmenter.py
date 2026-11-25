@@ -68,12 +68,12 @@ _DEBRIS_TAILS = [
 _NOISE_TOKEN = re.compile(r"^(?:\d{1,4}|(?:p|page|pp)\.?\d{1,4}|Test|Listening|Reading|Writing|Speaking|\S{1,2}|[^\w]+)$", re.IGNORECASE)
 
 
-@lru_cache(maxsize=50000)
+@lru_cache(maxsize=2048)
 def clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").replace("**", "").replace(" ", " ")).strip()
 
 
-@lru_cache(maxsize=50000)
+@lru_cache(maxsize=2048)
 def scrub(text: str) -> str:
     """Bỏ rác tiêu đề/chân trang ở hai đầu (giữ nguyên nội dung ở giữa)."""
     text = text.strip()

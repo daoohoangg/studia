@@ -25,12 +25,23 @@ class FSRSEngine:
         """
         if last_reviewed_at is None:
             last_reviewed_at = datetime.now(timezone.utc)
-            
+        elif last_reviewed_at.tzinfo is None:
+            last_reviewed_at = last_reviewed_at.replace(tzinfo=timezone.utc)
+        else:
+            last_reviewed_at = last_reviewed_at.astimezone(timezone.utc)
+
+        stability = max(0.1, min(3650.0, float(stability)))
+        difficulty_rating = max(1.0, min(10.0, float(difficulty_rating)))
+        mastery_score = max(0.0, min(100.0, float(mastery_score)))
+        confidence_rating = max(1, min(4, int(confidence_rating)))
+
         # 1. Cập nhật Difficulty (D)
         # Rating: 1=Again (rất khó/sai), 2=Hard, 3=Good, 4=Easy (rất dễ)
-        d_delta = (3 - confidence_rating) * 0.5
+        # Câu trả lời sai luôn làm tăng độ khó ngay cả khi gọi với confidence_rating mặc định (=3)
+        eff_conf = confidence_rating if is_correct else min(confidence_rating, 1)
+        d_delta = (3 - eff_conf) * 0.5
         new_difficulty = max(1.0, min(10.0, difficulty_rating + d_delta))
-        
+
         # 2. Cập nhật Stability (S)
         if is_correct:
             # Nếu trả lời đúng -> Tăng Stability theo độ khó và confidence
@@ -39,22 +50,23 @@ class FSRSEngine:
             new_stability = stability * (1.0 + (11.0 - new_difficulty) * 0.1 * bonus * time_factor)
         else:
             # Nếu trả lời sai -> Stability sụt giảm (Forgetting Event)
-            new_stability = max(0.1, stability * 0.4)
-            
+            new_stability = stability * 0.4
+        new_stability = max(0.1, min(3650.0, new_stability))
+
         # 3. Tính khoảng thời gian ôn tập tối ưu (Interval in days)
         # Formula: I = S * ( (1 / Target_Retention) - 1 )
         interval_days = new_stability * ((1.0 / FSRSEngine.DEFAULT_RETENTION_TARGET) - 1.0)
         # Giới hạn tối thiểu 0.25 ngày (6 giờ) và tối đa 365 ngày
         interval_days = max(0.25, min(365.0, interval_days))
-        
+
         next_review_at = last_reviewed_at + timedelta(days=interval_days)
-        
+
         # 4. Cập nhật Mastery Score (0 - 100)
         mastery_delta = 15.0 if (is_correct and confidence_rating >= 3) else (5.0 if is_correct else -10.0)
         new_mastery = max(0.0, min(100.0, mastery_score + mastery_delta))
-        
-        # 5. Retention score tại thời điểm hiện tại
-        retention_score = math.exp(-1.0 / max(0.1, new_stability))
+
+        # 5. Retention score ngay sau lần ôn (t=0): đúng → 1.0; sai → giảm theo stability mới
+        retention_score = 1.0 if is_correct else math.exp(-1.0 / max(0.1, new_stability))
         
         return {
             "mastery_score": round(new_mastery, 2),

@@ -9,6 +9,7 @@ import re
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -85,6 +86,7 @@ def _save_revision(supabase, block: Dict[str, Any]) -> None:
 def _mark_edited(supabase, document_id: str, block_id: str, changes: Dict[str, Any]) -> Dict[str, Any]:
     changes = {**changes, "updated_at": _now()}
     supabase.table("document_blocks").update(changes).eq("id", block_id).eq("document_id", document_id).execute()
+    _invalidate_toc_cache(document_id)
     return _public(_get_block(supabase, document_id, block_id))
 
 
@@ -143,15 +145,30 @@ def get_outline(document_id: str):
     ]}
 
 
-_BOOKMARK_CACHE: Dict[str, List[Dict[str, Any]]] = {}
-_TOC_CACHE: Dict[str, Any] = {}
+_BOOKMARK_CACHE: "OrderedDict[str, List[Dict[str, Any]]]" = OrderedDict()
+_TOC_CACHE: "OrderedDict[str, Any]" = OrderedDict()
+_EBOOK_CACHE_LOCK = threading.Lock()
+_EBOOK_CACHE_MAX = 100
 TOC_CACHE_SECONDS = 15
+
+
+def _invalidate_toc_cache(document_id: str) -> None:
+    with _EBOOK_CACHE_LOCK:
+        _TOC_CACHE.pop(document_id, None)
+
+
+def invalidate_ebook_caches(document_id: str) -> None:
+    with _EBOOK_CACHE_LOCK:
+        _BOOKMARK_CACHE.pop(document_id, None)
+        _TOC_CACHE.pop(document_id, None)
 
 
 def _pdf_bookmarks(supabase, document_id: str, file_path: Optional[str]) -> List[Dict[str, Any]]:
     """Bookmark có sẵn trong PDF gốc (tải tệp một lần rồi nhớ kết quả)."""
-    if document_id in _BOOKMARK_CACHE:
-        return _BOOKMARK_CACHE[document_id]
+    with _EBOOK_CACHE_LOCK:
+        if document_id in _BOOKMARK_CACHE:
+            _BOOKMARK_CACHE.move_to_end(document_id)
+            return _BOOKMARK_CACHE[document_id]
     path = storage_path_from(file_path)
     marks: List[Dict[str, Any]] = []
     if path and path.lower().endswith(".pdf"):
@@ -160,7 +177,11 @@ def _pdf_bookmarks(supabase, document_id: str, file_path: Optional[str]) -> List
         except Exception as e:
             logger.info(f"[{document_id}] Cannot read PDF bookmarks: {e}")
             return []  # không nhớ lỗi tạm thời
-    _BOOKMARK_CACHE[document_id] = marks
+    with _EBOOK_CACHE_LOCK:
+        _BOOKMARK_CACHE[document_id] = marks
+        _BOOKMARK_CACHE.move_to_end(document_id)
+        while len(_BOOKMARK_CACHE) > _EBOOK_CACHE_MAX:
+            _BOOKMARK_CACHE.popitem(last=False)
     return marks
 
 
@@ -176,10 +197,14 @@ def get_toc(document_id: str):
         uid = current_user_id()
     except Exception:
         uid = None
-    cached = _TOC_CACHE.get(document_id)
-    if cached and time.time() - cached[0] < TOC_CACHE_SECONDS:
-        base = cached[1]
-    else:
+    with _EBOOK_CACHE_LOCK:
+        cached = _TOC_CACHE.get(document_id)
+        if cached and time.time() - cached[0] < TOC_CACHE_SECONDS:
+            _TOC_CACHE.move_to_end(document_id)
+            base = cached[1]
+        else:
+            cached = None
+    if cached is None:
         blocks = load_all_blocks(supabase, document_id)
         doc = (supabase.table("documents").select("title, file_path").eq("id", document_id).execute().data or [{}])[0]
         toc = build_toc(blocks, _pdf_bookmarks(supabase, document_id, doc.get("file_path")))
@@ -191,7 +216,11 @@ def get_toc(document_id: str):
             "last_order_index": blocks[-1]["order_index"] if blocks else 0,
             "first_order_index": blocks[0]["order_index"] if blocks else 0,
         }
-        _TOC_CACHE[document_id] = (time.time(), base)
+        with _EBOOK_CACHE_LOCK:
+            _TOC_CACHE[document_id] = (time.time(), base)
+            _TOC_CACHE.move_to_end(document_id)
+            while len(_TOC_CACHE) > _EBOOK_CACHE_MAX:
+                _TOC_CACHE.popitem(last=False)
 
     rows = supabase.table("reading_progress").select("block_id, percent") \
         .eq("document_id", document_id).eq("user_id", uid).limit(1).execute().data or [] if uid else []
@@ -352,6 +381,7 @@ def create_block(document_id: str, body: BlockCreate):
         "updated_at": now,
     }
     supabase.table("document_blocks").insert(row).execute()
+    _invalidate_toc_cache(document_id)
     return _public(row)
 
 
@@ -419,6 +449,7 @@ def merge_with_previous(document_id: str, block_id: str):
 
 def _delete_block_rows(supabase, document_id: str, block_id: str) -> None:
     supabase.table("document_blocks").delete().eq("id", block_id).eq("document_id", document_id).execute()
+    _invalidate_toc_cache(document_id)
     # Dọn các dòng phụ thuộc (trên Postgres đã có ON DELETE CASCADE; LocalStore thì không)
     for table in ("document_highlights", "document_block_revisions"):
         try:
@@ -498,6 +529,18 @@ def _highlight_public(row: Dict[str, Any]) -> Dict[str, Any]:
     return {key: row.get(key) for key in HIGHLIGHT_FIELDS}
 
 
+def _curator_ids(supabase, document_id: str) -> List[str]:
+    """Chỉ trả highlight của quản lý trên sách thư viện chung; không bao giờ lộ highlight của học viên khác."""
+    doc_rows = supabase.table("documents").select("visibility").eq("id", document_id).limit(1).execute().data or []
+    if not doc_rows or (doc_rows[0].get("visibility") or "private") != "shared":
+        return []
+    try:
+        admins = supabase.table("user_accounts").select("id").eq("role", "admin").execute().data or []
+        return [str(a["id"]) for a in admins if a.get("id")]
+    except Exception:
+        return []
+
+
 @router.get("/{document_id}/highlights")
 def list_highlights(document_id: str):
     require_owned("documents", document_id)
@@ -506,9 +549,13 @@ def list_highlights(document_id: str):
     except Exception:
         uid = None
     supabase = _db()
+    curators = _curator_ids(supabase, document_id)
+
     if not uid:
+        if not curators:
+            return {"document_id": document_id, "highlights": []}
         rows = supabase.table("document_highlights").select("*") \
-            .eq("document_id", document_id) \
+            .eq("document_id", document_id).in_("user_id", curators) \
             .order("created_at").limit(5000).execute().data or []
         return {"document_id": document_id, "highlights": [_highlight_public(r) for r in rows]}
 
@@ -516,9 +563,12 @@ def list_highlights(document_id: str):
         .eq("document_id", document_id).eq("user_id", uid) \
         .order("created_at").limit(5000).execute().data or []
 
-    curated_rows = supabase.table("document_highlights").select("*") \
-        .eq("document_id", document_id).neq("user_id", uid) \
-        .order("created_at").limit(5000).execute().data or []
+    other_curators = [cid for cid in curators if cid != uid]
+    curated_rows = []
+    if other_curators:
+        curated_rows = supabase.table("document_highlights").select("*") \
+            .eq("document_id", document_id).in_("user_id", other_curators) \
+            .order("created_at").limit(5000).execute().data or []
 
     seen = {(r["block_id"], r["start_offset"], r["end_offset"]) for r in user_rows}
     all_rows = list(user_rows)

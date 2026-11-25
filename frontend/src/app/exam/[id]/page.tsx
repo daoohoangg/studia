@@ -1,7 +1,7 @@
 "use client";
 
 import { audioUrl as resolveAudioUrl } from "@/lib/assets";
-import { Fragment, useState, useEffect, useCallback, useRef } from "react";
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import ExamTimer from "@/components/ExamTimer";
@@ -252,6 +252,7 @@ function ExamSessionContent() {
   const demoSectionsParam = searchParams.get("sections");
   const demoMinsParam = searchParams.get("mins");
   const demoUntimed = searchParams.get("untimed") === "1";
+  const savedDemoResultId = searchParams.get("result");
   const demoStamp = useRef(Date.now());
 
   const [examData, setExamData] = useState<ExamData | null>(null);
@@ -298,7 +299,6 @@ function ExamSessionContent() {
   // Audio state (Listening)
   const [audioPlaying, setAudioPlaying] = useState(false);
 
-  const autosaveRef = useRef<NodeJS.Timeout | null>(null);
   const sections = examData?.session?.section_order || [];
 
   // Phiên thi thật (chấm điểm ở server): không phải chế độ demo
@@ -311,12 +311,13 @@ function ExamSessionContent() {
 
   // ─── Load Exam Data ──────────────────────────────────────────
   useEffect(() => {
+    let cancelled = false;
     const loadExam = async () => {
       if (isDemoMode) {
         // Mở lại kết quả một lần thi demo đã lưu trong trình duyệt
-        const savedId = searchParams.get("result");
-        if (savedId) {
-          const saved = getDemoResult(savedId);
+        if (savedDemoResultId) {
+          const saved = getDemoResult(savedDemoResultId);
+          if (cancelled) return;
           if (saved) {
             setResult({ ...saved, server: true, demo: true });
             setStatus(saved.status || "SUBMITTED");
@@ -355,6 +356,7 @@ function ExamSessionContent() {
           try {
             srcData = (await import(`@/data/cambridge${camMatch[1]}_test${camMatch[2]}.json`)).default;
           } catch {
+            if (cancelled) return;
             setLoadError("Không tải được đề thi. Kiểm tra kết nối rồi thử lại.");
             setLoading(false);
             return;
@@ -370,6 +372,7 @@ function ExamSessionContent() {
           };
         }
 
+        if (cancelled) return;
         setExamData({
           session: {
             session_id: "demo",
@@ -385,19 +388,21 @@ function ExamSessionContent() {
         });
         setCurrentSection(demoSections[0] as Section);
         setLoading(false);
-        // Apply exam mode to body
+        // Apply exam mode to body only when entering an active exam
         document.body.classList.add("exam-mode");
         return;
       }
 
       try {
         const res = await apiFetch(`${API}/exam/sessions/${sessionId}`);
+        if (cancelled) return;
         if (res.status === 404) {
           setLoadError("Không tìm thấy phiên thi này. Hãy quay lại danh sách đề để bắt đầu một phiên mới.");
           return;
         }
         if (!res.ok) throw new Error(String(res.status));
         const data = await res.json();
+        if (cancelled) return;
         if (data.result) {  // phiên đã nộp: hiện luôn kết quả
           setResult({ ...data.result, server: true });
           setStatus(data.session.status);
@@ -406,8 +411,10 @@ function ExamSessionContent() {
         const session = data.session;
         if (session.status === "NOT_STARTED") {
           const started = await postJson(`/exam/sessions/${sessionId}/start`);
+          if (cancelled) return;
           if (started.ok) {
             const info = await started.json();
+            if (cancelled) return;
             session.status = info.status;
             session.current_section = info.current_section;
             session.remaining_seconds = info.remaining_seconds ?? null;
@@ -427,19 +434,20 @@ function ExamSessionContent() {
         if (typeof session.remaining_seconds === "number") setRemainingOverride(session.remaining_seconds);
         saverRef.current = createAnswerSaver(sessionId, setSaveFailures);
         postJson(`/exam/sessions/${sessionId}/section`, { section: current }).catch(() => {});
-      } catch {
-        setLoadError("Không tải được phiên thi. Kiểm tra kết nối rồi thử lại.");
-      } finally {
-        setLoading(false);
         document.body.classList.add("exam-mode");
+      } catch {
+        if (!cancelled) setLoadError("Không tải được phiên thi. Kiểm tra kết nối rồi thử lại.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
-    loadExam();
+    void loadExam();
     return () => {
+      cancelled = true;
       document.body.classList.remove("exam-mode");
       saverRef.current?.dispose();
     };
-  }, [sessionId, isDemoMode, demoType]);
+  }, [sessionId, isDemoMode, demoType, demoSectionsParam, demoMinsParam, demoUntimed, savedDemoResultId]);
 
   // Menu bôi đen chữ đọc chế độ phòng thi từ body: thi thật chỉ cho tô sáng, luyện tập có thêm từ điển/ghi chú
   useEffect(() => {
@@ -458,16 +466,11 @@ function ExamSessionContent() {
     return () => window.removeEventListener("studia:exam-note", onNote);
   }, [roomMode]);
 
-  // Autosave writing
-  useEffect(() => {
-    if (autosaveRef.current) clearTimeout(autosaveRef.current);
-    autosaveRef.current = setTimeout(() => {
-      if (isDemoMode || !saverRef.current) return;
-      if (writingTask1) saverRef.current.saveWriting("task1", writingTask1);
-      if (writingTask2) saverRef.current.saveWriting("task2", writingTask2);
-    }, 3000);
-    return () => { if (autosaveRef.current) clearTimeout(autosaveRef.current); };
-  }, [writingTask1, writingTask2]);
+  const handleWritingChange = useCallback((task: "task1" | "task2", val: string) => {
+    if (task === "task1") setWritingTask1(val);
+    else setWritingTask2(val);
+    if (!isDemoMode) saverRef.current?.saveWriting(task, val);
+  }, [isDemoMode]);
 
   const submitRef = useRef<(auto?: boolean) => void>(() => {});
   const submittingRef = useRef(false);
@@ -485,8 +488,8 @@ function ExamSessionContent() {
       if (!isDemoMode) {
         const saver = saverRef.current;
         if (saver) {
-          if (writingTask1) saver.saveWriting("task1", writingTask1);
-          if (writingTask2) saver.saveWriting("task2", writingTask2);
+          saver.saveWriting("task1", writingTask1);
+          saver.saveWriting("task2", writingTask2);
           await saver.flush();
         }
         const res = await postJson(`/exam/sessions/${sessionId}/submit`, { auto_submitted: auto });
@@ -494,10 +497,13 @@ function ExamSessionContent() {
         setResult({ ...(await res.json()), server: true });
       } else {
         const camTitle = /^cambridge(\d+)_test(\d)$/.exec(demoType);
-        const demoResult = buildDemoResult({
-          sections: sections as Section[], questions: examData?.questions, answers, task1: writingTask1, task2: writingTask2,
-          mode: roomMode, title: camTitle ? `Cambridge IELTS ${camTitle[1]} - Test ${camTitle[2]}` : "Đề mẫu Studia", auto,
-        });
+        const demoResult = {
+          ...buildDemoResult({
+            sections: sections as Section[], questions: examData?.questions, answers, task1: writingTask1, task2: writingTask2,
+            mode: roomMode, title: camTitle ? `Cambridge IELTS ${camTitle[1]} - Test ${camTitle[2]}` : "Đề mẫu Studia", auto,
+          }),
+          notes_key: sessionKey,
+        };
         saveDemoResult(demoResult); // lưu để xem lại trong Lịch sử làm bài
         setResult({ ...demoResult, server: true, demo: true });
       }
@@ -636,7 +642,7 @@ function ExamSessionContent() {
 
   // ─── Result Screen ───────────────────────────────────────────
   if (result) {
-    return <ServerResult result={result} onRetry={() => router.push("/exam")} sessionKey={sessionKey}
+    return <ServerResult result={result} onRetry={() => router.push("/exam")} sessionKey={result.notes_key || sessionKey}
       explain={result.demo ? async (skill, number) => demoExplanation(result, skill, number) : undefined} />;
   }
 
@@ -837,8 +843,8 @@ function ExamSessionContent() {
             task2MinWords={(questions as any).writing_task2_min_words}
             task1Text={writingTask1}
             task2Text={writingTask2}
-            onTask1Change={setWritingTask1}
-            onTask2Change={setWritingTask2}
+            onTask1Change={(v: string) => handleWritingChange("task1", v)}
+            onTask2Change={(v: string) => handleWritingChange("task2", v)}
             activeTab={writingTab}
             onTabChange={setWritingTab}
             overlayOpen={showSubmitModal || confirmNext || !!submitError}
@@ -1599,13 +1605,16 @@ function ListeningSection({ questions, currentQ, answers, onAnswer, onNavigate, 
 }
 
 // ─── Reading Section ─────────────────────────────────────────
+const getFallbackReadingPassage = (num: number) =>
+  num <= 13 ? "Passage 1" : num <= 26 ? "Passage 2" : "Passage 3";
+
 function ReadingSection({ passage, readingPassages, questions, currentQ, answers, onAnswer, onNavigate, showNav }: any) {
   const [splitPercent, setSplitPercent] = useState(48);
   const [isDragging, setIsDragging] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [fontSize, setFontSize] = useState(15);
   const [fontFamily, setFontFamily] = useState("Inter");
-  const [activePassageTab, setActivePassageTab] = useState<"Passage 1" | "Passage 2" | "Passage 3" | null>(null);
+  const [activePassageTab, setActivePassageTab] = useState<string | null>(null);
   const narrow = useNarrow();
   const showLeft = narrow || !leftCollapsed;
   // Điện thoại: hai tab "Bài đọc" / "Câu hỏi"; cả hai khung luôn nằm trong DOM (visibility) để giữ vị trí cuộn
@@ -1613,19 +1622,45 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
   const fromPassageChip = useRef(false);
   const prevQ = useRef<number | null>(null);
   const passagePaneRef = useRef<HTMLDivElement | null>(null);
-  const readingDone = (questions || []).filter((q: any) => answers[`reading_${q.number}`]).length;
-  const readingTotal = (questions || []).length || 40;
+  const safeQuestions: any[] = useMemo(() => (Array.isArray(questions) ? questions : []), [questions]);
+  const readingDone = safeQuestions.filter((q: any) => answers[`reading_${q.number}`]).length;
+  const readingTotal = safeQuestions.length || 40;
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Active Passage calculation
-  const activeQ = questions[currentQ - 1];
-  const autoPassageName = activeQ?.passage || (currentQ <= 13 ? "Passage 1" : currentQ <= 26 ? "Passage 2" : "Passage 3");
-  const currentPassageName = activePassageTab || autoPassageName;
+  const passageGroups = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const q of safeQuestions) {
+      const pName = q.passage || getFallbackReadingPassage(Number(q.number) || 1);
+      const arr = map.get(pName);
+      if (arr) arr.push(q);
+      else map.set(pName, [q]);
+    }
+    if (map.size === 0) {
+      return [
+        { name: "Passage 1", questions: [] as any[], range: [1, 13] as [number, number] },
+        { name: "Passage 2", questions: [] as any[], range: [14, 26] as [number, number] },
+        { name: "Passage 3", questions: [] as any[], range: [27, 40] as [number, number] },
+      ];
+    }
+    return Array.from(map.entries()).map(([name, qs]) => {
+      const nums = qs.map((q: any) => Number(q.number)).filter((n) => Number.isFinite(n));
+      const min = nums.length ? Math.min(...nums) : 1;
+      const max = nums.length ? Math.max(...nums) : min;
+      return { name, questions: qs, range: [min, max] as [number, number] };
+    });
+  }, [safeQuestions]);
 
-  const passageList = ["Passage 1", "Passage 2", "Passage 3"];
-  const passageRange: Record<string, [number, number]> = {
-    "Passage 1": [1, 13], "Passage 2": [14, 26], "Passage 3": [27, 40]
-  };
+  const passageList = useMemo(() => passageGroups.map((g) => g.name), [passageGroups]);
+  const passageRange = useMemo(() => {
+    const rec: Record<string, [number, number]> = {};
+    for (const g of passageGroups) rec[g.name] = g.range;
+    return rec;
+  }, [passageGroups]);
+
+  // Active Passage calculation
+  const activeQ = safeQuestions.find((q: any) => q.number === currentQ) || safeQuestions[0];
+  const autoPassageName = activeQ?.passage || passageList[0] || getFallbackReadingPassage(currentQ);
+  const currentPassageName = activePassageTab && passageList.includes(activePassageTab) ? activePassageTab : autoPassageName;
 
   // Resolve passage text (server gửi mảng [{index,title,body_markdown}], demo cũ gửi {passage1,...})
   let currentPassageText = passage || "";
@@ -1674,8 +1709,7 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
   useEffect(() => {
     if (currentQ) {
       // Auto-update passage tab to match question
-      const autoP = currentQ <= 13 ? "Passage 1" : currentQ <= 26 ? "Passage 2" : "Passage 3";
-      setActivePassageTab(autoP);
+      setActivePassageTab(autoPassageName);
       // Điện thoại: đổi câu (chạm số câu, ô điền) thì về tab "Câu hỏi", trừ khi do chip Passage ở tab "Bài đọc"
       if (narrow && prevQ.current !== null && prevQ.current !== currentQ) {
         if (fromPassageChip.current) fromPassageChip.current = false;
@@ -1688,10 +1722,10 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
         el.scrollIntoView({ behavior: narrow ? "auto" : "smooth", block: "center" });
       }
     }
-  }, [currentQ]);
+  }, [currentQ, autoPassageName, narrow]);
 
   const scrollToPassage = (pName: string) => {
-    setActivePassageTab(pName as any);
+    setActivePassageTab(pName);
     const range = passageRange[pName];
     if (range) {
       if (narrow && mobileTab === "passage") {
@@ -1908,16 +1942,12 @@ function ReadingSection({ passage, readingPassages, questions, currentQ, answers
             ))}
           </div>
           <div className="room-hide-sm" style={{ fontSize: "0.75rem", color: "var(--ink-muted)", fontWeight: 600 }}>
-            Đang chọn: <span style={{ color: "var(--brand-hover)", fontWeight: 700 }}>Câu {currentQ} / 40</span>
+            Đang chọn: <span style={{ color: "var(--brand-hover)", fontWeight: 700 }}>Câu {currentQ} / {readingTotal}</span>
           </div>
         </div>
 
-        {/* Render all 3 Passages and Questions 1-40 */}
-        {passageList.map((pName) => {
-          const [startQ, endQ] = passageRange[pName];
-          const passageQuestions = questions.filter(
-            (q: any) => q.number >= startQ && q.number <= endQ
-          );
+        {/* Render all Passages and Questions */}
+        {passageGroups.map(({ name: pName, questions: passageQuestions, range: [startQ, endQ] }) => {
           if (passageQuestions.length === 0) return null;
 
           return (
@@ -2292,8 +2322,20 @@ function SpeakingSection({ flow, part, qIdx, phase, timer, isRecording, onNextQ,
 
       {phase === "speaking" && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
-          <div className="mic-recording" onClick={onRecord}>
-          </div>
+          <button
+            type="button"
+            aria-label={isRecording ? "Dừng ghi âm" : "Bắt đầu ghi âm"}
+            aria-pressed={isRecording}
+            onClick={onRecord}
+            className={isRecording ? "mic-recording" : ""}
+            style={!isRecording ? {
+              width: 72, height: 72, borderRadius: "50%",
+              background: "var(--ink-muted)", border: "none", color: "var(--on-brand)",
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
+            } : { border: "none" }}
+          >
+            {isRecording ? <Square size={24} strokeWidth={2} fill="currentColor" /> : <Mic size={28} strokeWidth={1.75} />}
+          </button>
           <div style={{ fontWeight: 700, color: "var(--danger)", fontSize: "0.9rem" }}>Đang ghi âm — 2 phút</div>
           <button
             onClick={() => { onPhaseChange("question"); onNextQ(); }}

@@ -12,10 +12,13 @@ services:
     # 1 worker: vòng nhắc lịch và xử lý sách chạy trong tiến trình, nhiều worker sẽ gửi trùng
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
     mem_limit: 750m      # free tier 1 GB RAM; swap 2 GB do setup.sh tạo
+    volumes:
+      - api_data:/home/user/app/data      # giữ dữ liệu local fallback qua các lần thay container
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import json,sys,urllib.request; d=json.loads(urllib.request.urlopen('http://localhost:8000/health',timeout=4).read()); sys.exit(0 if d.get('status')=='healthy' and '(connected)' in d.get('database','') else 1)"]
       interval: 30s
       timeout: 5s
+      start_period: 15s
       retries: 3
     logging:
       driver: json-file
@@ -25,6 +28,8 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-api.3-25-144-63.sslip.io}
     ports: ["80:80", "443:443"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -33,4 +38,5 @@ services:
     depends_on: [api]
 
 volumes:
+  api_data:
   caddy_data:

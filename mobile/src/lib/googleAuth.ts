@@ -15,6 +15,24 @@ WebBrowser.maybeCompleteAuthSession();
 
 export type GoogleResult = { ok: true } | { ok: false; cancelled?: boolean; message?: string };
 
+/** Hoàn tất phiên Supabase từ URL callback OAuth (hỗ trợ cả PKCE `code` và implicit `access_token`). */
+export async function completeOAuthUrl(url: string): Promise<GoogleResult> {
+  if (!supabase) return { ok: false, message: "App chưa có cấu hình đăng nhập." };
+  const p = parseAuthUrl(url);
+  if (p.error || p.error_description) return { ok: false, message: oauthErrorVi(p) };
+  if (p.code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(p.code, p.sb_flow_id ? { flowId: p.sb_flow_id } : undefined);
+    if (error) return { ok: false, message: authErrorVi(error.message) };
+    return { ok: true };
+  }
+  if (p.access_token && p.refresh_token) {
+    const { error } = await supabase.auth.setSession({ access_token: p.access_token, refresh_token: p.refresh_token });
+    if (error) return { ok: false, message: authErrorVi(error.message) };
+    return { ok: true };
+  }
+  return { ok: false, message: "Không nhận được phiên đăng nhập từ Google. Thử lại nhé." };
+}
+
 export async function signInWithGoogle(): Promise<GoogleResult> {
   if (!supabase) return { ok: false, message: "App chưa có cấu hình đăng nhập." };
   const redirectTo = Linking.createURL("auth-callback");
@@ -29,13 +47,7 @@ export async function signInWithGoogle(): Promise<GoogleResult> {
     const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
     if (res.type !== "success") return { ok: false, cancelled: true }; // đóng trình duyệt giữa chừng, không phải lỗi
 
-    const p = parseAuthUrl(res.url);
-    if (p.error || p.error_description) return { ok: false, message: oauthErrorVi(p) };
-    if (!p.access_token || !p.refresh_token) return { ok: false, message: "Không nhận được phiên đăng nhập từ Google. Thử lại nhé." };
-
-    const { error: e2 } = await supabase.auth.setSession({ access_token: p.access_token, refresh_token: p.refresh_token });
-    if (e2) return { ok: false, message: authErrorVi(e2.message) };
-    return { ok: true }; // AuthProvider nhận phiên mới và tự chuyển sang màn hình Hôm nay
+    return await completeOAuthUrl(res.url); // AuthProvider nhận phiên mới và tự chuyển sang màn hình Hôm nay
   } catch (e) {
     const m = e instanceof Error ? e.message : "";
     if (/popup/i.test(m)) return { ok: false, message: "Trình duyệt đã chặn cửa sổ đăng nhập Google. Cho phép cửa sổ bật lên cho trang này rồi thử lại." };
